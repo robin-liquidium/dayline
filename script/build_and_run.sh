@@ -3,7 +3,6 @@ set -euo pipefail
 
 MODE="${1:-run}"
 APP_NAME="Dayline"
-LEGACY_APP_NAME="StatusWidget"
 BUNDLE_ID="build.local.Dayline"
 MIN_SYSTEM_VERSION="27.0"
 
@@ -18,7 +17,6 @@ INFO_PLIST="$APP_CONTENTS/Info.plist"
 cd "$ROOT_DIR"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
-pkill -x "$LEGACY_APP_NAME" >/dev/null 2>&1 || true
 
 swift build
 BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
