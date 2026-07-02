@@ -61,7 +61,7 @@ Downloads:
 - Direct app bundle archive: $APP_NAME-$VERSION.app.zip
 
 Requirements:
-- macOS 27 or newer
+- macOS 26 or newer
 - Local authenticated gws and linear CLIs
 NOTES
 

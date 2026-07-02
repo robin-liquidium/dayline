@@ -9,7 +9,7 @@ It is intentionally menu-bar-only, native SwiftUI, and small. Data refreshes in 
 
 ## Requirements
 
-- macOS 27 or newer
+- macOS 26 or newer
 - SwiftPM / Swift 5.9+
 - Google Workspace CLI, available as `gws`
 - Linear CLI, available as `linear`
