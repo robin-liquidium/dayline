@@ -515,7 +515,10 @@ private struct LinearSection: View {
               issue: issue,
               isHovered: hoveredIssueID == issue.id,
               isCopied: copiedIssueID == issue.id,
-              isUpdating: updatingStatusIssueID == issue.id || updatingPriorityIssueID == issue.id
+              isUpdating: updatingStatusIssueID == issue.id || updatingPriorityIssueID == issue.id,
+              copyHotkey: store.copyIssueHotkey,
+              statusHotkey: store.statusPickerHotkey,
+              priorityHotkey: store.priorityPickerHotkey
             )
             .onHover { isHovered in
               store.setHoveredIssue(isHovered ? issue.id : nil)
@@ -695,6 +698,15 @@ private struct IssueRow: View {
   /// Whether this row should show an in-flight Linear update.
   let isUpdating: Bool
 
+  /// Keyboard character that copies the issue URL while hovering.
+  let copyHotkey: String
+
+  /// Keyboard character that opens the status picker while hovering.
+  let statusHotkey: String
+
+  /// Keyboard character that opens the priority picker while hovering.
+  let priorityHotkey: String
+
   /// Builds the issue row.
   var body: some View {
     Button {
@@ -765,7 +777,7 @@ private struct IssueRow: View {
     .buttonStyle(.plain)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(accessibilityLabel)
-    .accessibilityHint(issue.url == nil ? "No Linear link is available" : "Open Linear issue. Press C to copy, S to change status, or P to change priority while hovering.")
+    .accessibilityHint(accessibilityHint)
     .accessibilityIdentifier("linear.issue.\(issue.id)")
     .disabled(issue.url == nil)
   }
@@ -777,6 +789,15 @@ private struct IssueRow: View {
       parts.append("Due \(DisplayFormatters.linearDueDate(dueDate))")
     }
     return parts.joined(separator: ", ")
+  }
+
+  /// VoiceOver hint with the user-configured Linear row shortcuts.
+  private var accessibilityHint: String {
+    guard issue.url != nil else {
+      return "No Linear link is available"
+    }
+
+    return "Open Linear issue. Press \(copyHotkey.uppercased()) to copy, \(statusHotkey.uppercased()) to change status, or \(priorityHotkey.uppercased()) to change priority while hovering."
   }
 
   /// Visual style for the Linear workflow state.

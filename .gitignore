@@ -15,6 +15,7 @@ DerivedData/
 *.xcscmblueprint
 .vscode/
 .idea/
+.codex/
 
 # Local diagnostics
 *.log

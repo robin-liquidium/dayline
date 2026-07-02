@@ -25,6 +25,9 @@ final class StatusStore: ObservableObject {
   /// Time when the last refresh completed successfully or partially.
   @Published private(set) var lastUpdatedAt: Date?
 
+  /// Current clock tick used for menu bar countdown text.
+  @Published private var menuBarClockDate = Date()
+
   /// Identifier for the Linear issue currently under the pointer.
   @Published private(set) var hoveredIssueID: LinearIssueItem.ID?
 
@@ -58,12 +61,36 @@ final class StatusStore: ObservableObject {
   /// Keyboard character used to copy the hovered Linear issue link.
   @Published var copyIssueHotkey: String {
     didSet {
-      let normalizedHotkey = Self.normalizedHotkey(copyIssueHotkey)
+      let normalizedHotkey = Self.normalizedHotkey(copyIssueHotkey, defaultValue: "c")
       guard copyIssueHotkey == normalizedHotkey else {
         copyIssueHotkey = normalizedHotkey
         return
       }
       UserDefaults.standard.set(copyIssueHotkey, forKey: Self.copyIssueHotkeyKey)
+    }
+  }
+
+  /// Keyboard character used to open the hovered Linear issue status picker.
+  @Published var statusPickerHotkey: String {
+    didSet {
+      let normalizedHotkey = Self.normalizedHotkey(statusPickerHotkey, defaultValue: "s")
+      guard statusPickerHotkey == normalizedHotkey else {
+        statusPickerHotkey = normalizedHotkey
+        return
+      }
+      UserDefaults.standard.set(statusPickerHotkey, forKey: Self.statusPickerHotkeyKey)
+    }
+  }
+
+  /// Keyboard character used to open the hovered Linear issue priority picker.
+  @Published var priorityPickerHotkey: String {
+    didSet {
+      let normalizedHotkey = Self.normalizedHotkey(priorityPickerHotkey, defaultValue: "p")
+      guard priorityPickerHotkey == normalizedHotkey else {
+        priorityPickerHotkey = normalizedHotkey
+        return
+      }
+      UserDefaults.standard.set(priorityPickerHotkey, forKey: Self.priorityPickerHotkeyKey)
     }
   }
 
@@ -87,38 +114,99 @@ final class StatusStore: ObservableObject {
     }
   }
 
+  /// Minutes before a meeting starts when the menu bar switches from icon to title.
+  @Published var menuBarEventLeadTimeMinutes: Int {
+    didSet {
+      let clampedValue = Self.clampedMenuBarLeadTime(menuBarEventLeadTimeMinutes)
+      guard menuBarEventLeadTimeMinutes == clampedValue else {
+        menuBarEventLeadTimeMinutes = clampedValue
+        return
+      }
+      UserDefaults.standard.set(menuBarEventLeadTimeMinutes, forKey: Self.menuBarEventLeadTimeKey)
+    }
+  }
+
+  /// Minutes after a meeting starts when the menu bar keeps showing the title.
+  @Published var menuBarEventPostStartGraceMinutes: Int {
+    didSet {
+      let clampedValue = Self.clampedMenuBarPostStartGrace(menuBarEventPostStartGraceMinutes)
+      guard menuBarEventPostStartGraceMinutes == clampedValue else {
+        menuBarEventPostStartGraceMinutes = clampedValue
+        return
+      }
+      UserDefaults.standard.set(menuBarEventPostStartGraceMinutes, forKey: Self.menuBarEventPostStartGraceKey)
+    }
+  }
+
   /// Stable system image for the menu bar item.
   var menuBarSystemImage: String {
     "calendar"
+  }
+
+  /// Optional text that replaces the menu bar icon near a meeting start.
+  var menuBarEventText: String? {
+    guard let event = menuBarEvent(at: menuBarClockDate) else {
+      return nil
+    }
+
+    let startLabel = DisplayFormatters.menuBarEventStart(event.startDate, now: menuBarClockDate)
+    return "\(event.title.compactLine(limit: 44)) • \(startLabel)"
+  }
+
+  /// VoiceOver label for the current menu bar presentation.
+  var menuBarAccessibilityLabel: String {
+    menuBarEventText ?? "Dayline"
   }
 
   private static let initialVisibleIssueCount = 6
   private static let issuePageSize = 10
   private static let refreshIntervalKey = "refreshIntervalMinutes"
   private static let copyIssueHotkeyKey = "copyIssueHotkey"
+  private static let statusPickerHotkeyKey = "statusPickerHotkey"
+  private static let priorityPickerHotkeyKey = "priorityPickerHotkey"
   private static let linearIssueOrderKey = "linearIssueOrder"
+  private static let menuBarEventLeadTimeKey = "menuBarEventLeadTimeMinutes"
+  private static let menuBarEventPostStartGraceKey = "menuBarEventPostStartGraceMinutes"
+  private static let defaultMenuBarEventLeadTimeMinutes = 30
+  private static let defaultMenuBarEventPostStartGraceMinutes = 5
+  private static let menuBarClockRefreshSeconds: TimeInterval = 15
 
   private let calendarService: CalendarService
   private let linearService: LinearService
   private var allIssues: [LinearIssueItem] = []
   private var refreshTimer: Timer?
+  private var menuBarClockTimer: Timer?
 
   /// Creates a live store and immediately starts the background refresh loop.
   init(calendarService: CalendarService = CalendarService(), linearService: LinearService = LinearService()) {
     self.calendarService = calendarService
     self.linearService = linearService
     self.refreshIntervalMinutes = UserDefaults.standard.integer(forKey: Self.refreshIntervalKey)
-    self.copyIssueHotkey = Self.normalizedHotkey(UserDefaults.standard.string(forKey: Self.copyIssueHotkeyKey))
+    self.copyIssueHotkey = Self.normalizedHotkey(UserDefaults.standard.string(forKey: Self.copyIssueHotkeyKey), defaultValue: "c")
+    self.statusPickerHotkey = Self.normalizedHotkey(UserDefaults.standard.string(forKey: Self.statusPickerHotkeyKey), defaultValue: "s")
+    self.priorityPickerHotkey = Self.normalizedHotkey(UserDefaults.standard.string(forKey: Self.priorityPickerHotkeyKey), defaultValue: "p")
     self.linearIssueOrder = LinearIssueOrder(rawValue: UserDefaults.standard.string(forKey: Self.linearIssueOrderKey) ?? "") ?? .priority
+    self.menuBarEventLeadTimeMinutes = Self.storedInteger(
+      forKey: Self.menuBarEventLeadTimeKey,
+      defaultValue: Self.defaultMenuBarEventLeadTimeMinutes
+    )
+    self.menuBarEventPostStartGraceMinutes = Self.storedInteger(
+      forKey: Self.menuBarEventPostStartGraceKey,
+      defaultValue: Self.defaultMenuBarEventPostStartGraceMinutes
+    )
     if refreshIntervalMinutes <= 0 {
       refreshIntervalMinutes = 15
     }
+    menuBarEventLeadTimeMinutes = Self.clampedMenuBarLeadTime(menuBarEventLeadTimeMinutes)
+    menuBarEventPostStartGraceMinutes = Self.clampedMenuBarPostStartGrace(menuBarEventPostStartGraceMinutes)
     scheduleRefreshTimer()
+    scheduleMenuBarClockTimer()
     Task { await refresh() }
   }
 
   deinit {
     refreshTimer?.invalidate()
+    menuBarClockTimer?.invalidate()
   }
 
   /// Refreshes calendar and Linear data concurrently.
@@ -168,9 +256,31 @@ final class StatusStore: ObservableObject {
     refreshIntervalMinutes = minutes
   }
 
+  /// Persists how early the menu bar switches to the meeting title.
+  func setMenuBarEventLeadTime(minutes: Int) {
+    menuBarEventLeadTimeMinutes = minutes
+    menuBarClockDate = Date()
+  }
+
+  /// Persists how long the menu bar title remains after the meeting starts.
+  func setMenuBarEventPostStartGrace(minutes: Int) {
+    menuBarEventPostStartGraceMinutes = minutes
+    menuBarClockDate = Date()
+  }
+
   /// Persists a new copy hotkey selected from Settings.
   func setCopyIssueHotkey(_ hotkey: String) {
     copyIssueHotkey = hotkey
+  }
+
+  /// Persists a new status picker hotkey selected from Settings.
+  func setStatusPickerHotkey(_ hotkey: String) {
+    statusPickerHotkey = hotkey
+  }
+
+  /// Persists a new priority picker hotkey selected from Settings.
+  func setPriorityPickerHotkey(_ hotkey: String) {
+    priorityPickerHotkey = hotkey
   }
 
   /// Persists a new Linear issue ordering and reapplies it immediately.
@@ -213,17 +323,17 @@ final class StatusStore: ObservableObject {
 
   /// Returns whether a keypress should copy the hovered Linear issue link.
   func matchesCopyIssueHotkey(_ characters: String) -> Bool {
-    Self.normalizedHotkey(characters) == copyIssueHotkey
+    Self.normalizedHotkey(characters, defaultValue: "c") == copyIssueHotkey
   }
 
   /// Returns whether a keypress should open the status picker.
   func matchesStatusPickerHotkey(_ characters: String) -> Bool {
-    Self.normalizedHotkey(characters) == "s"
+    Self.normalizedHotkey(characters, defaultValue: "s") == statusPickerHotkey
   }
 
   /// Returns whether a keypress should open the priority picker.
   func matchesPriorityPickerHotkey(_ characters: String) -> Bool {
-    Self.normalizedHotkey(characters) == "p"
+    Self.normalizedHotkey(characters, defaultValue: "p") == priorityPickerHotkey
   }
 
   /// Tracks which Linear issue is currently hovered for keyboard actions.
@@ -365,6 +475,28 @@ final class StatusStore: ObservableObject {
     refreshTimer?.tolerance = min(TimeInterval(refreshIntervalMinutes * 6), 60)
   }
 
+  /// Schedules a lightweight clock used only for menu bar countdown text.
+  private func scheduleMenuBarClockTimer() {
+    menuBarClockTimer?.invalidate()
+    menuBarClockTimer = Timer.scheduledTimer(withTimeInterval: Self.menuBarClockRefreshSeconds, repeats: true) { [weak self] _ in
+      Task { @MainActor in
+        self?.menuBarClockDate = Date()
+      }
+    }
+    menuBarClockTimer?.tolerance = 2
+  }
+
+  /// Returns the event that should currently replace the menu bar icon.
+  private func menuBarEvent(at now: Date) -> CalendarEventItem? {
+    let leadTime = TimeInterval(menuBarEventLeadTimeMinutes * 60)
+    let postStartGrace = TimeInterval(menuBarEventPostStartGraceMinutes * 60)
+
+    return events.first { event in
+      now >= event.startDate.addingTimeInterval(-leadTime)
+        && now <= event.startDate.addingTimeInterval(postStartGrace)
+    }
+  }
+
   /// Applies the selected Linear ordering to fetched issue candidates.
   private func applyLinearIssueOrder() {
     issues = sortedLinearIssues(allIssues)
@@ -443,13 +575,31 @@ final class StatusStore: ObservableObject {
     lhs.id < rhs.id
   }
 
-  /// Normalizes a user-selected copy hotkey to a single lowercase character.
-  private static func normalizedHotkey(_ hotkey: String?) -> String {
+  /// Normalizes a user-selected hotkey to a single lowercase character.
+  private static func normalizedHotkey(_ hotkey: String?, defaultValue: String) -> String {
     hotkey?
       .trimmingCharacters(in: .whitespacesAndNewlines)
       .lowercased()
       .first
-      .map(String.init) ?? "c"
+      .map(String.init) ?? defaultValue
+  }
+
+  /// Returns a persisted integer or the supplied default when the key is unset.
+  private static func storedInteger(forKey key: String, defaultValue: Int) -> Int {
+    guard UserDefaults.standard.object(forKey: key) != nil else {
+      return defaultValue
+    }
+    return UserDefaults.standard.integer(forKey: key)
+  }
+
+  /// Keeps the pre-meeting title window in a practical Settings range.
+  private static func clampedMenuBarLeadTime(_ minutes: Int) -> Int {
+    min(max(minutes, 0), 240)
+  }
+
+  /// Keeps the post-start title window in a practical Settings range.
+  private static func clampedMenuBarPostStartGrace(_ minutes: Int) -> Int {
+    min(max(minutes, 0), 60)
   }
 
   /// Loads calendar events and packages thrown errors as `Result`.

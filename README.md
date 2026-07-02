@@ -84,6 +84,40 @@ Useful modes:
 
 The script builds with SwiftPM, creates `dist/Dayline.app`, and launches it as a menu-bar accessory app.
 
+## Install And Release
+
+Install Dayline into `/Applications`:
+
+```sh
+./script/package_release.sh --install
+```
+
+Create GitHub-release-ready artifacts:
+
+```sh
+./script/package_release.sh
+```
+
+The release script builds a release SwiftPM binary, wraps it in `dist/release/Dayline.app`, signs it with the best available local certificate, and creates:
+
+- `dist/artifacts/Dayline-<version>.dmg`
+- `dist/artifacts/Dayline-<version>.app.zip`
+
+For public distribution outside the Mac App Store, Apple expects a Developer ID-signed and notarized app. After installing a `Developer ID Application` certificate and storing notary credentials, build the notarized DMG with:
+
+```sh
+xcrun notarytool store-credentials dayline-notary
+NOTARY_PROFILE=dayline-notary ./script/package_release.sh --notarize
+```
+
+Upload the notarized `.dmg` to a GitHub Release. The zipped `.app` is useful as a secondary direct-download asset because GitHub cannot serve a raw `.app` bundle as a single file.
+
+After the repo has a GitHub `origin` remote, publish the current artifacts as a release with:
+
+```sh
+./script/publish_github_release.sh
+```
+
 ## Use
 
 Open the menu bar calendar icon to see:
@@ -97,13 +131,15 @@ Open the menu bar calendar icon to see:
 Issue row shortcuts while hovering a Linear issue:
 
 - `C` by default: copy issue URL. This can be changed in Settings.
-- `S`: change issue status.
-- `P`: change issue priority.
+- `S` by default: change issue status. This can be changed in Settings.
+- `P` by default: change issue priority. This can be changed in Settings.
 
 Settings lets you change:
 
 - refresh cadence
 - copy hotkey
+- status picker hotkey
+- priority picker hotkey
 - Linear issue ordering
 
 ## UI Test Helpers
@@ -134,7 +170,11 @@ Stable Accessibility identifiers include:
 - `linear.showLess`
 - `linear.issue.<ISSUE-ID>`
 - `settings.refreshCadence`
+- `settings.menuBarEventLeadTime`
+- `settings.menuBarEventPostStartGrace`
 - `settings.copyIssueHotkey`
+- `settings.statusPickerHotkey`
+- `settings.priorityPickerHotkey`
 - `settings.linearIssueOrder`
 
 Run the smoke test:

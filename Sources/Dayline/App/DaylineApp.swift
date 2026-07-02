@@ -21,9 +21,16 @@ struct DaylineApp: App {
       StatusMenuView()
         .environmentObject(store)
     } label: {
-      Label("Today", systemImage: store.menuBarSystemImage)
-        .accessibilityLabel("Dayline")
-        .accessibilityIdentifier("dayline.menuBarItem")
+      if let menuBarEventText = store.menuBarEventText {
+        Text(menuBarEventText)
+          .lineLimit(1)
+          .accessibilityLabel(store.menuBarAccessibilityLabel)
+          .accessibilityIdentifier("dayline.menuBarItem")
+      } else {
+        Label("Today", systemImage: store.menuBarSystemImage)
+          .accessibilityLabel(store.menuBarAccessibilityLabel)
+          .accessibilityIdentifier("dayline.menuBarItem")
+      }
     }
     .menuBarExtraStyle(.window)
 

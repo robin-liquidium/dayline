@@ -25,6 +25,17 @@ enum DisplayFormatters {
     return "\(time.string(from: start))-\(time.string(from: end))"
   }
 
+  /// Formats a meeting start time for compact menu bar countdown text.
+  static func menuBarEventStart(_ start: Date, now: Date = Date()) -> String {
+    let secondsUntilStart = start.timeIntervalSince(now)
+    guard secondsUntilStart > 30 else {
+      return "now"
+    }
+
+    let minutesUntilStart = max(1, Int(ceil(secondsUntilStart / 60)))
+    return "in \(minutesUntilStart)m"
+  }
+
   /// Formats the last updated timestamp for the header.
   static func lastUpdated(_ date: Date?) -> String {
     guard let date else {
