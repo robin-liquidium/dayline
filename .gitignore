@@ -1,0 +1,27 @@
+# macOS
+.DS_Store
+
+# SwiftPM
+.build/
+.swiftpm/
+
+# Local app bundle built by script/build_and_run.sh
+dist/
+
+# Xcode and editor state
+DerivedData/
+*.xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+.vscode/
+.idea/
+
+# Local diagnostics
+*.log
+*.trace
+*.xcresult
+
+# Screenshots and temporary captures
+*.mov
+*.mp4
+*.heic

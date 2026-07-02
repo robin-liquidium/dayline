@@ -1,0 +1,55 @@
+import Foundation
+
+/// Shared display formatters for compact menu bar text.
+enum DisplayFormatters {
+  /// Time formatter for event start and end times.
+  static let time: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.timeStyle = .short
+    formatter.dateStyle = .none
+    return formatter
+  }()
+
+  /// Relative formatter for the last refresh timestamp.
+  static let relative: RelativeDateTimeFormatter = {
+    let formatter = RelativeDateTimeFormatter()
+    formatter.unitsStyle = .short
+    return formatter
+  }()
+
+  /// Formats an event time range for one-line display.
+  static func eventTimeRange(start: Date, end: Date, now: Date = Date()) -> String {
+    if start <= now && end > now {
+      return "Now until \(time.string(from: end))"
+    }
+    return "\(time.string(from: start))-\(time.string(from: end))"
+  }
+
+  /// Formats the last updated timestamp for the header.
+  static func lastUpdated(_ date: Date?) -> String {
+    guard let date else {
+      return "Not updated yet"
+    }
+    let elapsed = Date().timeIntervalSince(date)
+    guard elapsed >= 5 else {
+      return "Updated now"
+    }
+    return "Updated \(relative.localizedString(fromTimeInterval: -elapsed))"
+  }
+
+  /// Formats a Linear `YYYY-MM-DD` due date for compact metadata.
+  static func linearDueDate(_ rawDate: String) -> String {
+    let input = DateFormatter()
+    input.locale = Locale(identifier: "en_US_POSIX")
+    input.dateFormat = "yyyy-MM-dd"
+
+    guard let date = input.date(from: rawDate) else {
+      return rawDate
+    }
+
+    let output = DateFormatter()
+    output.dateStyle = .medium
+    output.timeStyle = .none
+    return output.string(from: date)
+  }
+}
