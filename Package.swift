@@ -3,17 +3,17 @@
 import PackageDescription
 
 let package = Package(
-  name: "StatusWidget",
+  name: "Dayline",
   platforms: [
     .macOS("27.0")
   ],
   products: [
-    .executable(name: "StatusWidget", targets: ["StatusWidget"])
+    .executable(name: "Dayline", targets: ["Dayline"])
   ],
   targets: [
     .executableTarget(
-      name: "StatusWidget",
-      path: "Sources/StatusWidget"
+      name: "Dayline",
+      path: "Sources/Dayline"
     )
   ]
 )

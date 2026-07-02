@@ -11,7 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 /// The application entry point that owns the shared status store and scenes.
 @main
-struct StatusWidgetApp: App {
+struct DaylineApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
   @StateObject private var store = StatusStore()
 
@@ -22,8 +22,8 @@ struct StatusWidgetApp: App {
         .environmentObject(store)
     } label: {
       Label("Today", systemImage: store.menuBarSystemImage)
-        .accessibilityLabel("StatusWidget")
-        .accessibilityIdentifier("status.menuBarItem")
+        .accessibilityLabel("Dayline")
+        .accessibilityIdentifier("dayline.menuBarItem")
     }
     .menuBarExtraStyle(.window)
 

@@ -1,6 +1,6 @@
-# StatusWidget
+# Dayline
 
-StatusWidget is a lightweight macOS menu bar app for a compact daily glance at:
+Dayline is a lightweight macOS menu bar app for a compact daily glance at:
 
 - upcoming Google Calendar events for today, with an optional tomorrow section
 - active Linear issues assigned to you, sorted by your chosen order
@@ -82,7 +82,7 @@ Useful modes:
 ./script/build_and_run.sh --telemetry
 ```
 
-The script builds with SwiftPM, creates `dist/StatusWidget.app`, and launches it as a menu-bar accessory app.
+The script builds with SwiftPM, creates `dist/Dayline.app`, and launches it as a menu-bar accessory app.
 
 ## Use
 
@@ -112,7 +112,7 @@ The app includes a small Accessibility-driven helper for fast local testing:
 
 ```sh
 ./script/menu_test.sh open
-./script/menu_test.sh screenshot /tmp/status-widget.png
+./script/menu_test.sh screenshot /tmp/dayline.png
 ./script/menu_test.sh tree
 ./script/menu_test.sh identifiers
 ./script/menu_test.sh press-id calendar.tomorrow.toggle
@@ -126,9 +126,9 @@ The app includes a small Accessibility-driven helper for fast local testing:
 
 Stable Accessibility identifiers include:
 
-- `status.refresh`
-- `status.settings`
-- `status.quit`
+- `dayline.refresh`
+- `dayline.settings`
+- `dayline.quit`
 - `calendar.tomorrow.toggle`
 - `linear.showMore`
 - `linear.showLess`
@@ -146,12 +146,12 @@ Run the smoke test:
 ## Project Layout
 
 ```text
-Sources/StatusWidget/App/        App entrypoint
-Sources/StatusWidget/Models/     Value models
-Sources/StatusWidget/Services/   gws, Linear CLI, and process execution
-Sources/StatusWidget/Stores/     App state and refresh loop
-Sources/StatusWidget/Support/    Formatters and small helpers
-Sources/StatusWidget/Views/      SwiftUI views
+Sources/Dayline/App/        App entrypoint
+Sources/Dayline/Models/     Value models
+Sources/Dayline/Services/   gws, Linear CLI, and process execution
+Sources/Dayline/Stores/     App state and refresh loop
+Sources/Dayline/Support/    Formatters and small helpers
+Sources/Dayline/Views/      SwiftUI views
 script/                          Build, smoke, and menu test helpers
 ```
 

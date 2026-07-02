@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="StatusWidget"
+APP_NAME="Dayline"
 MENU_ITEM_NAME="Calendar"
 
 usage() {
@@ -9,7 +9,7 @@ usage() {
 usage: $0 <command> [args]
 
 Commands:
-  open                         Open the StatusWidget menu bar popover.
+  open                         Open the Dayline menu bar popover.
   bounds                       Print the menu bar item bounds.
   tree                         Print the popover accessibility tree.
   identifiers                  Print exposed AXIdentifier values.
@@ -20,9 +20,9 @@ Commands:
   scroll <up|down> [steps]     Scroll the open popover.
 
 Common identifiers:
-  status.refresh
-  status.settings
-  status.quit
+  dayline.refresh
+  dayline.settings
+  dayline.quit
   calendar.tomorrow.toggle
   linear.showMore
   linear.showLess
@@ -58,7 +58,7 @@ APPLESCRIPT
     sleep 0.1
   done
 
-  echo "Could not find StatusWidget menu bar item." >&2
+  echo "Could not find Dayline menu bar item." >&2
   exit 1
 }
 
@@ -105,7 +105,7 @@ open_popover() {
     sleep 0.1
   done
 
-  echo "StatusWidget popover did not open." >&2
+  echo "Dayline popover did not open." >&2
   exit 1
 }
 
@@ -113,7 +113,7 @@ popover_bounds() {
   osascript <<APPLESCRIPT
 tell application "System Events"
   tell process "$APP_NAME"
-    if not (exists window 1) then error "StatusWidget popover is not open"
+    if not (exists window 1) then error "Dayline popover is not open"
     set p to position of window 1
     set s to size of window 1
     return ((item 1 of p) as text) & " " & ((item 2 of p) as text) & " " & ((item 1 of s) as text) & " " & ((item 2 of s) as text)
@@ -190,7 +190,7 @@ APPLESCRIPT
     ;;
   screenshot)
     open_popover
-    out="${2:-/tmp/status-widget-popover.png}"
+    out="${2:-/tmp/dayline-popover.png}"
     read -r x y w h <<<"$(popover_bounds)"
     screencapture -x -R "$x,$y,$w,$h" "$out"
     echo "$out"

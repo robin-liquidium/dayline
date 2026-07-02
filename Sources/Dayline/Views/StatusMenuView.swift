@@ -85,7 +85,7 @@ struct StatusMenuView: View {
       .help("Refresh")
       .accessibilityLabel("Refresh")
       .accessibilityHint("Refresh calendar events and Linear issues")
-      .accessibilityIdentifier("status.refresh")
+      .accessibilityIdentifier("dayline.refresh")
       .disabled(store.isRefreshing)
       .onHover { isHovered in
         store.setHoveredControl(isHovered ? .refresh : nil)
@@ -116,8 +116,8 @@ struct StatusMenuView: View {
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Settings")
-      .accessibilityHint("Open StatusWidget settings")
-      .accessibilityIdentifier("status.settings")
+      .accessibilityHint("Open Dayline settings")
+      .accessibilityIdentifier("dayline.settings")
       .onHover { isHovered in
         store.setHoveredControl(isHovered ? .settings : nil)
       }
@@ -135,8 +135,8 @@ struct StatusMenuView: View {
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Quit")
-      .accessibilityHint("Quit StatusWidget")
-      .accessibilityIdentifier("status.quit")
+      .accessibilityHint("Quit Dayline")
+      .accessibilityIdentifier("dayline.quit")
       .onHover { isHovered in
         store.setHoveredControl(isHovered ? .quit : nil)
       }
