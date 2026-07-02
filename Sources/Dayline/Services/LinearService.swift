@@ -3,7 +3,7 @@ import Foundation
 /// Fetches assigned Linear issues through the Linear CLI GraphQL command.
 struct LinearService {
   /// Absolute path to the Linear CLI.
-  var linearPath = "/opt/homebrew/bin/linear"
+  var linearPath = CLIPaths.linear
 
   /// Shared shell runner used for process execution.
   var shellClient = ShellClient()

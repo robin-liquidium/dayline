@@ -3,7 +3,7 @@ import Foundation
 /// Fetches and normalizes upcoming events from Google Calendar through `gws`.
 struct CalendarService {
   /// Absolute path to the Google Workspace CLI.
-  var gwsPath = "/opt/homebrew/bin/gws"
+  var gwsPath = CLIPaths.gws
 
   /// Shared shell runner used for process execution.
   var shellClient = ShellClient()

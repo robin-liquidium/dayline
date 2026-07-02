@@ -19,6 +19,9 @@ final class StatusStore: ObservableObject {
   /// Linear loading error shown as a compact status row.
   @Published private(set) var linearError: String?
 
+  /// Installation/authentication state for required local CLIs.
+  @Published private(set) var dependencyStatuses = DependencyStatus.checkingAll
+
   /// Whether a refresh is currently running.
   @Published private(set) var isRefreshing = false
 
@@ -173,14 +176,20 @@ final class StatusStore: ObservableObject {
 
   private let calendarService: CalendarService
   private let linearService: LinearService
+  private let dependencyService: DependencyService
   private var allIssues: [LinearIssueItem] = []
   private var refreshTimer: Timer?
   private var menuBarClockTimer: Timer?
 
   /// Creates a live store and immediately starts the background refresh loop.
-  init(calendarService: CalendarService = CalendarService(), linearService: LinearService = LinearService()) {
+  init(
+    calendarService: CalendarService = CalendarService(),
+    linearService: LinearService = LinearService(),
+    dependencyService: DependencyService = DependencyService()
+  ) {
     self.calendarService = calendarService
     self.linearService = linearService
+    self.dependencyService = dependencyService
     self.refreshIntervalMinutes = UserDefaults.standard.integer(forKey: Self.refreshIntervalKey)
     self.copyIssueHotkey = Self.normalizedHotkey(UserDefaults.standard.string(forKey: Self.copyIssueHotkeyKey), defaultValue: "c")
     self.statusPickerHotkey = Self.normalizedHotkey(UserDefaults.standard.string(forKey: Self.statusPickerHotkeyKey), defaultValue: "s")
@@ -209,51 +218,90 @@ final class StatusStore: ObservableObject {
     menuBarClockTimer?.invalidate()
   }
 
-  /// Refreshes calendar and Linear data concurrently.
+  /// Refreshes dependency, calendar, and Linear data.
   func refresh() async {
     guard !isRefreshing else {
       return
     }
 
     isRefreshing = true
+    await refreshDependencyStatus()
 
-    async let calendarResult: Result<[CalendarEventItem], Error> = loadCalendarEvents()
-    async let tomorrowCalendarResult: Result<[CalendarEventItem], Error> = loadTomorrowCalendarEvents()
-    async let linearResult: Result<[LinearIssueItem], Error> = loadLinearIssues()
+    async let calendarResult: Result<[CalendarEventItem], Error>? = isDependencyReady(.googleWorkspace) ? loadCalendarEvents() : nil
+    async let tomorrowCalendarResult: Result<[CalendarEventItem], Error>? = isDependencyReady(.googleWorkspace) ? loadTomorrowCalendarEvents() : nil
+    async let linearResult: Result<[LinearIssueItem], Error>? = isDependencyReady(.linear) ? loadLinearIssues() : nil
 
     switch await calendarResult {
-    case .success(let fetchedEvents):
+    case .success(let fetchedEvents)?:
       events = fetchedEvents
       calendarError = nil
-    case .failure(let error):
+    case .failure(let error)?:
       calendarError = error.localizedDescription
+    case nil:
+      events = []
+      tomorrowEvents = []
+      calendarError = nil
     }
 
     switch await tomorrowCalendarResult {
-    case .success(let fetchedEvents):
+    case .success(let fetchedEvents)?:
       tomorrowEvents = fetchedEvents
-    case .failure(let error):
+    case .failure(let error)?:
       if calendarError == nil {
         calendarError = error.localizedDescription
       }
+    case nil:
+      break
     }
 
     switch await linearResult {
-    case .success(let fetchedIssues):
+    case .success(let fetchedIssues)?:
       allIssues = fetchedIssues
       applyLinearIssueOrder()
       linearError = nil
-    case .failure(let error):
+    case .failure(let error)?:
       linearError = error.localizedDescription
+    case nil:
+      allIssues = []
+      applyLinearIssueOrder()
+      linearError = nil
     }
 
     lastUpdatedAt = Date()
     isRefreshing = false
   }
 
+  /// Rechecks install/auth state for the local CLIs.
+  func refreshDependencyStatus() async {
+    dependencyStatuses = DependencyStatus.checkingAll
+    dependencyStatuses = await dependencyService.checkAll()
+  }
+
+  /// Dependencies that need user setup.
+  var dependencySetupItems: [DependencyStatus] {
+    dependencyStatuses.filter { status in
+      status.state != .ready
+    }
+  }
+
+  /// Whether the setup section should be visible.
+  var hasDependencySetupItems: Bool {
+    !dependencySetupItems.isEmpty
+  }
+
   /// Persists a new refresh cadence selected from Settings.
   func setRefreshInterval(minutes: Int) {
     refreshIntervalMinutes = minutes
+  }
+
+  /// Opens a dependency install command in Terminal.
+  func installDependency(_ status: DependencyStatus) {
+    TerminalLauncher.run(status.kind.installCommand)
+  }
+
+  /// Opens a dependency auth command in Terminal.
+  func authenticateDependency(_ status: DependencyStatus) {
+    TerminalLauncher.run(status.kind.authCommand)
   }
 
   /// Persists how early the menu bar switches to the meeting title.
@@ -484,6 +532,11 @@ final class StatusStore: ObservableObject {
       }
     }
     menuBarClockTimer?.tolerance = 2
+  }
+
+  /// Returns whether one dependency is currently ready.
+  private func isDependencyReady(_ kind: DependencyKind) -> Bool {
+    dependencyStatuses.first { $0.kind == kind }?.isReady == true
   }
 
   /// Returns the event that should currently replace the menu bar icon.

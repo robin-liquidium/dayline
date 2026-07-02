@@ -13,6 +13,10 @@ struct StatusMenuView: View {
       headerBar
       ScrollView {
         VStack(alignment: .leading, spacing: 18) {
+          if store.hasDependencySetupItems {
+            DependencySetupSection(statuses: store.dependencySetupItems)
+          }
+
           CalendarSection(
             events: store.events,
             tomorrowEvents: store.tomorrowEvents,
@@ -158,11 +162,12 @@ struct StatusMenuView: View {
 
   /// Lightweight estimate that keeps the initial menu compact before expansion.
   private var estimatedContentHeight: CGFloat {
+    let setupRows = store.hasDependencySetupItems ? CGFloat(max(store.dependencySetupItems.count, 1)) * 64 + 44 : 0
     let eventRows = CGFloat(max(store.events.count, 1)) * 34
     let tomorrowRows = store.isTomorrowExpanded ? CGFloat(max(store.tomorrowEvents.count, 1)) * 34 + 34 : 0
     let issueRows = CGFloat(max(store.issues.count, 1)) * 58
     let moreRow: CGFloat = store.hasMoreIssues || store.hasExpandedIssues ? 34 : 0
-    return 108 + eventRows + tomorrowRows + issueRows + moreRow
+    return 108 + setupRows + eventRows + tomorrowRows + issueRows + moreRow
   }
 
   /// Binding used by SwiftUI's native status chooser popover.
@@ -204,6 +209,142 @@ struct StatusMenuView: View {
     }
 
     return false
+  }
+}
+
+/// Setup section shown when required local CLIs are missing or unauthenticated.
+private struct DependencySetupSection: View {
+  @EnvironmentObject private var store: StatusStore
+
+  /// Dependency statuses that need user attention.
+  let statuses: [DependencyStatus]
+
+  /// Builds the setup section.
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack {
+        SectionTitle(title: "Setup")
+
+        Spacer(minLength: 0)
+
+        Button {
+          Task { await store.refreshDependencyStatus() }
+        } label: {
+          Image(systemName: "arrow.clockwise")
+            .padding(5)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Check again")
+        .accessibilityLabel("Check CLI setup again")
+        .accessibilityIdentifier("setup.checkAgain")
+      }
+
+      VStack(alignment: .leading, spacing: 8) {
+        ForEach(statuses) { status in
+          DependencySetupRow(status: status)
+        }
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+    }
+  }
+}
+
+/// One setup row for an external CLI dependency.
+private struct DependencySetupRow: View {
+  @EnvironmentObject private var store: StatusStore
+
+  /// Dependency status represented by the row.
+  let status: DependencyStatus
+
+  /// Builds the setup row.
+  var body: some View {
+    HStack(alignment: .center, spacing: 10) {
+      Image(systemName: systemImage)
+        .font(.callout.weight(.semibold))
+        .foregroundStyle(iconColor)
+        .frame(width: 18)
+
+      VStack(alignment: .leading, spacing: 3) {
+        Text(status.title)
+          .font(.callout.weight(.medium))
+          .foregroundStyle(.primary)
+
+        if let detail = status.detail, !detail.isEmpty {
+          Text(detail.compactLine(limit: 78))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
+        }
+      }
+
+      Spacer(minLength: 8)
+
+      actionButton
+    }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 7)
+    .background {
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .fill(Color.primary.opacity(0.05))
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("setup.\(status.kind.id)")
+  }
+
+  /// Action button appropriate for the dependency state.
+  @ViewBuilder
+  private var actionButton: some View {
+    switch status.state {
+    case .checking:
+      ProgressView()
+        .controlSize(.small)
+        .accessibilityLabel("Checking")
+    case .missing:
+      Button("Install") {
+        store.installDependency(status)
+      }
+      .buttonStyle(.bordered)
+      .controlSize(.small)
+      .accessibilityIdentifier("setup.\(status.kind.id).install")
+    case .unauthenticated:
+      Button("Auth") {
+        store.authenticateDependency(status)
+      }
+      .buttonStyle(.bordered)
+      .controlSize(.small)
+      .accessibilityIdentifier("setup.\(status.kind.id).auth")
+    case .ready:
+      EmptyView()
+    }
+  }
+
+  /// Symbol for the current dependency state.
+  private var systemImage: String {
+    switch status.state {
+    case .checking:
+      "clock.arrow.circlepath"
+    case .missing:
+      "arrow.down.circle.fill"
+    case .unauthenticated:
+      "person.crop.circle.badge.exclamationmark"
+    case .ready:
+      "checkmark.circle.fill"
+    }
+  }
+
+  /// Color for the current dependency state symbol.
+  private var iconColor: Color {
+    switch status.state {
+    case .checking:
+      .secondary
+    case .missing:
+      .orange
+    case .unauthenticated:
+      .yellow
+    case .ready:
+      .green
+    }
   }
 }
 

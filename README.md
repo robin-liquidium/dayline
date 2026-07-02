@@ -19,7 +19,13 @@ The app currently calls these absolute paths:
 - `/opt/homebrew/bin/gws`
 - `/opt/homebrew/bin/linear`
 
-If your tools live somewhere else, update `CalendarService.gwsPath` and `LinearService.linearPath`.
+If your tools live somewhere else, launch Dayline with:
+
+```sh
+DAYLINE_GWS_PATH=/path/to/gws DAYLINE_LINEAR_PATH=/path/to/linear ./script/build_and_run.sh direct
+```
+
+On launch, Dayline checks whether both CLIs are installed and authenticated. If either tool is missing or unauthenticated, the menu shows a `Setup` section with install/auth buttons and a check-again button.
 
 ## Install CLI Dependencies
 
@@ -42,6 +48,7 @@ npm install -g @googleworkspace/cli
 Authenticate `gws` so it can read Calendar events. The app uses:
 
 ```sh
+gws auth login
 gws calendar events list --params '<json>' --format json
 ```
 
@@ -59,6 +66,20 @@ linear auth login
 ```
 
 The app uses `linear api` GraphQL calls to fetch assigned issues and update issue status/priority.
+
+## Test Dependency Setup
+
+Test missing or unauthenticated CLIs without touching your real local `gws` or `linear` installation:
+
+```sh
+./script/dependency_sandbox.sh missing
+./script/dependency_sandbox.sh unauthenticated
+./script/dependency_sandbox.sh ready
+./script/dependency_sandbox.sh gws-missing
+./script/dependency_sandbox.sh linear-missing
+```
+
+The sandbox creates temporary fake CLI executables and launches Dayline with `DAYLINE_GWS_PATH` and `DAYLINE_LINEAR_PATH` pointed at those fakes. Install buttons use harmless fake `echo` commands in this mode, and auth buttons run fake auth commands, so your real credentials and packages are not changed.
 
 ## Run
 
@@ -158,6 +179,7 @@ The app includes a small Accessibility-driven helper for fast local testing:
 ./script/menu_test.sh hover settings
 ./script/menu_test.sh hover quit
 ./script/menu_test.sh scroll down
+./script/dependency_sandbox.sh unauthenticated
 ```
 
 Stable Accessibility identifiers include:
@@ -165,6 +187,13 @@ Stable Accessibility identifiers include:
 - `dayline.refresh`
 - `dayline.settings`
 - `dayline.quit`
+- `setup.checkAgain`
+- `setup.gws`
+- `setup.gws.install`
+- `setup.gws.auth`
+- `setup.linear`
+- `setup.linear.install`
+- `setup.linear.auth`
 - `calendar.tomorrow.toggle`
 - `linear.showMore`
 - `linear.showLess`
