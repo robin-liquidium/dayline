@@ -157,6 +157,7 @@ Issue row shortcuts while hovering a Linear issue:
 
 Settings lets you change:
 
+- launch at login
 - refresh cadence
 - copy hotkey
 - status picker hotkey
@@ -198,6 +199,7 @@ Stable Accessibility identifiers include:
 - `linear.showMore`
 - `linear.showLess`
 - `linear.issue.<ISSUE-ID>`
+- `settings.launchAtLogin`
 - `settings.refreshCadence`
 - `settings.menuBarEventLeadTime`
 - `settings.menuBarEventPostStartGrace`

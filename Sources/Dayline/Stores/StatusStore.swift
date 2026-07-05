@@ -141,6 +141,12 @@ final class StatusStore: ObservableObject {
     }
   }
 
+  /// Whether macOS launches Dayline when the user logs in.
+  @Published private(set) var launchAtLoginEnabled: Bool
+
+  /// Compact error text from the last launch-at-login update attempt.
+  @Published private(set) var launchAtLoginError: String?
+
   /// Stable system image for the menu bar item.
   var menuBarSystemImage: String {
     "calendar"
@@ -177,6 +183,7 @@ final class StatusStore: ObservableObject {
   private let calendarService: CalendarService
   private let linearService: LinearService
   private let dependencyService: DependencyService
+  private let launchAtLoginService: LaunchAtLoginService
   private var allIssues: [LinearIssueItem] = []
   private var refreshTimer: Timer?
   private var menuBarClockTimer: Timer?
@@ -185,16 +192,19 @@ final class StatusStore: ObservableObject {
   init(
     calendarService: CalendarService = CalendarService(),
     linearService: LinearService = LinearService(),
-    dependencyService: DependencyService = DependencyService()
+    dependencyService: DependencyService = DependencyService(),
+    launchAtLoginService: LaunchAtLoginService = LaunchAtLoginService()
   ) {
     self.calendarService = calendarService
     self.linearService = linearService
     self.dependencyService = dependencyService
+    self.launchAtLoginService = launchAtLoginService
     self.refreshIntervalMinutes = UserDefaults.standard.integer(forKey: Self.refreshIntervalKey)
     self.copyIssueHotkey = Self.normalizedHotkey(UserDefaults.standard.string(forKey: Self.copyIssueHotkeyKey), defaultValue: "c")
     self.statusPickerHotkey = Self.normalizedHotkey(UserDefaults.standard.string(forKey: Self.statusPickerHotkeyKey), defaultValue: "s")
     self.priorityPickerHotkey = Self.normalizedHotkey(UserDefaults.standard.string(forKey: Self.priorityPickerHotkeyKey), defaultValue: "p")
     self.linearIssueOrder = LinearIssueOrder(rawValue: UserDefaults.standard.string(forKey: Self.linearIssueOrderKey) ?? "") ?? .priority
+    self.launchAtLoginEnabled = launchAtLoginService.isEnabled
     self.menuBarEventLeadTimeMinutes = Self.storedInteger(
       forKey: Self.menuBarEventLeadTimeKey,
       defaultValue: Self.defaultMenuBarEventLeadTimeMinutes
@@ -334,6 +344,22 @@ final class StatusStore: ObservableObject {
   /// Persists a new Linear issue ordering and reapplies it immediately.
   func setLinearIssueOrder(_ order: LinearIssueOrder) {
     linearIssueOrder = order
+  }
+
+  /// Refreshes launch-at-login state from macOS.
+  func refreshLaunchAtLoginStatus() {
+    launchAtLoginEnabled = launchAtLoginService.isEnabled
+  }
+
+  /// Requests a launch-at-login change and mirrors the resulting macOS state.
+  func setLaunchAtLoginEnabled(_ isEnabled: Bool) {
+    do {
+      try launchAtLoginService.setEnabled(isEnabled)
+      launchAtLoginError = nil
+    } catch {
+      launchAtLoginError = error.localizedDescription.compactLine(limit: 96)
+    }
+    refreshLaunchAtLoginStatus()
   }
 
   /// Whether additional fetched Linear issues can be shown without another refresh.

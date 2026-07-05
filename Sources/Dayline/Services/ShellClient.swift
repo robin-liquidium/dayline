@@ -31,6 +31,18 @@ enum ShellClientError: LocalizedError {
 
 /// Runs small CLI commands asynchronously without blocking SwiftUI.
 actor ShellClient {
+  /// Search path supplied to GUI-launched CLI wrappers that use `/usr/bin/env`.
+  private static let fallbackExecutableSearchPath = [
+    "/opt/homebrew/bin",
+    "/opt/homebrew/sbin",
+    "/usr/local/bin",
+    "/usr/local/sbin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin"
+  ]
+
   /// Runs a command and returns captured output after the process exits.
   func run(_ executable: String, arguments: [String]) async throws -> CommandResult {
     try await withCheckedThrowingContinuation { continuation in
@@ -40,6 +52,7 @@ actor ShellClient {
 
       process.executableURL = URL(fileURLWithPath: executable)
       process.arguments = arguments
+      process.environment = Self.processEnvironment
       process.standardOutput = stdoutPipe
       process.standardError = stderrPipe
 
@@ -56,6 +69,20 @@ actor ShellClient {
       }
     }
   }
+
+  /// Stable process environment for apps launched outside a login shell.
+  private static let processEnvironment: [String: String] = {
+    var environment = ProcessInfo.processInfo.environment
+    let inheritedPath = environment["PATH"]?
+      .split(separator: ":")
+      .map(String.init) ?? []
+    var seenPaths: Set<String> = []
+    let mergedPath = (inheritedPath + fallbackExecutableSearchPath).filter { path in
+      seenPaths.insert(path).inserted
+    }
+    environment["PATH"] = mergedPath.joined(separator: ":")
+    return environment
+  }()
 
   /// Runs a command and throws when the exit status is not zero.
   func checkedRun(_ executable: String, arguments: [String]) async throws -> CommandResult {

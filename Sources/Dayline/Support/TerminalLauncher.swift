@@ -5,9 +5,10 @@ enum TerminalLauncher {
   /// Opens a new Terminal tab with a command ready to run.
   static func run(_ command: String) {
     let script = """
+    set commandText to "\(appleScriptEscaped(command))"
     tell application "Terminal"
+      do script commandText
       activate
-      do script "\(appleScriptEscaped(command))"
     end tell
     """
 
