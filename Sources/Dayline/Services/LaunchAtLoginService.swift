@@ -37,6 +37,9 @@ struct LaunchAtLoginService {
         throw LaunchAtLoginServiceError.requiresApproval
       }
       try SMAppService.mainApp.register()
+      guard status != .requiresApproval else {
+        throw LaunchAtLoginServiceError.requiresApproval
+      }
     } else {
       guard status != .notRegistered else {
         return

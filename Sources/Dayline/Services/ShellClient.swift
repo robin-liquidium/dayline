@@ -52,7 +52,7 @@ actor ShellClient {
 
       process.executableURL = URL(fileURLWithPath: executable)
       process.arguments = arguments
-      process.environment = Self.processEnvironment()
+      process.environment = Self.processEnvironment
       process.standardOutput = stdoutPipe
       process.standardError = stderrPipe
 
@@ -70,8 +70,8 @@ actor ShellClient {
     }
   }
 
-  /// Builds a stable process environment for apps launched outside a login shell.
-  private static func processEnvironment() -> [String: String] {
+  /// Stable process environment for apps launched outside a login shell.
+  private static let processEnvironment: [String: String] = {
     var environment = ProcessInfo.processInfo.environment
     let inheritedPath = environment["PATH"]?
       .split(separator: ":")
@@ -82,7 +82,7 @@ actor ShellClient {
     }
     environment["PATH"] = mergedPath.joined(separator: ":")
     return environment
-  }
+  }()
 
   /// Runs a command and throws when the exit status is not zero.
   func checkedRun(_ executable: String, arguments: [String]) async throws -> CommandResult {
