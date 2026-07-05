@@ -22,62 +22,133 @@ struct SettingsView: View {
   /// Supported single-key priority picker shortcut choices.
   private let priorityPickerHotkeyOptions = ["p", "r", "i", "o"]
 
+  /// Width used for the right-aligned setting labels.
+  private let labelColumnWidth: CGFloat = 150
+
+  /// Width used for popup controls in the value column.
+  private let controlColumnWidth: CGFloat = 330
+
   /// Builds the settings form.
   var body: some View {
-    Form {
-      Picker("Refresh", selection: cadenceBinding) {
+    VStack(alignment: .leading, spacing: 16) {
+      checkboxRow {
+        Toggle("Launch at login", isOn: launchAtLoginBinding)
+          .accessibilityIdentifier("settings.launchAtLogin")
+      }
+
+      if let launchAtLoginError = store.launchAtLoginError {
+        valueColumnRow {
+          Text(launchAtLoginError)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier("settings.launchAtLoginError")
+        }
+      }
+
+      settingsPicker("Refresh:", selection: cadenceBinding, accessibilityIdentifier: "settings.refreshCadence") {
         ForEach(cadenceOptions, id: \.self) { minutes in
           Text(label(for: minutes)).tag(minutes)
         }
       }
-      .accessibilityIdentifier("settings.refreshCadence")
 
-      Picker("Show event title before event start", selection: menuBarLeadTimeBinding) {
+      settingsPicker("Show title before:", selection: menuBarLeadTimeBinding, accessibilityIdentifier: "settings.menuBarEventLeadTime") {
         ForEach(menuBarLeadTimePickerOptions, id: \.self) { minutes in
           Text(minutesLabel(for: minutes)).tag(minutes)
         }
       }
-      .accessibilityIdentifier("settings.menuBarEventLeadTime")
 
-      Picker("Show event title after event start", selection: menuBarPostStartGraceBinding) {
+      settingsPicker("Show title after:", selection: menuBarPostStartGraceBinding, accessibilityIdentifier: "settings.menuBarEventPostStartGrace") {
         ForEach(menuBarPostStartGracePickerOptions, id: \.self) { minutes in
           Text(minutesLabel(for: minutes)).tag(minutes)
         }
       }
-      .accessibilityIdentifier("settings.menuBarEventPostStartGrace")
 
-      Picker("Copy issue link", selection: copyHotkeyBinding) {
+      Divider()
+        .padding(.vertical, 2)
+
+      settingsPicker("Copy issue link:", selection: copyHotkeyBinding, accessibilityIdentifier: "settings.copyIssueHotkey") {
         ForEach(copyHotkeyOptions, id: \.self) { hotkey in
           Text(hotkey.uppercased()).tag(hotkey)
         }
       }
-      .accessibilityIdentifier("settings.copyIssueHotkey")
 
-      Picker("Change issue status", selection: statusPickerHotkeyBinding) {
+      settingsPicker("Change status:", selection: statusPickerHotkeyBinding, accessibilityIdentifier: "settings.statusPickerHotkey") {
         ForEach(statusPickerHotkeyPickerOptions, id: \.self) { hotkey in
           Text(hotkey.uppercased()).tag(hotkey)
         }
       }
-      .accessibilityIdentifier("settings.statusPickerHotkey")
 
-      Picker("Change issue priority", selection: priorityPickerHotkeyBinding) {
+      settingsPicker("Change priority:", selection: priorityPickerHotkeyBinding, accessibilityIdentifier: "settings.priorityPickerHotkey") {
         ForEach(priorityPickerHotkeyPickerOptions, id: \.self) { hotkey in
           Text(hotkey.uppercased()).tag(hotkey)
         }
       }
-      .accessibilityIdentifier("settings.priorityPickerHotkey")
 
-      Picker("Linear issues", selection: linearIssueOrderBinding) {
+      settingsPicker("Linear issues:", selection: linearIssueOrderBinding, accessibilityIdentifier: "settings.linearIssueOrder") {
         ForEach(LinearIssueOrder.allCases) { order in
           Text(order.label).tag(order)
         }
       }
-      .accessibilityIdentifier("settings.linearIssueOrder")
     }
-    .formStyle(.columns)
-    .padding(28)
-    .frame(minWidth: 460)
+    .padding(.horizontal, 34)
+    .padding(.vertical, 28)
+    .frame(width: 600)
     .accessibilityIdentifier("settings.form")
+    .onAppear {
+      store.refreshLaunchAtLoginStatus()
+    }
+  }
+
+  /// Builds one right-labeled popup row with a native macOS settings alignment.
+  private func settingsPicker<SelectionValue: Hashable, Content: View>(
+    _ title: String,
+    selection: Binding<SelectionValue>,
+    accessibilityIdentifier: String,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: 16) {
+      settingLabel(title)
+
+      Picker(title, selection: selection) {
+        content()
+      }
+      .labelsHidden()
+      .frame(width: controlColumnWidth, alignment: .leading)
+      .accessibilityIdentifier(accessibilityIdentifier)
+    }
+  }
+
+  /// Aligns a checkbox row to the value column used by popup controls.
+  private func checkboxRow<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    valueColumnRow {
+      content()
+        .frame(width: controlColumnWidth, alignment: .leading)
+    }
+  }
+
+  /// Places content in the value column without a visible label.
+  private func valueColumnRow<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: 16) {
+      Spacer()
+        .frame(width: labelColumnWidth)
+
+      content()
+    }
+  }
+
+  /// Produces a compact right-aligned macOS settings label.
+  private func settingLabel(_ title: String) -> some View {
+    Text(title)
+      .frame(width: labelColumnWidth, alignment: .trailing)
+      .foregroundStyle(.primary)
+  }
+
+  /// Binding that forwards launch-at-login changes to the store.
+  private var launchAtLoginBinding: Binding<Bool> {
+    Binding(
+      get: { store.launchAtLoginEnabled },
+      set: { store.setLaunchAtLoginEnabled($0) }
+    )
   }
 
   /// Binding that forwards settings changes to the store.
