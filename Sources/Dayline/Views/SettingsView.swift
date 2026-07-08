@@ -13,6 +13,9 @@ struct SettingsView: View {
   /// Supported post-start menu bar title grace choices in minutes.
   private let menuBarPostStartGraceOptions = [0, 1, 2, 5, 10, 15, 20, 25, 30]
 
+  /// Supported default note counts.
+  private let defaultNoteCountOptions = [3, 5, 10, 15]
+
   /// Supported single-key copy shortcut choices.
   private let copyHotkeyOptions = ["c", "l", "k", "y"]
 
@@ -86,6 +89,18 @@ struct SettingsView: View {
 
       settingsPicker("Linear issues:", selection: linearIssueOrderBinding, accessibilityIdentifier: "settings.linearIssueOrder") {
         ForEach(LinearIssueOrder.allCases) { order in
+          Text(order.label).tag(order)
+        }
+      }
+
+      settingsPicker("Notes shown:", selection: defaultNoteCountBinding, accessibilityIdentifier: "settings.defaultNoteCount") {
+        ForEach(defaultNoteCountPickerOptions, id: \.self) { count in
+          Text("\(count)").tag(count)
+        }
+      }
+
+      settingsPicker("Notes sort:", selection: localNoteSortOrderBinding, accessibilityIdentifier: "settings.localNoteSortOrder") {
+        ForEach(LocalNoteSortOrder.allCases) { order in
           Text(order.label).tag(order)
         }
       }
@@ -224,6 +239,27 @@ struct SettingsView: View {
     Binding(
       get: { store.linearIssueOrder },
       set: { store.setLinearIssueOrder($0) }
+    )
+  }
+
+  /// Binding that forwards default note count changes to the store.
+  private var defaultNoteCountBinding: Binding<Int> {
+    Binding(
+      get: { store.defaultVisibleNoteCount },
+      set: { store.setDefaultVisibleNoteCount($0) }
+    )
+  }
+
+  /// Note count choices plus any existing custom stored value.
+  private var defaultNoteCountPickerOptions: [Int] {
+    Array(Set(defaultNoteCountOptions + [store.defaultVisibleNoteCount])).sorted()
+  }
+
+  /// Binding that forwards local note ordering changes to the store.
+  private var localNoteSortOrderBinding: Binding<LocalNoteSortOrder> {
+    Binding(
+      get: { store.localNoteSortOrder },
+      set: { store.setLocalNoteSortOrder($0) }
     )
   }
 

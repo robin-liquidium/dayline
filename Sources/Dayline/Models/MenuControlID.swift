@@ -8,11 +8,23 @@ enum MenuControlID {
   /// Calendar tomorrow disclosure row.
   case tomorrowEvents
 
+  /// Linear issue creation button.
+  case newLinearIssue
+
   /// Linear issue reveal-more row.
   case moreIssues
 
   /// Linear issue collapse-extra row.
   case fewerIssues
+
+  /// Local note creation button.
+  case newNote
+
+  /// Local note reveal-more row.
+  case moreNotes
+
+  /// Local note collapse-extra row.
+  case fewerNotes
 
   /// Footer settings button.
   case settings

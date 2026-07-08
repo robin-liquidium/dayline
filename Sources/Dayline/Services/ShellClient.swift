@@ -23,9 +23,19 @@ enum ShellClientError: LocalizedError {
     case .failedToLaunch(let command):
       return "Could not launch \(command)."
     case .nonZeroExit(let command, let status, let stderr):
-      let detail = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+      let detail = Self.cleanedErrorDetail(stderr)
       return detail.isEmpty ? "\(command) exited with status \(status)." : detail
     }
+  }
+
+  /// Removes routine CLI chatter from stderr before it reaches compact UI rows.
+  private static func cleanedErrorDetail(_ stderr: String) -> String {
+    stderr
+      .split(whereSeparator: \.isNewline)
+      .map(String.init)
+      .filter { !$0.hasPrefix("Using keyring backend:") }
+      .joined(separator: " ")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
   }
 }
 

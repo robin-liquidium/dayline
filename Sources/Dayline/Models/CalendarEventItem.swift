@@ -22,4 +22,9 @@ struct CalendarEventItem: Identifiable, Equatable {
 
   /// Preferred URL for clicking the event, such as Google Meet or a URL in the location.
   let openURL: URL?
+
+  /// Returns whether the event is active at the supplied moment.
+  func isHappening(at date: Date) -> Bool {
+    date >= startDate && date < endDate
+  }
 }
