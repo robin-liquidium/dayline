@@ -13,11 +13,17 @@ final class StatusStore: ObservableObject {
   /// Highest priority active Linear issues assigned to the user.
   @Published private(set) var issues: [LinearIssueItem] = []
 
+  /// Local notes persisted on this Mac.
+  @Published private(set) var notes: [LocalNoteItem] = []
+
   /// Calendar loading error shown as a compact status row.
   @Published private(set) var calendarError: String?
 
   /// Linear loading error shown as a compact status row.
   @Published private(set) var linearError: String?
+
+  /// Local notes persistence error shown as a compact status row.
+  @Published private(set) var notesError: String?
 
   /// Installation/authentication state for required local CLIs.
   @Published private(set) var dependencyStatuses = DependencyStatus.checkingAll
@@ -33,6 +39,9 @@ final class StatusStore: ObservableObject {
 
   /// Identifier for the Linear issue currently under the pointer.
   @Published private(set) var hoveredIssueID: LinearIssueItem.ID?
+
+  /// Identifier for the local note currently under the pointer.
+  @Published private(set) var hoveredNoteID: LocalNoteItem.ID?
 
   /// Identifier for the calendar event currently under the pointer.
   @Published private(set) var hoveredEventID: CalendarEventItem.ID?
@@ -60,6 +69,9 @@ final class StatusStore: ObservableObject {
 
   /// Number of sorted Linear issues currently shown in the menu.
   @Published private(set) var visibleIssueCount = initialVisibleIssueCount
+
+  /// Number of sorted local notes currently shown in the menu.
+  @Published private(set) var visibleNoteCount: Int
 
   /// Keyboard character used to copy the hovered Linear issue link.
   @Published var copyIssueHotkey: String {
@@ -102,6 +114,28 @@ final class StatusStore: ObservableObject {
     didSet {
       UserDefaults.standard.set(linearIssueOrder.rawValue, forKey: Self.linearIssueOrderKey)
       applyLinearIssueOrder()
+    }
+  }
+
+  /// User-selected ordering for local notes.
+  @Published var localNoteSortOrder: LocalNoteSortOrder {
+    didSet {
+      UserDefaults.standard.set(localNoteSortOrder.rawValue, forKey: Self.localNoteSortOrderKey)
+      applyLocalNoteSortOrder()
+    }
+  }
+
+  /// User-selected number of notes shown before expansion.
+  @Published var defaultVisibleNoteCount: Int {
+    didSet {
+      let clampedCount = Self.clampedDefaultVisibleNoteCount(defaultVisibleNoteCount)
+      guard defaultVisibleNoteCount == clampedCount else {
+        defaultVisibleNoteCount = clampedCount
+        return
+      }
+      UserDefaults.standard.set(defaultVisibleNoteCount, forKey: Self.defaultVisibleNoteCountKey)
+      visibleNoteCount = defaultVisibleNoteCount
+      applyLocalNoteSortOrder()
     }
   }
 
@@ -167,6 +201,11 @@ final class StatusStore: ObservableObject {
     menuBarEventText ?? "Dayline"
   }
 
+  /// Current lightweight clock tick used by views that need live calendar state.
+  var calendarHighlightDate: Date {
+    menuBarClockDate
+  }
+
   private static let initialVisibleIssueCount = 6
   private static let issuePageSize = 10
   private static let refreshIntervalKey = "refreshIntervalMinutes"
@@ -174,17 +213,22 @@ final class StatusStore: ObservableObject {
   private static let statusPickerHotkeyKey = "statusPickerHotkey"
   private static let priorityPickerHotkeyKey = "priorityPickerHotkey"
   private static let linearIssueOrderKey = "linearIssueOrder"
+  private static let localNoteSortOrderKey = "localNoteSortOrder"
+  private static let defaultVisibleNoteCountKey = "defaultVisibleNoteCount"
   private static let menuBarEventLeadTimeKey = "menuBarEventLeadTimeMinutes"
   private static let menuBarEventPostStartGraceKey = "menuBarEventPostStartGraceMinutes"
   private static let defaultMenuBarEventLeadTimeMinutes = 30
   private static let defaultMenuBarEventPostStartGraceMinutes = 5
+  private static let fallbackDefaultVisibleNoteCount = 3
   private static let menuBarClockRefreshSeconds: TimeInterval = 15
 
   private let calendarService: CalendarService
   private let linearService: LinearService
+  private let notesService: LocalNotesService
   private let dependencyService: DependencyService
   private let launchAtLoginService: LaunchAtLoginService
   private var allIssues: [LinearIssueItem] = []
+  private var allNotes: [LocalNoteItem] = []
   private var refreshTimer: Timer?
   private var menuBarClockTimer: Timer?
 
@@ -192,11 +236,13 @@ final class StatusStore: ObservableObject {
   init(
     calendarService: CalendarService = CalendarService(),
     linearService: LinearService = LinearService(),
+    notesService: LocalNotesService = LocalNotesService(),
     dependencyService: DependencyService = DependencyService(),
     launchAtLoginService: LaunchAtLoginService = LaunchAtLoginService()
   ) {
     self.calendarService = calendarService
     self.linearService = linearService
+    self.notesService = notesService
     self.dependencyService = dependencyService
     self.launchAtLoginService = launchAtLoginService
     self.refreshIntervalMinutes = UserDefaults.standard.integer(forKey: Self.refreshIntervalKey)
@@ -204,6 +250,13 @@ final class StatusStore: ObservableObject {
     self.statusPickerHotkey = Self.normalizedHotkey(UserDefaults.standard.string(forKey: Self.statusPickerHotkeyKey), defaultValue: "s")
     self.priorityPickerHotkey = Self.normalizedHotkey(UserDefaults.standard.string(forKey: Self.priorityPickerHotkeyKey), defaultValue: "p")
     self.linearIssueOrder = LinearIssueOrder(rawValue: UserDefaults.standard.string(forKey: Self.linearIssueOrderKey) ?? "") ?? .priority
+    self.localNoteSortOrder = LocalNoteSortOrder(rawValue: UserDefaults.standard.string(forKey: Self.localNoteSortOrderKey) ?? "") ?? .updatedAt
+    let storedVisibleNoteCount = Self.clampedDefaultVisibleNoteCount(Self.storedInteger(
+      forKey: Self.defaultVisibleNoteCountKey,
+      defaultValue: Self.fallbackDefaultVisibleNoteCount
+    ))
+    self.defaultVisibleNoteCount = storedVisibleNoteCount
+    self.visibleNoteCount = storedVisibleNoteCount
     self.launchAtLoginEnabled = launchAtLoginService.isEnabled
     self.menuBarEventLeadTimeMinutes = Self.storedInteger(
       forKey: Self.menuBarEventLeadTimeKey,
@@ -218,6 +271,7 @@ final class StatusStore: ObservableObject {
     }
     menuBarEventLeadTimeMinutes = Self.clampedMenuBarLeadTime(menuBarEventLeadTimeMinutes)
     menuBarEventPostStartGraceMinutes = Self.clampedMenuBarPostStartGrace(menuBarEventPostStartGraceMinutes)
+    loadPersistedNotes()
     scheduleRefreshTimer()
     scheduleMenuBarClockTimer()
     Task { await refresh() }
@@ -346,6 +400,16 @@ final class StatusStore: ObservableObject {
     linearIssueOrder = order
   }
 
+  /// Persists a new local note ordering and reapplies it immediately.
+  func setLocalNoteSortOrder(_ order: LocalNoteSortOrder) {
+    localNoteSortOrder = order
+  }
+
+  /// Persists how many local notes are shown before expansion.
+  func setDefaultVisibleNoteCount(_ count: Int) {
+    defaultVisibleNoteCount = count
+  }
+
   /// Refreshes launch-at-login state from macOS.
   func refreshLaunchAtLoginStatus() {
     launchAtLoginEnabled = launchAtLoginService.isEnabled
@@ -390,6 +454,34 @@ final class StatusStore: ObservableObject {
     applyLinearIssueOrder()
   }
 
+  /// Whether additional fetched local notes can be shown without another refresh.
+  var hasMoreNotes: Bool {
+    visibleNoteCount < allNotes.count
+  }
+
+  /// Whether the note list is showing rows beyond the configured default.
+  var hasExpandedNotes: Bool {
+    visibleNoteCount > defaultVisibleNoteCount
+  }
+
+  /// Label for the button that reveals more local notes.
+  var showMoreNotesLabel: String {
+    let additionalCount = min(defaultVisibleNoteCount, max(allNotes.count - visibleNoteCount, 0))
+    return "Show \(additionalCount) more"
+  }
+
+  /// Reveals another page of already-fetched local notes.
+  func showMoreNotes() {
+    visibleNoteCount = min(visibleNoteCount + defaultVisibleNoteCount, allNotes.count)
+    applyLocalNoteSortOrder()
+  }
+
+  /// Collapses local notes back to the configured default.
+  func showFewerNotes() {
+    visibleNoteCount = defaultVisibleNoteCount
+    applyLocalNoteSortOrder()
+  }
+
   /// Toggles tomorrow's cached calendar events in the menu.
   func toggleTomorrowEvents() {
     isTomorrowExpanded.toggle()
@@ -413,6 +505,11 @@ final class StatusStore: ObservableObject {
   /// Tracks which Linear issue is currently hovered for keyboard actions.
   func setHoveredIssue(_ issueID: LinearIssueItem.ID?) {
     hoveredIssueID = issueID
+  }
+
+  /// Tracks which local note is currently hovered for row highlighting.
+  func setHoveredNote(_ noteID: LocalNoteItem.ID?) {
+    hoveredNoteID = noteID
   }
 
   /// Tracks which menu chrome control is currently hovered.
@@ -538,6 +635,106 @@ final class StatusStore: ObservableObject {
     updatingPriorityIssueID = nil
   }
 
+  /// Moves a Linear issue to its team's canceled workflow state.
+  func cancelLinearIssue(issueID: LinearIssueItem.ID) async {
+    guard updatingStatusIssueID == nil else {
+      return
+    }
+
+    guard let issue = allIssues.first(where: { $0.id == issueID }),
+          let canceledState = issue.workflowStates.first(where: { $0.type == "canceled" }) else {
+      linearError = "No canceled Linear state is available for this issue."
+      return
+    }
+
+    await changeIssueStatus(issueID: issueID, state: canceledState)
+  }
+
+  /// Loads Linear teams and states for the issue creator.
+  func linearIssueCreateTeamOptions() async throws -> [LinearTeamOption] {
+    try await linearService.fetchTeamOptions()
+  }
+
+  /// Loads Linear users for the issue creator assignee picker.
+  func linearIssueCreateAssigneeOptions() async throws -> [LinearUserOption] {
+    try await linearService.fetchUserOptions()
+  }
+
+  /// Creates a Linear issue from a draft and refreshes assigned issues.
+  func createLinearIssue(draft: LinearIssueCreateDraft) async throws {
+    try await linearService.createIssue(draft: draft)
+
+    do {
+      allIssues = try await linearService.fetchAssignedIssues()
+      visibleIssueCount = max(Self.initialVisibleIssueCount, min(visibleIssueCount, allIssues.count))
+      applyLinearIssueOrder()
+      linearError = nil
+    } catch {
+      linearError = "Issue created, but refresh failed: \(error.localizedDescription)"
+    }
+
+    lastUpdatedAt = Date()
+  }
+
+  /// Returns a local note by identifier.
+  func localNote(withID noteID: LocalNoteItem.ID) -> LocalNoteItem? {
+    allNotes.first { $0.id == noteID }
+  }
+
+  /// Creates or updates a local note and persists the full collection.
+  @discardableResult
+  func saveLocalNote(id noteID: LocalNoteItem.ID?, text: String) throws -> LocalNoteItem {
+    let previousNotes = allNotes
+    let now = Date()
+
+    let savedNote: LocalNoteItem
+    if let noteID, let index = allNotes.firstIndex(where: { $0.id == noteID }) {
+      allNotes[index].text = text
+      allNotes[index].updatedAt = now
+      savedNote = allNotes[index]
+    } else if noteID != nil {
+      notesError = StatusStoreError.missingLocalNote.localizedDescription
+      throw StatusStoreError.missingLocalNote
+    } else {
+      savedNote = LocalNoteItem(
+        id: UUID().uuidString,
+        text: text,
+        createdAt: now,
+        updatedAt: now
+      )
+      allNotes.append(savedNote)
+    }
+
+    do {
+      try notesService.saveNotes(allNotes)
+      applyLocalNoteSortOrder()
+      notesError = nil
+      return savedNote
+    } catch {
+      allNotes = previousNotes
+      applyLocalNoteSortOrder()
+      notesError = error.localizedDescription
+      throw error
+    }
+  }
+
+  /// Deletes a local note and persists the updated collection.
+  func deleteLocalNote(id noteID: LocalNoteItem.ID) {
+    let previousNotes = allNotes
+    allNotes.removeAll { $0.id == noteID }
+
+    do {
+      try notesService.saveNotes(allNotes)
+      visibleNoteCount = min(max(defaultVisibleNoteCount, visibleNoteCount), max(defaultVisibleNoteCount, allNotes.count))
+      applyLocalNoteSortOrder()
+      notesError = nil
+    } catch {
+      allNotes = previousNotes
+      applyLocalNoteSortOrder()
+      notesError = error.localizedDescription
+    }
+  }
+
   /// Schedules the repeating refresh timer using the current cadence.
   private func scheduleRefreshTimer() {
     refreshTimer?.invalidate()
@@ -583,6 +780,13 @@ final class StatusStore: ObservableObject {
       .map { $0 }
   }
 
+  /// Applies the selected local ordering to fetched note candidates.
+  private func applyLocalNoteSortOrder() {
+    notes = sortedLocalNotes(allNotes)
+      .prefix(visibleNoteCount)
+      .map { $0 }
+  }
+
   /// Replaces or removes an updated issue, matching the active issue filter.
   private func replaceFetchedIssue(_ updatedIssue: LinearIssueItem) {
     allIssues.removeAll { $0.id == updatedIssue.id }
@@ -608,6 +812,55 @@ final class StatusStore: ObservableObject {
         compareTitle(lhs, rhs) ?? comparePriority(lhs, rhs) ?? compareID(lhs, rhs)
       }
     }
+  }
+
+  /// Returns local notes sorted by the current user preference.
+  private func sortedLocalNotes(_ notes: [LocalNoteItem]) -> [LocalNoteItem] {
+    notes.sorted { lhs, rhs in
+      switch localNoteSortOrder {
+      case .updatedAt:
+        compareNewest(lhs.updatedAt, rhs.updatedAt) ?? compareNoteTitle(lhs, rhs) ?? compareNoteID(lhs, rhs)
+      case .createdAt:
+        compareNewest(lhs.createdAt, rhs.createdAt) ?? compareNoteTitle(lhs, rhs) ?? compareNoteID(lhs, rhs)
+      case .title:
+        compareNoteTitle(lhs, rhs) ?? compareNewest(lhs.updatedAt, rhs.updatedAt) ?? compareNoteID(lhs, rhs)
+      }
+    }
+  }
+
+  /// Loads local notes from disk into the in-memory sorted list.
+  private func loadPersistedNotes() {
+    do {
+      allNotes = try notesService.loadNotes()
+      applyLocalNoteSortOrder()
+      notesError = nil
+    } catch {
+      allNotes = []
+      applyLocalNoteSortOrder()
+      notesError = error.localizedDescription
+    }
+  }
+
+  /// Compares two dates newest-first and returns `nil` for ties.
+  private func compareNewest(_ lhs: Date, _ rhs: Date) -> Bool? {
+    guard lhs != rhs else {
+      return nil
+    }
+    return lhs > rhs
+  }
+
+  /// Compares two notes by title and returns `nil` for ties.
+  private func compareNoteTitle(_ lhs: LocalNoteItem, _ rhs: LocalNoteItem) -> Bool? {
+    let comparison = lhs.title.localizedStandardCompare(rhs.title)
+    guard comparison != .orderedSame else {
+      return nil
+    }
+    return comparison == .orderedAscending
+  }
+
+  /// Compares two notes by stable local identifier.
+  private func compareNoteID(_ lhs: LocalNoteItem, _ rhs: LocalNoteItem) -> Bool {
+    lhs.id < rhs.id
   }
 
   /// Compares two issues by Linear priority and returns `nil` for ties.
@@ -681,6 +934,11 @@ final class StatusStore: ObservableObject {
     min(max(minutes, 0), 60)
   }
 
+  /// Keeps the default note count in a practical menu range.
+  private static func clampedDefaultVisibleNoteCount(_ count: Int) -> Int {
+    min(max(count, 1), 25)
+  }
+
   /// Loads calendar events and packages thrown errors as `Result`.
   private func loadCalendarEvents() async -> Result<[CalendarEventItem], Error> {
     do {
@@ -705,6 +963,21 @@ final class StatusStore: ObservableObject {
       return .success(try await linearService.fetchAssignedIssues())
     } catch {
       return .failure(error)
+    }
+  }
+
+}
+
+/// Errors produced by local store operations.
+private enum StatusStoreError: LocalizedError {
+  /// The requested local note no longer exists in memory.
+  case missingLocalNote
+
+  /// Human-readable local store error text.
+  var errorDescription: String? {
+    switch self {
+    case .missingLocalNote:
+      "This note was deleted before it could be saved."
     }
   }
 }

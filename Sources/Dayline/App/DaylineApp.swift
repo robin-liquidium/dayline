@@ -15,7 +15,7 @@ struct DaylineApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
   @StateObject private var store = StatusStore()
 
-  /// Declares the menu bar extra and native settings window.
+  /// Declares the menu bar extra, editor windows, and native settings window.
   var body: some Scene {
     MenuBarExtra {
       StatusMenuView()
@@ -33,6 +33,18 @@ struct DaylineApp: App {
       }
     }
     .menuBarExtraStyle(.window)
+
+    WindowGroup("Note", for: NoteEditorRequest.self) { $request in
+      NoteEditorView(request: request ?? .new)
+        .environmentObject(store)
+    }
+    .defaultSize(width: 500, height: 420)
+
+    Window("New Linear Issue", id: "linearIssueCreator") {
+      LinearIssueEditorView()
+        .environmentObject(store)
+    }
+    .defaultSize(width: 620, height: 600)
 
     Settings {
       SettingsView()

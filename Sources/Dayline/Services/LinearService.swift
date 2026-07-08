@@ -125,6 +125,112 @@ struct LinearService {
     }
     return response.data.issueUpdate.issue.displayItem
   }
+
+  /// Loads Linear teams and workflow states for the issue creator.
+  func fetchTeamOptions() async throws -> [LinearTeamOption] {
+    let query = """
+    query LinearTeams($first: Int!) {
+      teams(first: $first) {
+        nodes {
+          id
+          key
+          name
+          states(first: 50) {
+            nodes { id name type position }
+          }
+        }
+      }
+    }
+    """
+
+    let result = try await shellClient.checkedRun(
+      linearPath,
+      arguments: ["api", query, "--variable", "first=50"]
+    )
+    let response = try JSONDecoder().decode(LinearTeamsResponse.self, from: Data(result.stdout.utf8))
+    return response.data.teams.nodes.map(\.displayItem)
+  }
+
+  /// Loads active Linear users for the issue creator assignee picker.
+  func fetchUserOptions() async throws -> [LinearUserOption] {
+    let query = """
+    query LinearUsers($first: Int!) {
+      users(first: $first) {
+        nodes {
+          id
+          name
+          displayName
+          active
+        }
+      }
+    }
+    """
+
+    let result = try await shellClient.checkedRun(
+      linearPath,
+      arguments: ["api", query, "--variable", "first=100"]
+    )
+    let response = try JSONDecoder().decode(LinearUsersResponse.self, from: Data(result.stdout.utf8))
+    return response.data.users.nodes
+      .map(\.displayItem)
+      .filter(\.isActive)
+      .sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
+  }
+
+  /// Creates a Linear issue using the CLI's non-interactive creation command.
+  func createIssue(draft: LinearIssueCreateDraft) async throws {
+    var arguments = [
+      "issue",
+      "create",
+      "--no-interactive",
+      "--title",
+      draft.title
+    ]
+
+    let trimmedDescription = draft.description.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !trimmedDescription.isEmpty {
+      arguments.append(contentsOf: ["--description", trimmedDescription])
+    }
+
+    appendFlag("--assignee", draft.assignee, to: &arguments)
+    appendFlag("--team", draft.team, to: &arguments)
+    appendFlag("--state", draft.state, to: &arguments)
+    appendFlag("--due-date", draft.dueDate, to: &arguments)
+    appendFlag("--project", draft.project, to: &arguments)
+    appendFlag("--cycle", draft.cycle, to: &arguments)
+    appendFlag("--milestone", draft.milestone, to: &arguments)
+    appendFlag("--parent", draft.parent, to: &arguments)
+
+    if let priority = draft.priority {
+      arguments.append(contentsOf: ["--priority", "\(priority)"])
+    }
+
+    if let estimate = draft.estimate {
+      arguments.append(contentsOf: ["--estimate", "\(estimate)"])
+    }
+
+    for label in draft.labels.split(separator: ",").map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }) where !label.isEmpty {
+      arguments.append(contentsOf: ["--label", label])
+    }
+
+    if draft.shouldStart {
+      arguments.append("--start")
+    }
+
+    if draft.shouldSkipDefaultTemplate {
+      arguments.append("--no-use-default-template")
+    }
+
+    _ = try await shellClient.checkedRun(linearPath, arguments: arguments)
+  }
+
+  /// Appends a CLI flag only when the value is not blank.
+  private func appendFlag(_ flag: String, _ value: String, to arguments: inout [String]) {
+    let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !trimmedValue.isEmpty {
+      arguments.append(contentsOf: [flag, trimmedValue])
+    }
+  }
 }
 
 /// Linear service failure cases.
@@ -156,6 +262,94 @@ private struct LinearAPIResponse: Decodable {
 private struct LinearUpdateResponse: Decodable {
   /// GraphQL data payload.
   let data: LinearUpdateData
+}
+
+/// Root GraphQL response shape for team options.
+private struct LinearTeamsResponse: Decodable {
+  /// GraphQL data payload.
+  let data: LinearTeamsData
+}
+
+/// Root GraphQL response shape for user options.
+private struct LinearUsersResponse: Decodable {
+  /// GraphQL data payload.
+  let data: LinearUsersData
+}
+
+/// Linear team query data payload.
+private struct LinearTeamsData: Decodable {
+  /// Visible Linear teams.
+  let teams: LinearTeamConnection
+}
+
+/// Linear user query data payload.
+private struct LinearUsersData: Decodable {
+  /// Visible Linear users.
+  let users: LinearUserConnection
+}
+
+/// Linear team connection payload.
+private struct LinearTeamConnection: Decodable {
+  /// Visible Linear team nodes.
+  let nodes: [LinearTeamNode]
+}
+
+/// Linear user connection payload.
+private struct LinearUserConnection: Decodable {
+  /// Visible Linear user nodes.
+  let nodes: [LinearUserNode]
+}
+
+/// Raw Linear team node returned by GraphQL.
+private struct LinearTeamNode: Decodable {
+  /// Stable Linear team identifier.
+  let id: String
+
+  /// Short Linear team key.
+  let key: String
+
+  /// Human-readable team name.
+  let name: String
+
+  /// Workflow states for the team.
+  let states: LinearWorkflowStateConnection
+
+  /// Converts the raw node into a picker option.
+  var displayItem: LinearTeamOption {
+    LinearTeamOption(
+      id: id,
+      key: key,
+      name: name,
+      states: states.nodes
+        .map(\.displayItem)
+        .sorted { $0.position < $1.position }
+    )
+  }
+}
+
+/// Raw Linear user node returned by GraphQL.
+private struct LinearUserNode: Decodable {
+  /// Stable Linear user identifier.
+  let id: String
+
+  /// Human-readable profile name.
+  let name: String
+
+  /// Linear username.
+  let displayName: String?
+
+  /// Whether the user is active.
+  let active: Bool
+
+  /// Converts the raw node into a picker option.
+  var displayItem: LinearUserOption {
+    LinearUserOption(
+      id: id,
+      name: name,
+      displayName: displayName ?? "",
+      isActive: active
+    )
+  }
 }
 
 /// Linear GraphQL mutation data payload.

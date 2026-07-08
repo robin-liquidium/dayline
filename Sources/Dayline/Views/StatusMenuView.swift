@@ -1,10 +1,20 @@
 import AppKit
 import SwiftUI
 
+/// Shared row height for compact Linear and Notes rows.
+private let workItemRowHeight: CGFloat = 46
+
+/// Width of the trailing swipe reveal lane for destructive row actions.
+private let destructiveRevealWidth: CGFloat = 52
+
+/// Diameter of the compact destructive row action.
+private let destructiveButtonSize: CGFloat = 30
+
 /// Popover content shown when the user opens the menu bar extra.
 struct StatusMenuView: View {
   @EnvironmentObject private var store: StatusStore
   @Environment(\.openSettings) private var openSettings
+  @Environment(\.openWindow) private var openWindow
   @FocusState private var isKeyboardTargetFocused: Bool
 
   /// Builds the compact menu bar popover content.
@@ -22,7 +32,8 @@ struct StatusMenuView: View {
             tomorrowEvents: store.tomorrowEvents,
             error: store.calendarError,
             hoveredEventID: store.hoveredEventID,
-            isTomorrowExpanded: store.isTomorrowExpanded
+            isTomorrowExpanded: store.isTomorrowExpanded,
+            now: store.calendarHighlightDate
           )
           LinearSection(
             issues: store.issues,
@@ -30,7 +41,22 @@ struct StatusMenuView: View {
             hoveredIssueID: store.hoveredIssueID,
             copiedIssueID: store.copiedIssueID,
             updatingStatusIssueID: store.updatingStatusIssueID,
-            updatingPriorityIssueID: store.updatingPriorityIssueID
+            updatingPriorityIssueID: store.updatingPriorityIssueID,
+            openNewIssue: {
+              openLinearIssueCreator()
+            }
+          )
+
+          NotesSection(
+            notes: store.notes,
+            error: store.notesError,
+            hoveredNoteID: store.hoveredNoteID,
+            openNewNote: {
+              openNoteEditor(.new)
+            },
+            openNote: { note in
+              openNoteEditor(.existing(note.id))
+            }
           )
         }
         .padding(.vertical, 12)
@@ -165,9 +191,11 @@ struct StatusMenuView: View {
     let setupRows = store.hasDependencySetupItems ? CGFloat(max(store.dependencySetupItems.count, 1)) * 64 + 44 : 0
     let eventRows = CGFloat(max(store.events.count, 1)) * 34
     let tomorrowRows = store.isTomorrowExpanded ? CGFloat(max(store.tomorrowEvents.count, 1)) * 34 + 34 : 0
-    let issueRows = CGFloat(max(store.issues.count, 1)) * 58
-    let moreRow: CGFloat = store.hasMoreIssues || store.hasExpandedIssues ? 34 : 0
-    return 108 + setupRows + eventRows + tomorrowRows + issueRows + moreRow
+    let issueRows = CGFloat(max(store.issues.count, 1)) * workItemRowHeight
+    let issueMoreRow: CGFloat = store.hasMoreIssues || store.hasExpandedIssues ? 34 : 0
+    let noteRows = CGFloat(max(store.notes.count, 1)) * workItemRowHeight
+    let noteMoreRow: CGFloat = store.hasMoreNotes || store.hasExpandedNotes ? 34 : 0
+    return 108 + setupRows + eventRows + tomorrowRows + issueRows + issueMoreRow + noteRows + noteMoreRow
   }
 
   /// Binding used by SwiftUI's native status chooser popover.
@@ -209,6 +237,18 @@ struct StatusMenuView: View {
     }
 
     return false
+  }
+
+  /// Opens a note editor window and brings the accessory app forward.
+  private func openNoteEditor(_ request: NoteEditorRequest) {
+    openWindow(value: request)
+    NoteEditorWindowPresenter.bringNoteWindowToFront()
+  }
+
+  /// Opens the Linear issue creator window and brings the accessory app forward.
+  private func openLinearIssueCreator() {
+    openWindow(id: "linearIssueCreator")
+    LinearIssueEditorWindowPresenter.bringIssueWindowToFront()
   }
 }
 
@@ -523,6 +563,9 @@ private struct CalendarSection: View {
   /// Whether tomorrow's events should be displayed.
   let isTomorrowExpanded: Bool
 
+  /// Current clock tick used to identify meetings happening now.
+  let now: Date
+
   /// Builds the calendar section.
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -538,7 +581,7 @@ private struct CalendarSection: View {
               .padding(.vertical, 5)
           } else {
             ForEach(events) { event in
-              EventRow(event: event, isHovered: hoveredEventID == event.id)
+              EventRow(event: event, isHovered: hoveredEventID == event.id, now: now)
                 .onHover { isHovered in
                   store.setHoveredEvent(isHovered ? event.id : nil)
                 }
@@ -560,7 +603,7 @@ private struct CalendarSection: View {
               } else {
                 VStack(alignment: .leading, spacing: 0) {
                   ForEach(tomorrowEvents) { event in
-                    EventRow(event: event, isHovered: hoveredEventID == event.id)
+                    EventRow(event: event, isHovered: hoveredEventID == event.id, now: now)
                       .onHover { isHovered in
                         store.setHoveredEvent(isHovered ? event.id : nil)
                       }
@@ -640,10 +683,32 @@ private struct LinearSection: View {
   /// Identifier for the issue whose priority is being updated.
   let updatingPriorityIssueID: LinearIssueItem.ID?
 
+  /// Action run when the user creates a new Linear issue.
+  let openNewIssue: () -> Void
+
   /// Builds the Linear section.
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
-      SectionTitle(title: "Linear")
+      HStack {
+        SectionTitle(title: "Linear")
+
+        Spacer(minLength: 0)
+
+        Button(action: openNewIssue) {
+          Image(systemName: "plus")
+            .padding(5)
+            .contentShape(Rectangle())
+            .hoverHighlight(isHovered: store.hoveredControlID == .newLinearIssue)
+        }
+        .buttonStyle(.plain)
+        .help("New Linear issue")
+        .accessibilityLabel("New Linear issue")
+        .accessibilityHint("Create a Linear issue")
+        .accessibilityIdentifier("linear.new")
+        .onHover { isHovered in
+          store.setHoveredControl(isHovered ? .newLinearIssue : nil)
+        }
+      }
 
       if let error {
         MessageRow(title: "Linear unavailable", detail: error)
@@ -659,7 +724,10 @@ private struct LinearSection: View {
               isUpdating: updatingStatusIssueID == issue.id || updatingPriorityIssueID == issue.id,
               copyHotkey: store.copyIssueHotkey,
               statusHotkey: store.statusPickerHotkey,
-              priorityHotkey: store.priorityPickerHotkey
+              priorityHotkey: store.priorityPickerHotkey,
+              cancel: {
+                Task { await store.cancelLinearIssue(issueID: issue.id) }
+              }
             )
             .onHover { isHovered in
               store.setHoveredIssue(isHovered ? issue.id : nil)
@@ -681,6 +749,162 @@ private struct LinearSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
       }
     }
+  }
+}
+
+/// Local section listing recent notes.
+private struct NotesSection: View {
+  @EnvironmentObject private var store: StatusStore
+
+  /// Local notes to display.
+  let notes: [LocalNoteItem]
+
+  /// Optional local loading error.
+  let error: String?
+
+  /// Identifier for the note currently under the pointer.
+  let hoveredNoteID: LocalNoteItem.ID?
+
+  /// Action run when the user creates a new note.
+  let openNewNote: () -> Void
+
+  /// Action run when the user opens an existing note.
+  let openNote: (LocalNoteItem) -> Void
+
+  /// Builds the local section.
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack {
+        SectionTitle(title: "Notes")
+
+        Spacer(minLength: 0)
+
+        Button(action: openNewNote) {
+          Image(systemName: "plus")
+            .padding(5)
+            .contentShape(Rectangle())
+            .hoverHighlight(isHovered: store.hoveredControlID == .newNote)
+        }
+        .buttonStyle(.plain)
+        .help("New note")
+        .accessibilityLabel("New note")
+        .accessibilityHint("Create a local note")
+        .accessibilityIdentifier("notes.new")
+        .onHover { isHovered in
+          store.setHoveredControl(isHovered ? .newNote : nil)
+        }
+      }
+
+      if let error {
+        MessageRow(title: "Notes unavailable", detail: error)
+      } else if notes.isEmpty {
+        MessageRow(title: "No notes", detail: nil)
+      } else {
+        VStack(alignment: .leading, spacing: 0) {
+          ForEach(notes) { note in
+            NoteRow(
+              note: note,
+              isHovered: hoveredNoteID == note.id,
+              open: {
+                openNote(note)
+              },
+              delete: {
+                store.deleteLocalNote(id: note.id)
+              }
+            )
+            .onHover { isHovered in
+              store.setHoveredNote(isHovered ? note.id : nil)
+            }
+          }
+
+          if store.hasMoreNotes || store.hasExpandedNotes {
+            MoreNotesControls(
+              canShowMore: store.hasMoreNotes,
+              canShowLess: store.hasExpandedNotes,
+              showMoreTitle: store.showMoreNotesLabel
+            ) {
+              store.showMoreNotes()
+            } showLess: {
+              store.showFewerNotes()
+            }
+          }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+    }
+  }
+}
+
+/// Compact controls that reveal or collapse fetched local notes.
+private struct MoreNotesControls: View {
+  @EnvironmentObject private var store: StatusStore
+
+  /// Whether another page can be revealed.
+  let canShowMore: Bool
+
+  /// Whether expanded notes can be collapsed.
+  let canShowLess: Bool
+
+  /// Reveal-more button title.
+  let showMoreTitle: String
+
+  /// Action run when the user asks for more notes.
+  let showMore: () -> Void
+
+  /// Action run when the user asks for fewer notes.
+  let showLess: () -> Void
+
+  /// Builds the note disclosure control row.
+  var body: some View {
+    HStack {
+      if canShowMore {
+        Button(action: showMore) {
+          HStack(spacing: 6) {
+            Image(systemName: "chevron.down")
+            Text(showMoreTitle)
+          }
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .padding(.horizontal, 6)
+          .padding(.vertical, 4)
+          .contentShape(Rectangle())
+          .hoverHighlight(isHovered: store.hoveredControlID == .moreNotes)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered in
+          store.setHoveredControl(isHovered ? .moreNotes : nil)
+        }
+        .accessibilityLabel(showMoreTitle)
+        .accessibilityHint("Show more local notes")
+        .accessibilityIdentifier("notes.showMore")
+      }
+
+      Spacer(minLength: 0)
+
+      if canShowLess {
+        Button(action: showLess) {
+          HStack(spacing: 6) {
+            Image(systemName: "chevron.up")
+            Text("Show less")
+          }
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .padding(.horizontal, 6)
+          .padding(.vertical, 4)
+          .contentShape(Rectangle())
+          .hoverHighlight(isHovered: store.hoveredControlID == .fewerNotes)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered in
+          store.setHoveredControl(isHovered ? .fewerNotes : nil)
+        }
+        .accessibilityLabel("Show less")
+        .accessibilityHint("Collapse extra local notes")
+        .accessibilityIdentifier("notes.showLess")
+      }
+    }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 4)
   }
 }
 
@@ -778,6 +1002,9 @@ private struct EventRow: View {
   /// Whether the pointer is currently over the row.
   let isHovered: Bool
 
+  /// Current clock tick used to decide whether this event is in progress.
+  let now: Date
+
   /// Builds the event row.
   var body: some View {
     Button {
@@ -803,12 +1030,13 @@ private struct EventRow: View {
       .padding(.vertical, 5)
       .frame(maxWidth: .infinity, alignment: .leading)
       .background {
-        if isHovered {
+        if isCurrent || isHovered {
           RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(Color.primary.opacity(0.06))
+            .fill(rowBackgroundColor)
         }
       }
       .animation(.easeOut(duration: 0.12), value: isHovered)
+      .animation(.easeOut(duration: 0.12), value: isCurrent)
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
@@ -822,6 +1050,20 @@ private struct EventRow: View {
   /// VoiceOver summary for the calendar event row.
   private var accessibilityLabel: String {
     "\(event.title), \(DisplayFormatters.eventTimeRange(start: event.startDate, end: event.endDate))"
+  }
+
+  /// Whether this calendar event is currently in progress.
+  private var isCurrent: Bool {
+    event.isHappening(at: now)
+  }
+
+  /// Subtle row background that keeps active meetings visibly green.
+  private var rowBackgroundColor: Color {
+    if isCurrent {
+      return Color.green.opacity(isHovered ? 0.16 : 0.10)
+    }
+
+    return Color.primary.opacity(0.06)
   }
 }
 
@@ -848,79 +1090,106 @@ private struct IssueRow: View {
   /// Keyboard character that opens the priority picker while hovering.
   let priorityHotkey: String
 
+  /// Action run when the issue is canceled.
+  let cancel: () -> Void
+
   /// Builds the issue row.
   var body: some View {
-    Button {
-      if let url = issue.url {
-        NSWorkspace.shared.open(url)
-      }
-    } label: {
-      VStack(alignment: .leading, spacing: 4) {
-        Text(issue.title)
-          .font(.callout.weight(.semibold))
-          .foregroundStyle(.primary)
-          .lineLimit(nil)
-          .fixedSize(horizontal: false, vertical: true)
-          .multilineTextAlignment(.leading)
+    GeometryReader { proxy in
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 0) {
+          Button {
+            if let url = issue.url {
+              NSWorkspace.shared.open(url)
+            }
+          } label: {
+            issueContent
+              .frame(width: proxy.size.width, height: workItemRowHeight, alignment: .leading)
+          }
+          .buttonStyle(.plain)
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel(accessibilityLabel)
+          .accessibilityHint(accessibilityHint)
+          .accessibilityIdentifier("linear.issue.\(issue.id)")
+          .disabled(issue.url == nil)
 
-        HStack(spacing: 6) {
-          MetadataPill(
-            title: issue.stateName,
-            systemImage: statusStyle.systemImage,
-            color: statusStyle.color
+          CompactDestructiveActionButton(
+            systemImage: "trash",
+            accessibilityLabel: "Cancel Linear issue",
+            accessibilityHint: "Moves this Linear issue to its canceled state",
+            accessibilityIdentifier: "linear.cancel.\(issue.id)",
+            confirmationTitle: "Cancel issue?",
+            confirmationMessage: "Move \(issue.id) to its canceled Linear state.",
+            action: cancel
           )
-
-          MetadataPill(
-            title: issue.priorityLabel,
-            systemImage: priorityStyle.systemImage,
-            color: priorityStyle.color
-          )
-
-          if let dueDate = issue.dueDate, !dueDate.isEmpty {
-            MetadataPill(
-              title: DisplayFormatters.linearDueDate(dueDate),
-              systemImage: "calendar",
-              color: .secondary
-            )
-          }
-
-          if isCopied {
-            Spacer(minLength: 0)
-
-            Label("Copied", systemImage: "checkmark")
-              .font(.caption)
-              .foregroundStyle(.green)
-              .transition(.opacity)
-          }
-
-          if isUpdating {
-            Spacer(minLength: 0)
-
-            Label("Updating", systemImage: "clock.arrow.circlepath")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-              .transition(.opacity)
-          }
         }
       }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 6)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background {
-        if isHovered {
-          RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(Color.primary.opacity(0.06))
-        }
-      }
-      .animation(.easeOut(duration: 0.12), value: isHovered)
-      .animation(.easeOut(duration: 0.12), value: isCopied)
+      .scrollContentBackground(.hidden)
+      .clipped()
     }
-    .buttonStyle(.plain)
-    .accessibilityElement(children: .ignore)
-    .accessibilityLabel(accessibilityLabel)
-    .accessibilityHint(accessibilityHint)
-    .accessibilityIdentifier("linear.issue.\(issue.id)")
-    .disabled(issue.url == nil)
+    .frame(height: workItemRowHeight)
+  }
+
+  /// Main issue content that slides left to expose the cancel action.
+  private var issueContent: some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(issue.title.compactLine(limit: 72))
+        .font(.callout.weight(.semibold))
+        .foregroundStyle(.primary)
+        .lineLimit(1)
+        .multilineTextAlignment(.leading)
+
+      HStack(spacing: 6) {
+        MetadataPill(
+          title: issue.stateName,
+          systemImage: statusStyle.systemImage,
+          color: statusStyle.color
+        )
+
+        MetadataPill(
+          title: issue.priorityLabel,
+          systemImage: priorityStyle.systemImage,
+          color: priorityStyle.color
+        )
+
+        if let dueDate = issue.dueDate, !dueDate.isEmpty {
+          MetadataPill(
+            title: DisplayFormatters.linearDueDate(dueDate),
+            systemImage: "calendar",
+            color: .secondary
+          )
+        }
+
+        if isCopied {
+          Spacer(minLength: 0)
+
+          Label("Copied", systemImage: "checkmark")
+            .font(.caption)
+            .foregroundStyle(.green)
+            .transition(.opacity)
+        }
+
+        if isUpdating {
+          Spacer(minLength: 0)
+
+          Label("Updating", systemImage: "clock.arrow.circlepath")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .transition(.opacity)
+        }
+      }
+    }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 3)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+    .background {
+      if isHovered {
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .fill(Color.primary.opacity(0.06))
+      }
+    }
+    .animation(.easeOut(duration: 0.12), value: isHovered)
+    .animation(.easeOut(duration: 0.12), value: isCopied)
   }
 
   /// VoiceOver summary for the Linear issue row.
@@ -977,6 +1246,146 @@ private struct IssueRow: View {
     default:
       return MetadataStyle(systemImage: "ellipsis.circle", color: .secondary)
     }
+  }
+}
+
+/// Compact circular destructive action revealed by horizontal row scrolling.
+private struct CompactDestructiveActionButton: View {
+  /// SF Symbol shown inside the destructive action.
+  let systemImage: String
+
+  /// VoiceOver label for the button.
+  let accessibilityLabel: String
+
+  /// VoiceOver hint for the button.
+  let accessibilityHint: String
+
+  /// Stable UI test identifier.
+  let accessibilityIdentifier: String
+
+  /// Confirmation title shown before running the destructive action.
+  let confirmationTitle: String?
+
+  /// Optional confirmation detail shown before running the destructive action.
+  let confirmationMessage: String?
+
+  /// Action run when the button is pressed.
+  let action: () -> Void
+
+  /// Builds the destructive action button.
+  var body: some View {
+    Button(role: .destructive, action: runAction) {
+      ZStack {
+        Circle()
+          .fill(Color.red)
+
+        Image(systemName: systemImage)
+          .font(.system(size: 13, weight: .semibold))
+          .foregroundStyle(.white)
+      }
+      .frame(width: destructiveButtonSize, height: destructiveButtonSize)
+      .frame(width: destructiveRevealWidth, height: workItemRowHeight)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(accessibilityLabel)
+    .accessibilityHint(accessibilityHint)
+    .accessibilityIdentifier(accessibilityIdentifier)
+  }
+
+  /// Runs the destructive action after optional AppKit confirmation.
+  private func runAction() {
+    guard let confirmationTitle else {
+      action()
+      return
+    }
+
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = confirmationTitle
+    alert.informativeText = confirmationMessage ?? ""
+    alert.addButton(withTitle: accessibilityLabel)
+    alert.addButton(withTitle: "Cancel")
+
+    if alert.runModal() == .alertFirstButtonReturn {
+      action()
+    }
+  }
+}
+
+/// One local note row with a horizontal reveal delete action.
+private struct NoteRow: View {
+  /// Note represented by the row.
+  let note: LocalNoteItem
+
+  /// Whether the pointer is currently over the row.
+  let isHovered: Bool
+
+  /// Action run when the note is opened.
+  let open: () -> Void
+
+  /// Action run when the note is deleted.
+  let delete: () -> Void
+
+  /// Builds the note row.
+  var body: some View {
+    GeometryReader { proxy in
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 0) {
+          Button(action: open) {
+            noteContent
+              .frame(width: proxy.size.width, height: workItemRowHeight, alignment: .leading)
+          }
+          .buttonStyle(.plain)
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel(accessibilityLabel)
+          .accessibilityHint("Open note editor")
+          .accessibilityIdentifier("notes.note.\(note.id)")
+
+          CompactDestructiveActionButton(
+            systemImage: "trash",
+            accessibilityLabel: "Delete note",
+            accessibilityHint: "Deletes this local note",
+            accessibilityIdentifier: "notes.delete.\(note.id)",
+            confirmationTitle: "Delete note?",
+            confirmationMessage: "Delete \(note.title.compactLine(limit: 64)) from local notes.",
+            action: delete
+          )
+        }
+      }
+      .scrollContentBackground(.hidden)
+      .clipped()
+    }
+    .frame(height: workItemRowHeight)
+  }
+
+  /// Main note content that slides left to expose the delete action.
+  private var noteContent: some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(note.title.compactLine(limit: 64))
+        .font(.callout.weight(.semibold))
+        .foregroundStyle(.primary)
+        .lineLimit(1)
+
+      Text(DisplayFormatters.noteDate(note.updatedAt))
+        .font(.caption2)
+        .foregroundStyle(.tertiary)
+    }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 3)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+    .background {
+      if isHovered {
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .fill(Color.primary.opacity(0.06))
+      }
+    }
+    .animation(.easeOut(duration: 0.12), value: isHovered)
+  }
+
+  /// VoiceOver summary for the note row.
+  private var accessibilityLabel: String {
+    "\(note.title), updated \(DisplayFormatters.noteDate(note.updatedAt))"
   }
 }
 

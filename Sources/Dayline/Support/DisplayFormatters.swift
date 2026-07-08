@@ -17,6 +17,14 @@ enum DisplayFormatters {
     return formatter
   }()
 
+  /// Date-time formatter for local note metadata.
+  static let noteTimestamp: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateStyle = .medium
+    formatter.timeStyle = .short
+    return formatter
+  }()
+
   /// Formats an event time range for one-line display.
   static func eventTimeRange(start: Date, end: Date, now: Date = Date()) -> String {
     if start <= now && end > now {
@@ -62,5 +70,10 @@ enum DisplayFormatters {
     output.dateStyle = .medium
     output.timeStyle = .none
     return output.string(from: date)
+  }
+
+  /// Formats a local note timestamp for compact metadata.
+  static func noteDate(_ date: Date) -> String {
+    noteTimestamp.string(from: date)
   }
 }

@@ -4,6 +4,7 @@ Dayline is a lightweight macOS menu bar app for a compact daily glance at:
 
 - upcoming Google Calendar events for today, with an optional tomorrow section
 - active Linear issues assigned to you, sorted by your chosen order
+- local notes stored on this Mac, with the first line used as the title
 
 It is intentionally menu-bar-only, native SwiftUI, and small. Data refreshes in the background on a configurable cadence.
 
@@ -146,8 +147,15 @@ Open the menu bar calendar icon to see:
 - `Up Next`: remaining timed calendar events today
 - `Show tomorrow`: expand or collapse tomorrow's timed calendar events
 - `Linear`: active assigned Linear issues
+- `+`: create a Linear issue with the Linear CLI default team
+- issue rows: horizontally swipe or scroll to reveal `Cancel`
 - `Show more`: reveal more fetched Linear issues
 - `Show less`: collapse expanded Linear issues
+- `Notes`: local notes stored on this Mac
+- `+`: create a local note in a small editor window
+- note rows: horizontally swipe or scroll to reveal `Delete`
+- `Show more`: reveal more fetched notes
+- `Show less`: collapse expanded notes
 
 Issue row shortcuts while hovering a Linear issue:
 
@@ -163,6 +171,8 @@ Settings lets you change:
 - status picker hotkey
 - priority picker hotkey
 - Linear issue ordering
+- default note count
+- note ordering by update time, creation time, or first-line title
 
 ## UI Test Helpers
 
@@ -174,8 +184,12 @@ The app includes a small Accessibility-driven helper for fast local testing:
 ./script/menu_test.sh tree
 ./script/menu_test.sh identifiers
 ./script/menu_test.sh press-id calendar.tomorrow.toggle
+./script/menu_test.sh press-id linear.new
 ./script/menu_test.sh press-id linear.showMore
 ./script/menu_test.sh press-id linear.showLess
+./script/menu_test.sh press-id notes.new
+./script/menu_test.sh press-id notes.showMore
+./script/menu_test.sh press-id notes.showLess
 ./script/menu_test.sh hover refresh
 ./script/menu_test.sh hover settings
 ./script/menu_test.sh hover quit
@@ -196,9 +210,23 @@ Stable Accessibility identifiers include:
 - `setup.linear.install`
 - `setup.linear.auth`
 - `calendar.tomorrow.toggle`
+- `linear.new`
 - `linear.showMore`
 - `linear.showLess`
 - `linear.issue.<ISSUE-ID>`
+- `linear.cancel.<ISSUE-ID>`
+- `linearEditor.title`
+- `linearEditor.description`
+- `linearEditor.create`
+- `linearEditor.cancel`
+- `notes.new`
+- `notes.showMore`
+- `notes.showLess`
+- `notes.note.<NOTE-ID>`
+- `notes.delete.<NOTE-ID>`
+- `noteEditor.text`
+- `noteEditor.save`
+- `noteEditor.cancel`
 - `settings.launchAtLogin`
 - `settings.refreshCadence`
 - `settings.menuBarEventLeadTime`
@@ -207,6 +235,8 @@ Stable Accessibility identifiers include:
 - `settings.statusPickerHotkey`
 - `settings.priorityPickerHotkey`
 - `settings.linearIssueOrder`
+- `settings.defaultNoteCount`
+- `settings.localNoteSortOrder`
 
 Run the smoke test:
 
@@ -219,7 +249,7 @@ Run the smoke test:
 ```text
 Sources/Dayline/App/        App entrypoint
 Sources/Dayline/Models/     Value models
-Sources/Dayline/Services/   gws, Linear CLI, and process execution
+Sources/Dayline/Services/   gws, Linear CLI, local persistence, and process execution
 Sources/Dayline/Stores/     App state and refresh loop
 Sources/Dayline/Support/    Formatters and small helpers
 Sources/Dayline/Views/      SwiftUI views
@@ -228,4 +258,4 @@ script/                          Build, smoke, and menu test helpers
 
 ## Notes
 
-This is local tooling, not a sandboxed App Store app. It relies on authenticated local CLI tools rather than embedding Google or Linear OAuth flows.
+This is local tooling, not a sandboxed App Store app. Calendar and Linear rely on authenticated local CLI tools; notes are stored locally in Dayline's Application Support folder. A note's first line is its menu title; the rest becomes the preview.
