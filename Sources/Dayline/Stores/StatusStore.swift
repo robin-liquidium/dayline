@@ -767,10 +767,12 @@ final class StatusStore: ObservableObject {
     let leadTime = TimeInterval(menuBarEventLeadTimeMinutes * 60)
     let postStartGrace = TimeInterval(menuBarEventPostStartGraceMinutes * 60)
 
-    return events.first { event in
-      now >= event.startDate.addingTimeInterval(-leadTime)
-        && now <= event.startDate.addingTimeInterval(postStartGrace)
-    }
+    return CalendarEventItem.menuBarCandidate(
+      in: events,
+      at: now,
+      leadTime: leadTime,
+      postStartGrace: postStartGrace
+    )
   }
 
   /// Applies the selected Linear ordering to fetched issue candidates.
