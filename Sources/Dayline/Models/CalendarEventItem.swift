@@ -27,4 +27,21 @@ struct CalendarEventItem: Identifiable, Equatable {
   func isHappening(at date: Date) -> Bool {
     date >= startDate && date < endDate
   }
+
+  /// Picks the event shown in the menu bar, keeping an active event ahead of upcoming ones.
+  static func menuBarCandidate(
+    in events: [CalendarEventItem],
+    at date: Date,
+    leadTime: TimeInterval,
+    postStartGrace: TimeInterval
+  ) -> CalendarEventItem? {
+    if let activeEvent = events.first(where: { $0.isHappening(at: date) }) {
+      return activeEvent
+    }
+
+    return events.first { event in
+      date >= event.startDate.addingTimeInterval(-leadTime)
+        && date <= event.startDate.addingTimeInterval(postStartGrace)
+    }
+  }
 }
