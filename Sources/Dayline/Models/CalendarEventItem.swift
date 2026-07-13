@@ -28,7 +28,7 @@ struct CalendarEventItem: Identifiable, Equatable {
     date >= startDate && date < endDate
   }
 
-  /// Picks the event shown in the menu bar, keeping an active event ahead of upcoming ones.
+  /// Picks from start-time-sorted events, keeping an active event ahead of upcoming ones.
   static func menuBarCandidate(
     in events: [CalendarEventItem],
     at date: Date,

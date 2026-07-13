@@ -26,12 +26,12 @@ struct CalendarEventItemTests {
     #expect(candidate == activeEvent)
   }
 
-  @Test func menuBarCandidateShowsUpcomingEventWithinLeadTime() {
+  @Test func menuBarCandidateIncludesUpcomingEventAtLeadTimeBoundary() {
     let now = Date(timeIntervalSince1970: 10_000)
     let upcomingEvent = event(
       id: "upcoming",
-      startDate: now.addingTimeInterval(20 * 60),
-      endDate: now.addingTimeInterval(50 * 60)
+      startDate: now.addingTimeInterval(30 * 60),
+      endDate: now.addingTimeInterval(60 * 60)
     )
 
     let candidate = CalendarEventItem.menuBarCandidate(
