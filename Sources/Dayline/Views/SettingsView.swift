@@ -33,91 +33,140 @@ struct SettingsView: View {
 
   /// Builds the settings form.
   var body: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      ForEach(store.connectionStatuses) { status in
-        accountRow(status)
-      }
+    ScrollView {
+      VStack(alignment: .leading, spacing: 16) {
+        googleAccountsRow
 
-      Divider()
-        .padding(.vertical, 2)
+        if let linearStatus = store.connectionStatuses.first(where: { $0.provider == .linear }) {
+          accountRow(linearStatus)
+        }
 
-      checkboxRow {
-        Toggle("Launch at login", isOn: launchAtLoginBinding)
-          .accessibilityIdentifier("settings.launchAtLogin")
-      }
+        Divider()
+          .padding(.vertical, 2)
 
-      if let launchAtLoginError = store.launchAtLoginError {
-        valueColumnRow {
-          Text(launchAtLoginError)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .accessibilityIdentifier("settings.launchAtLoginError")
+        checkboxRow {
+          Toggle("Launch at login", isOn: launchAtLoginBinding)
+            .accessibilityIdentifier("settings.launchAtLogin")
+        }
+
+        if let launchAtLoginError = store.launchAtLoginError {
+          valueColumnRow {
+            Text(launchAtLoginError)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .accessibilityIdentifier("settings.launchAtLoginError")
+          }
+        }
+
+        settingsPicker("Refresh:", selection: cadenceBinding, accessibilityIdentifier: "settings.refreshCadence") {
+          ForEach(cadenceOptions, id: \.self) { minutes in
+            Text(label(for: minutes)).tag(minutes)
+          }
+        }
+
+        settingsPicker("Show title before:", selection: menuBarLeadTimeBinding, accessibilityIdentifier: "settings.menuBarEventLeadTime") {
+          ForEach(menuBarLeadTimePickerOptions, id: \.self) { minutes in
+            Text(minutesLabel(for: minutes)).tag(minutes)
+          }
+        }
+
+        settingsPicker("Show title after:", selection: menuBarPostStartGraceBinding, accessibilityIdentifier: "settings.menuBarEventPostStartGrace") {
+          ForEach(menuBarPostStartGracePickerOptions, id: \.self) { minutes in
+            Text(minutesLabel(for: minutes)).tag(minutes)
+          }
+        }
+
+        Divider()
+          .padding(.vertical, 2)
+
+        settingsPicker("Copy issue link:", selection: copyHotkeyBinding, accessibilityIdentifier: "settings.copyIssueHotkey") {
+          ForEach(copyHotkeyOptions, id: \.self) { hotkey in
+            Text(hotkey.uppercased()).tag(hotkey)
+          }
+        }
+
+        settingsPicker("Change status:", selection: statusPickerHotkeyBinding, accessibilityIdentifier: "settings.statusPickerHotkey") {
+          ForEach(statusPickerHotkeyPickerOptions, id: \.self) { hotkey in
+            Text(hotkey.uppercased()).tag(hotkey)
+          }
+        }
+
+        settingsPicker("Change priority:", selection: priorityPickerHotkeyBinding, accessibilityIdentifier: "settings.priorityPickerHotkey") {
+          ForEach(priorityPickerHotkeyPickerOptions, id: \.self) { hotkey in
+            Text(hotkey.uppercased()).tag(hotkey)
+          }
+        }
+
+        settingsPicker("Linear issues:", selection: linearIssueOrderBinding, accessibilityIdentifier: "settings.linearIssueOrder") {
+          ForEach(LinearIssueOrder.allCases) { order in
+            Text(order.label).tag(order)
+          }
+        }
+
+        settingsPicker("Notes shown:", selection: defaultNoteCountBinding, accessibilityIdentifier: "settings.defaultNoteCount") {
+          ForEach(defaultNoteCountPickerOptions, id: \.self) { count in
+            Text("\(count)").tag(count)
+          }
+        }
+
+        settingsPicker("Notes sort:", selection: localNoteSortOrderBinding, accessibilityIdentifier: "settings.localNoteSortOrder") {
+          ForEach(LocalNoteSortOrder.allCases) { order in
+            Text(order.label).tag(order)
+          }
         }
       }
-
-      settingsPicker("Refresh:", selection: cadenceBinding, accessibilityIdentifier: "settings.refreshCadence") {
-        ForEach(cadenceOptions, id: \.self) { minutes in
-          Text(label(for: minutes)).tag(minutes)
-        }
-      }
-
-      settingsPicker("Show title before:", selection: menuBarLeadTimeBinding, accessibilityIdentifier: "settings.menuBarEventLeadTime") {
-        ForEach(menuBarLeadTimePickerOptions, id: \.self) { minutes in
-          Text(minutesLabel(for: minutes)).tag(minutes)
-        }
-      }
-
-      settingsPicker("Show title after:", selection: menuBarPostStartGraceBinding, accessibilityIdentifier: "settings.menuBarEventPostStartGrace") {
-        ForEach(menuBarPostStartGracePickerOptions, id: \.self) { minutes in
-          Text(minutesLabel(for: minutes)).tag(minutes)
-        }
-      }
-
-      Divider()
-        .padding(.vertical, 2)
-
-      settingsPicker("Copy issue link:", selection: copyHotkeyBinding, accessibilityIdentifier: "settings.copyIssueHotkey") {
-        ForEach(copyHotkeyOptions, id: \.self) { hotkey in
-          Text(hotkey.uppercased()).tag(hotkey)
-        }
-      }
-
-      settingsPicker("Change status:", selection: statusPickerHotkeyBinding, accessibilityIdentifier: "settings.statusPickerHotkey") {
-        ForEach(statusPickerHotkeyPickerOptions, id: \.self) { hotkey in
-          Text(hotkey.uppercased()).tag(hotkey)
-        }
-      }
-
-      settingsPicker("Change priority:", selection: priorityPickerHotkeyBinding, accessibilityIdentifier: "settings.priorityPickerHotkey") {
-        ForEach(priorityPickerHotkeyPickerOptions, id: \.self) { hotkey in
-          Text(hotkey.uppercased()).tag(hotkey)
-        }
-      }
-
-      settingsPicker("Linear issues:", selection: linearIssueOrderBinding, accessibilityIdentifier: "settings.linearIssueOrder") {
-        ForEach(LinearIssueOrder.allCases) { order in
-          Text(order.label).tag(order)
-        }
-      }
-
-      settingsPicker("Notes shown:", selection: defaultNoteCountBinding, accessibilityIdentifier: "settings.defaultNoteCount") {
-        ForEach(defaultNoteCountPickerOptions, id: \.self) { count in
-          Text("\(count)").tag(count)
-        }
-      }
-
-      settingsPicker("Notes sort:", selection: localNoteSortOrderBinding, accessibilityIdentifier: "settings.localNoteSortOrder") {
-        ForEach(LocalNoteSortOrder.allCases) { order in
-          Text(order.label).tag(order)
-        }
-      }
+      .padding(.horizontal, 34)
+      .padding(.vertical, 28)
     }
-    .padding(.horizontal, 34)
-    .padding(.vertical, 28)
-    .frame(width: 600)
+    .frame(width: 640)
+    .frame(minHeight: 520, maxHeight: 760)
     .accessibilityIdentifier("settings.form")
     .onAppear {
       store.refreshLaunchAtLoginStatus()
+    }
+  }
+
+  /// Multi-account Google section with inline calendar disclosures.
+  private var googleAccountsRow: some View {
+    HStack(alignment: .top, spacing: 16) {
+      settingLabel("Google Calendar")
+        .accessibilityIdentifier("settings.account.google")
+
+      VStack(alignment: .leading, spacing: 10) {
+        if store.googleAccounts.isEmpty {
+          Text("No Google accounts linked")
+            .foregroundStyle(.secondary)
+        } else {
+          ForEach(store.googleAccounts) { status in
+            GoogleAccountSettingsRow(status: status)
+          }
+        }
+
+        Button {
+          Task { await store.addGoogleAccount() }
+        } label: {
+          Label("Add Google Account", systemImage: "plus")
+        }
+        .disabled(!store.canAddGoogleAccount || !AuthProvider.google.isConfigured)
+        .accessibilityIdentifier("settings.account.google.add")
+
+        if store.isGoogleAuthorizationInProgress {
+          HStack(spacing: 8) {
+            ProgressView()
+              .controlSize(.small)
+            Text("Finish sign-in in your browser.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+        } else if let error = store.googleAuthorizationError {
+          Text(error)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("settings.account.google.error")
+        }
+      }
+      .frame(width: controlColumnWidth, alignment: .leading)
     }
   }
 
@@ -332,5 +381,110 @@ struct SettingsView: View {
   /// Preserves curated picker order while keeping an existing custom value visible.
   private func pickerOptions(_ options: [String], including currentValue: String) -> [String] {
     options.contains(currentValue) ? options : options + [currentValue]
+  }
+}
+
+/// One linked Google account with an inline calendar picker.
+private struct GoogleAccountSettingsRow: View {
+  @EnvironmentObject private var store: StatusStore
+  @State private var isExpanded = false
+
+  let status: GoogleAccountStatus
+
+  var body: some View {
+    DisclosureGroup(isExpanded: $isExpanded) {
+      VStack(alignment: .leading, spacing: 7) {
+        if status.account.calendars.isEmpty {
+          Text("Calendars will appear after this account connects.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        } else {
+          ForEach(status.account.calendars) { calendar in
+            Toggle(isOn: calendarBinding(calendar)) {
+              HStack(spacing: 6) {
+                Text(calendar.name)
+                  .lineLimit(1)
+                if calendar.isPrimary {
+                  Text("Primary")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+              }
+            }
+            .toggleStyle(.checkbox)
+            .accessibilityIdentifier(
+              "settings.account.google.\(status.id.uuidString).calendar.\(calendar.id)"
+            )
+          }
+        }
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.top, 6)
+    } label: {
+      HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text(status.account.label)
+            .lineLimit(1)
+            .accessibilityIdentifier("settings.account.google.\(status.id.uuidString)")
+
+          if let detail = status.detail, !detail.isEmpty {
+            Text(detail)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .lineLimit(2)
+          } else {
+            Text(calendarCountLabel)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+        }
+
+        Spacer(minLength: 0)
+
+        accountAction
+
+        Button("Disconnect", role: .destructive) {
+          Task { await store.disconnectGoogleAccount(status.id) }
+        }
+        .disabled(store.isGoogleAuthorizationInProgress || status.state == .connecting)
+        .accessibilityIdentifier("settings.account.google.\(status.id.uuidString).disconnect")
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var accountAction: some View {
+    switch status.state {
+    case .checking, .connecting:
+      ProgressView()
+        .controlSize(.small)
+    case .disconnected:
+      Button("Reconnect") {
+        Task { await store.reconnectGoogleAccount(status.id) }
+      }
+      .disabled(store.isGoogleAuthorizationInProgress)
+      .accessibilityIdentifier("settings.account.google.\(status.id.uuidString).reconnect")
+    case .connected:
+      EmptyView()
+    }
+  }
+
+  private var calendarCountLabel: String {
+    let enabledCount = status.account.calendars.filter(\.isEnabled).count
+    let totalCount = status.account.calendars.count
+    return "\(enabledCount) of \(totalCount) calendars enabled"
+  }
+
+  private func calendarBinding(_ calendar: GoogleCalendarSource) -> Binding<Bool> {
+    Binding(
+      get: { calendar.isEnabled },
+      set: {
+        store.setGoogleCalendarEnabled(
+          accountID: status.id,
+          calendarID: calendar.id,
+          isEnabled: $0
+        )
+      }
+    )
   }
 }

@@ -1,76 +1,132 @@
 import Foundation
 
-/// Fetches and normalizes upcoming events from the Google Calendar API.
-struct CalendarService {
-  /// OAuth session supplying Google access tokens.
-  var authSession: OAuthSession = .google
+/// Identity and calendar catalog discovered for one authenticated Google account.
+struct GoogleAccountDiscovery: Sendable {
+  let providerAccountID: String
+  let displayLabel: String
+  let calendars: [GoogleCalendarSource]
+}
 
-  /// Loads timed events between now and the end of the local day.
-  func fetchUpcomingEvents(now: Date = Date(), limit: Int = 6) async throws -> [CalendarEventItem] {
-    let calendar = Calendar.current
-    let endOfDay = calendar.dateInterval(of: .day, for: now)?.end.addingTimeInterval(-1) ?? now.addingTimeInterval(6 * 60 * 60)
-    return try await fetchEvents(from: now, to: endOfDay, cutoff: now, limit: limit)
+/// Fetches and normalizes calendar metadata and events from the Google Calendar API.
+struct CalendarService: Sendable {
+  /// OAuth session supplying one Google account's access tokens.
+  let authSession: OAuthSession
+
+  init(authSession: OAuthSession = .google) {
+    self.authSession = authSession
   }
 
-  /// Loads timed events for tomorrow.
-  func fetchTomorrowEvents(now: Date = Date(), limit: Int = 8) async throws -> [CalendarEventItem] {
-    let calendar = Calendar.current
-    let today = calendar.startOfDay(for: now)
-    let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) ?? now.addingTimeInterval(24 * 60 * 60)
-    let endOfTomorrow = calendar.date(byAdding: .day, value: 1, to: tomorrow)?.addingTimeInterval(-1) ?? tomorrow.addingTimeInterval(24 * 60 * 60 - 1)
-    return try await fetchEvents(from: tomorrow, to: endOfTomorrow, cutoff: tomorrow, limit: limit)
+  /// Loads the primary identity and complete readable calendar catalog for one account.
+  func fetchAccountDiscovery() async throws -> GoogleAccountDiscovery {
+    async let identity = fetchPrimaryCalendarIdentity()
+    async let calendars = fetchCalendarSources()
+    let (resolvedIdentity, resolvedCalendars) = try await (identity, calendars)
+    return GoogleAccountDiscovery(
+      providerAccountID: resolvedIdentity.id,
+      displayLabel: resolvedIdentity.id,
+      calendars: resolvedCalendars
+    )
   }
 
-  /// Loads the connected Google account label for Settings.
+  /// Loads the connected Google account label for compatibility with existing call sites.
   func fetchAccountLabel() async throws -> String {
-    let url = URL(string: "https://www.googleapis.com/calendar/v3/calendars/primary")!
-    let data = try await authSession.authorizedData(for: URLRequest(url: url))
-    let calendar = try JSONDecoder().decode(GoogleCalendarIdentity.self, from: data)
-    let summary = calendar.summary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    if !summary.isEmpty {
-      return summary
-    }
-    return calendar.id
+    try await fetchPrimaryCalendarIdentity().id
   }
 
-  /// Loads timed events in a bounded calendar range.
-  private func fetchEvents(from startDate: Date, to endDate: Date, cutoff: Date, limit: Int) async throws -> [CalendarEventItem] {
-    // Always emit UTC `...Z` timestamps so `+` offsets are never misread as spaces in query strings.
+  /// Loads all calendars for which event details are readable, including hidden entries.
+  func fetchCalendarSources() async throws -> [GoogleCalendarSource] {
+    var sources: [GoogleCalendarSource] = []
+    var pageToken: String?
+
+    repeat {
+      var components = URLComponents()
+      components.scheme = "https"
+      components.host = "www.googleapis.com"
+      components.path = "/calendar/v3/users/me/calendarList"
+      components.queryItems = [
+        URLQueryItem(name: "maxResults", value: "250"),
+        URLQueryItem(name: "minAccessRole", value: "reader"),
+        URLQueryItem(name: "showDeleted", value: "false"),
+        URLQueryItem(name: "showHidden", value: "true")
+      ]
+      if let pageToken {
+        components.queryItems?.append(URLQueryItem(name: "pageToken", value: pageToken))
+      }
+
+      guard let url = components.url else {
+        throw OAuthError.httpError(-1, "Could not build the Google calendar list URL.")
+      }
+
+      let data = try await authSession.authorizedData(for: URLRequest(url: url))
+      let response = try JSONDecoder().decode(GoogleCalendarListResponse.self, from: data)
+      sources.append(contentsOf: (response.items ?? []).map { entry in
+        GoogleCalendarSource(
+          id: entry.id,
+          name: entry.displayName,
+          isPrimary: entry.primary ?? false,
+          isEnabled: entry.selected ?? false
+        )
+      })
+      pageToken = response.nextPageToken
+    } while pageToken != nil
+
+    return sources
+  }
+
+  /// Loads timed events from one enabled calendar in a bounded agenda window.
+  func fetchEvents(
+    accountID: UUID,
+    calendar: GoogleCalendarSource,
+    from startDate: Date,
+    to endDate: Date,
+    cutoff: Date
+  ) async throws -> [CalendarEventItem] {
     let isoFormatter = ISO8601DateFormatter()
     isoFormatter.timeZone = TimeZone(secondsFromGMT: 0)
     isoFormatter.formatOptions = [.withInternetDateTime]
 
-    var components = URLComponents()
-    components.scheme = "https"
-    components.host = "www.googleapis.com"
-    components.path = "/calendar/v3/calendars/primary/events"
-    components.percentEncodedQuery = [
-      "timeMin": isoFormatter.string(from: startDate),
-      "timeMax": isoFormatter.string(from: endDate),
-      "singleEvents": "true",
-      "orderBy": "startTime",
-      "maxResults": String(max(limit * 3, 12)),
-      "timeZone": TimeZone.current.identifier
-    ]
-    .map { key, value in
-      "\(Self.percentEncode(key))=\(Self.percentEncode(value))"
-    }
-    .joined(separator: "&")
+    var events: [CalendarEventItem] = []
+    var pageToken: String?
 
-    guard let url = components.url else {
-      throw OAuthError.httpError(-1, "Could not build Google Calendar request URL.")
-    }
+    repeat {
+      var components = URLComponents()
+      components.scheme = "https"
+      components.host = "www.googleapis.com"
+      components.percentEncodedPath = "/calendar/v3/calendars/\(Self.percentEncode(calendar.id))/events"
+      components.queryItems = [
+        URLQueryItem(name: "timeMin", value: isoFormatter.string(from: startDate)),
+        URLQueryItem(name: "timeMax", value: isoFormatter.string(from: endDate)),
+        URLQueryItem(name: "singleEvents", value: "true"),
+        URLQueryItem(name: "orderBy", value: "startTime"),
+        URLQueryItem(name: "maxResults", value: "2500")
+      ]
+      if let pageToken {
+        components.queryItems?.append(URLQueryItem(name: "pageToken", value: pageToken))
+      }
 
-    let data = try await authSession.authorizedData(for: URLRequest(url: url))
-    let response = try JSONDecoder().decode(GoogleCalendarResponse.self, from: data)
-    return (response.items ?? [])
-      .compactMap { $0.displayItem(now: cutoff) }
-      .sorted { $0.startDate < $1.startDate }
-      .prefix(limit)
-      .map { $0 }
+      guard let url = components.url else {
+        throw OAuthError.httpError(-1, "Could not build the Google Calendar request URL.")
+      }
+
+      let data = try await authSession.authorizedData(for: URLRequest(url: url))
+      let response = try JSONDecoder().decode(GoogleCalendarEventsResponse.self, from: data)
+      events.append(contentsOf: (response.items ?? []).compactMap {
+        $0.displayItem(accountID: accountID, calendar: calendar, now: cutoff)
+      })
+      pageToken = response.nextPageToken
+    } while pageToken != nil
+
+    return events.sorted { $0.startDate < $1.startDate }
   }
 
-  /// Percent-encodes a query component, including `+` and other reserved characters.
+  /// Loads the primary calendar identity, whose ID is the stable Google account email.
+  private func fetchPrimaryCalendarIdentity() async throws -> GoogleCalendarIdentity {
+    let url = URL(string: "https://www.googleapis.com/calendar/v3/calendars/primary")!
+    let data = try await authSession.authorizedData(for: URLRequest(url: url))
+    return try JSONDecoder().decode(GoogleCalendarIdentity.self, from: data)
+  }
+
+  /// Percent-encodes one URL path component using strict RFC 3986 unreserved characters.
   private static func percentEncode(_ value: String) -> String {
     var allowed = CharacterSet.alphanumerics
     allowed.insert(charactersIn: "-._~")
@@ -78,52 +134,57 @@ struct CalendarService {
   }
 }
 
-/// Primary calendar identity used for Settings account display.
+/// Primary calendar identity used to identify a Google account.
 private struct GoogleCalendarIdentity: Decodable {
-  /// Calendar ID, commonly the account email for the primary calendar.
   let id: String
-
-  /// Human-readable calendar title.
-  let summary: String?
 }
 
-/// Top-level response returned by Google Calendar's events list endpoint.
-private struct GoogleCalendarResponse: Decodable {
-  /// Event objects returned by Google Calendar.
+/// Paginated response returned by CalendarList.list.
+private struct GoogleCalendarListResponse: Decodable {
+  let items: [GoogleCalendarListEntry]?
+  let nextPageToken: String?
+}
+
+/// One readable calendar in a Google account's calendar list.
+private struct GoogleCalendarListEntry: Decodable {
+  let id: String
+  let summary: String?
+  let summaryOverride: String?
+  let primary: Bool?
+  let selected: Bool?
+
+  var displayName: String {
+    let preferred = summaryOverride?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if !preferred.isEmpty {
+      return preferred
+    }
+    let fallback = summary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return fallback.isEmpty ? id : fallback
+  }
+}
+
+/// Paginated response returned by Events.list.
+private struct GoogleCalendarEventsResponse: Decodable {
   let items: [GoogleCalendarEvent]?
+  let nextPageToken: String?
 }
 
 /// Google Calendar event shape used by the app.
 private struct GoogleCalendarEvent: Decodable {
-  /// Event identifier.
   let id: String
-
-  /// Event status such as `confirmed` or `cancelled`.
+  let iCalUID: String?
   let status: String?
-
-  /// Event summary.
   let summary: String?
-
-  /// Event start payload.
   let start: GoogleCalendarEventDate
-
-  /// Event end payload.
   let end: GoogleCalendarEventDate
-
-  /// Optional event location.
+  let originalStartTime: GoogleCalendarEventDate?
   let location: String?
-
-  /// Legacy Google Meet link supplied directly on the event.
   let hangoutLink: String?
-
-  /// Structured conferencing payload supplied by Google Calendar.
   let conferenceData: GoogleCalendarConferenceData?
-
-  /// Browser URL for the event.
   let htmlLink: String?
 
-  /// Converts a Google event into a timed display item.
-  func displayItem(now: Date) -> CalendarEventItem? {
+  /// Converts a Google event into one account- and calendar-scoped display item.
+  func displayItem(accountID: UUID, calendar: GoogleCalendarSource, now: Date) -> CalendarEventItem? {
     guard status != "cancelled",
           let startDate = start.resolvedDate,
           let endDate = end.resolvedDate,
@@ -131,14 +192,19 @@ private struct GoogleCalendarEvent: Decodable {
       return nil
     }
 
+    let occurrenceDate = originalStartTime?.resolvedDate ?? startDate
+    let deduplicationKey = iCalUID.map { "\($0)|\(occurrenceDate.timeIntervalSince1970)" }
     return CalendarEventItem(
-      id: id,
+      id: CalendarEventItem.compositeID(accountID: accountID, calendarID: calendar.id, eventID: id),
       title: (summary?.isEmpty == false ? summary : "Untitled event") ?? "Untitled event",
       startDate: startDate,
       endDate: endDate,
       location: location,
       calendarURL: htmlLink.flatMap(URL.init(string:)),
-      openURL: preferredOpenURL
+      openURL: preferredOpenURL,
+      sourceCalendarNames: [calendar.name],
+      sourceIDs: [CalendarEventItem.sourceID(accountID: accountID, calendarID: calendar.id)],
+      deduplicationKey: deduplicationKey
     )
   }
 
@@ -152,7 +218,6 @@ private struct GoogleCalendarEvent: Decodable {
     if let hangoutURL = hangoutLink.flatMap(URL.init(string:)) {
       return hangoutURL
     }
-
     let entries = conferenceData?.entryPoints ?? []
     return entries.first(where: { $0.entryPointType == "video" })?.url
       ?? entries.first(where: { $0.url != nil })?.url
@@ -166,38 +231,25 @@ private struct GoogleCalendarEvent: Decodable {
   }
 }
 
-/// Structured conferencing information on a Google Calendar event.
 private struct GoogleCalendarConferenceData: Decodable {
-  /// Join options such as video, phone, and SIP entry points.
   let entryPoints: [GoogleCalendarEntryPoint]?
 }
 
-/// One conferencing entry point returned by Google Calendar.
 private struct GoogleCalendarEntryPoint: Decodable {
-  /// Entry point type, commonly `video` for Google Meet links.
   let entryPointType: String?
-
-  /// Join URL string for this entry point.
   let uri: String?
 
-  /// Parsed join URL when the entry point is web-openable.
   var url: URL? {
     uri.flatMap(URL.init(string:))
   }
 }
 
-/// Google Calendar date wrapper that can contain either a timed date or an all-day date.
+/// Google Calendar date wrapper; all-day dates intentionally resolve to nil.
 private struct GoogleCalendarEventDate: Decodable {
-  /// RFC3339 timestamp for timed events.
   let dateTime: String?
-
-  /// Calendar date for all-day events.
   let date: String?
-
-  /// Time zone identifier supplied by Google Calendar.
   let timeZone: String?
 
-  /// Parsed date for timed events; all-day dates are intentionally ignored.
   var resolvedDate: Date? {
     guard let dateTime else {
       return nil

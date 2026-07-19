@@ -118,7 +118,7 @@ enum AuthProvider: String, CaseIterable, Identifiable, Sendable {
 
     if self == .google {
       queryItems.append(URLQueryItem(name: "access_type", value: "offline"))
-      queryItems.append(URLQueryItem(name: "prompt", value: "consent"))
+      queryItems.append(URLQueryItem(name: "prompt", value: "select_account consent"))
     }
 
     components.queryItems = queryItems

@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { site } from "../site";
 import { CheckIcon, CopyIcon, GithubIcon } from "./Icons";
@@ -83,7 +84,7 @@ function CoffeeWallets() {
   );
 }
 
-export function Footer() {
+export function Footer({ showSupport = true }: { showSupport?: boolean }) {
   return (
     <footer className="border-t border-line">
       <div className="mx-auto w-full max-w-5xl px-6 py-10 text-sm text-mute">
@@ -99,6 +100,12 @@ export function Footer() {
             <span>© {new Date().getFullYear()}</span>
           </div>
           <div className="flex items-center gap-6">
+            <Link to="/privacy" className="transition-colors hover:text-ink">
+              Privacy
+            </Link>
+            <Link to="/terms" className="transition-colors hover:text-ink">
+              Terms
+            </Link>
             <a
               href={site.githubUrl}
               target="_blank"
@@ -119,7 +126,7 @@ export function Footer() {
           </div>
         </div>
 
-        <CoffeeWallets />
+        {showSupport ? <CoffeeWallets /> : null}
       </div>
     </footer>
   );
