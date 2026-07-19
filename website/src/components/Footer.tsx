@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { site } from "../site";
 import { CheckIcon, CopyIcon, GithubIcon } from "./Icons";
 
@@ -19,12 +19,14 @@ const wallets = [
 
 function CoffeeWallets() {
   const [copied, setCopied] = useState<string | null>(null);
+  const resetTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const copy = async (name: string, address: string) => {
     try {
       await navigator.clipboard.writeText(address);
       setCopied(name);
-      setTimeout(() => setCopied(null), 1600);
+      if (resetTimeout.current) clearTimeout(resetTimeout.current);
+      resetTimeout.current = setTimeout(() => setCopied(null), 1600);
     } catch {
       // Clipboard access can be unavailable outside a secure context.
     }

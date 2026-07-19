@@ -191,27 +191,41 @@ export function ProductShowcase() {
           <article key={showcase.title} className={showcase.className}>
             {index === 0 ? (
               <div className="grid items-center gap-10 sm:grid-cols-[minmax(0,1fr)_minmax(15rem,0.6fr)] sm:gap-14">
+                <picture>
+                  <source srcSet={showcase.image} type="image/avif" />
+                  <source
+                    srcSet={showcase.image.replace(/\.avif$/, ".webp")}
+                    type="image/webp"
+                  />
+                  <img
+                    src={showcase.image.replace(/\.avif$/, ".webp")}
+                    alt={showcase.alt}
+                    width={showcase.width}
+                    height={showcase.height}
+                    loading="lazy"
+                    className={showcase.imageClassName}
+                  />
+                </picture>
+                <div className="hidden sm:block">
+                  <ShortcutGraphic />
+                </div>
+              </div>
+            ) : (
+              <picture>
+                <source srcSet={showcase.image} type="image/avif" />
+                <source
+                  srcSet={showcase.image.replace(/\.avif$/, ".webp")}
+                  type="image/webp"
+                />
                 <img
-                  src={showcase.image}
+                  src={showcase.image.replace(/\.avif$/, ".webp")}
                   alt={showcase.alt}
                   width={showcase.width}
                   height={showcase.height}
                   loading="lazy"
                   className={showcase.imageClassName}
                 />
-                <div className="hidden sm:block">
-                  <ShortcutGraphic />
-                </div>
-              </div>
-            ) : (
-              <img
-                src={showcase.image}
-                alt={showcase.alt}
-                width={showcase.width}
-                height={showcase.height}
-                loading="lazy"
-                className={showcase.imageClassName}
-              />
+              </picture>
             )}
             <h3 className="mt-5 font-display text-2xl tracking-tight">
               {showcase.title}

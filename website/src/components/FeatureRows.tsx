@@ -62,14 +62,21 @@ export function FeatureRows() {
               </p>
             </div>
             <div className={index % 2 === 1 ? "sm:order-1" : ""}>
-              <img
-                src={feature.image}
-                alt={feature.alt}
-                width={feature.width}
-                height={feature.height}
-                loading="lazy"
-                className="mx-auto w-full"
-              />
+              <picture>
+                <source srcSet={feature.image} type="image/avif" />
+                <source
+                  srcSet={feature.image.replace(/\.avif$/, ".webp")}
+                  type="image/webp"
+                />
+                <img
+                  src={feature.image.replace(/\.avif$/, ".webp")}
+                  alt={feature.alt}
+                  width={feature.width}
+                  height={feature.height}
+                  loading="lazy"
+                  className="mx-auto w-full"
+                />
+              </picture>
             </div>
           </div>
         ))}
