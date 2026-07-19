@@ -225,13 +225,24 @@ submit_for_notarization() {
   local path="$1"
   local submission submission_id info status
 
-  submission="$(notarytool_with_credentials submit "$path" --output-format json)"
-  submission_id="$(/usr/bin/plutil -extract id raw -o - - <<< "$submission")"
+  if ! submission="$(notarytool_with_credentials submit "$path" --output-format json)"; then
+    echo "Notarization submission failed: $submission" >&2
+    return 1
+  fi
+  submission_id="$(/usr/bin/plutil -extract id raw -o - - <<< "$submission" 2>/dev/null || true)"
+  if [[ -z "$submission_id" ]]; then
+    echo "Could not read notarization submission ID: $submission" >&2
+    return 1
+  fi
   echo "Notary submission: $submission_id"
 
   while true; do
     if info="$(notarytool_with_credentials info "$submission_id" --output-format json)"; then
-      status="$(/usr/bin/plutil -extract status raw -o - - <<< "$info")"
+      status="$(/usr/bin/plutil -extract status raw -o - - <<< "$info" 2>/dev/null || true)"
+      if [[ -z "$status" ]]; then
+        echo "Could not parse notarization status: $info" >&2
+        status="Unknown"
+      fi
       case "$status" in
         Accepted)
           echo "Notary submission accepted: $submission_id"
@@ -247,7 +258,7 @@ submit_for_notarization() {
           ;;
       esac
     else
-      echo "Could not check notarization status; retrying in 60 seconds." >&2
+      echo "Could not check notarization status; retrying in 60 seconds: $info" >&2
     fi
     sleep 60
   done
