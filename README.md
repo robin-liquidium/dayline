@@ -1,166 +1,205 @@
-# Dayline
+<p align="center">
+  <img src="website/public/images/icon-256.webp" width="96" height="96" alt="Dayline app icon">
+</p>
 
-Dayline is a lightweight macOS menu bar app for a compact daily glance at:
+<h1 align="center">Dayline</h1>
 
-- upcoming Google Calendar events for today, with an optional tomorrow section
-- active Linear issues assigned to you, sorted by your chosen order
-- local notes stored on this Mac, with the first line used as the title
+<p align="center">
+  Your calendar, Linear issues, and local notes in one quiet macOS menu.
+</p>
 
-It is intentionally menu-bar-only, native SwiftUI, and small. Data refreshes in the background on a configurable cadence.
+<p align="center">
+  <a href="https://github.com/robin-liquidium/dayline/releases/latest/download/Dayline.dmg"><strong>Download the latest DMG</strong></a>
+  ·
+  <a href="https://github.com/robin-liquidium/dayline/releases/latest">Release notes</a>
+</p>
 
-![Dayline showing upcoming calendar events, Linear issues, and local notes from the macOS menu bar](website/public/images/dayline-menu-overview.webp)
+<p align="center">
+  <img src="website/public/images/dayline-menu-overview.webp" width="440" alt="Dayline showing calendar events, Linear issues, and local notes">
+</p>
+
+Dayline is a small, native SwiftUI menu bar app built for the information you
+check throughout the day. It keeps upcoming Google Calendar events, active
+Linear issues, and quick local notes together without adding another dashboard
+or Dock icon.
+
+## Highlights
+
+- **Calendar at a glance:** see remaining timed events today and optionally expand tomorrow.
+- **Linear without the tab:** review assigned issues, create work, change status or priority, and copy issue links.
+- **Local notes:** capture quick notes on this Mac; the first line becomes the title.
+- **Keyboard-first actions:** hover an issue and use configurable shortcuts for copy, status, and priority.
+- **Super lightweight:** native and menu-bar-only, using next to no system resources in the background.
+- **Quiet by design:** menu-bar-only, background refresh, launch at login, and configurable ordering.
+- **Direct and private:** Dayline has no backend, account system, analytics, or tracking.
+
+## Product Tour
+
+### Know what is next
+
+Dayline shows the rest of today without making you open Calendar. Expand
+tomorrow when you want a head start.
+
+<p align="center">
+  <img src="website/public/images/calendar-agenda.webp" width="720" alt="Dayline showing calendar events for today and tomorrow">
+</p>
+
+### Keep Linear close
+
+Assigned issues stay within reach. Hover a row and press `C` to copy its URL,
+`S` to change status, or `P` to change priority. The shortcuts are configurable.
+
+<p align="center">
+  <img src="website/public/images/linear-issue-list.webp" width="720" alt="Dayline showing active Linear issues with their status, priority, and due date">
+</p>
+
+### Write it down locally
+
+Notes are plain text and stay on this Mac. The first line becomes the menu title,
+and more notes remain one click away.
+
+<p align="center">
+  <img src="website/public/images/local-notes-list.webp" width="620" alt="Dayline showing a list of local notes">
+</p>
+
+<details>
+<summary><strong>More screenshots</strong></summary>
+
+<br>
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="website/public/images/linear-status-picker.webp" alt="Dayline Linear status picker">
+      <br><strong>Quick status changes</strong>
+    </td>
+    <td width="50%" align="center">
+      <img src="website/public/images/linear-priority-picker.webp" alt="Dayline Linear priority picker">
+      <br><strong>Quick priority changes</strong>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="website/public/images/linear-issue-editor.webp" alt="Dayline new Linear issue editor">
+      <br><strong>Create Linear issues</strong>
+    </td>
+    <td width="50%" align="center">
+      <img src="website/public/images/dayline-settings.webp" alt="Dayline settings window">
+      <br><strong>Focused, native settings</strong>
+    </td>
+  </tr>
+</table>
+
+</details>
 
 ## Requirements
 
 - macOS 26 or newer
-- SwiftPM / Swift 5.9+
 
-No CLI dependencies are required. Dayline talks directly to Google Calendar and Linear using OAuth 2.0 with PKCE and stores tokens in the macOS Keychain.
+For source builds, install SwiftPM / Swift 5.9 or newer.
 
-## Connect Accounts
+## Install
 
-On first launch, use the menu's `Setup` section to connect Google Calendar and Linear. Authentication opens in the default browser and returns directly to Dayline.
+Download the notarized DMG from the
+[latest GitHub release](https://github.com/robin-liquidium/dayline/releases/latest/download/Dayline.dmg),
+open it, and drag Dayline into Applications.
 
-- Google Calendar requests read-only access to the primary calendar.
-- Linear requests `read,write` access for assigned issues and issue actions.
-- Settings shows the connected account and provides a Disconnect action.
+Homebrew installation is planned but not available yet.
 
-OAuth client IDs are public and bundled in official builds. Source builds can override them with `DAYLINE_GOOGLE_CLIENT_ID` and `DAYLINE_LINEAR_CLIENT_ID`.
-
-### OAuth Application Configuration
-
-For a different Google OAuth application:
-
-1. Enable the Google Calendar API.
-2. Configure and publish an external OAuth consent screen.
-3. Create an iOS OAuth client with bundle ID `build.local.Dayline`.
-4. Set its client ID in `Sources/Dayline/Auth/AuthConfig.swift` or `DAYLINE_GOOGLE_CLIENT_ID`.
-
-For a different Linear OAuth application:
-
-1. Create an OAuth application in Linear.
-2. Enable refresh tokens and add `dayline://oauth/callback` as a redirect URI.
-3. Mark it public for use across workspaces.
-4. Set its client ID in `Sources/Dayline/Auth/AuthConfig.swift` or `DAYLINE_LINEAR_CLIENT_ID`.
-
-## Run
-
-Build and launch the local app bundle:
-
-```sh
-./script/build_and_run.sh
-```
-
-Verify it launches:
-
-```sh
-./script/build_and_run.sh --verify
-```
-
-Useful modes:
-
-```sh
-./script/build_and_run.sh --debug
-./script/build_and_run.sh --logs
-./script/build_and_run.sh --telemetry
-```
-
-The script builds with SwiftPM, creates `dist/Dayline.app`, and launches it as a menu-bar accessory app.
-
-## Install Locally
-
-Install Dayline into `/Applications`:
+To create and install a local development build instead:
 
 ```sh
 ./script/package_release.sh --install
 ```
 
-This builds a release app, copies it to `/Applications/Dayline.app`, and opens it.
+## Connect Accounts
 
-## Public Releases
+On first launch, connect either or both integrations from the menu:
 
-Public releases are tag-driven. A pushed `vX.Y.Z` tag runs `.github/workflows/release.yml` on `macos-26`, builds and tests the tagged commit, signs with Developer ID, notarizes and staples the app and DMG, then publishes both artifacts to GitHub Releases.
+- **Google Calendar:** read-only access to the primary calendar.
+- **Linear:** read/write access for assigned issues and issue actions.
 
-Configure the required encrypted GitHub Secrets once:
+Both providers use OAuth 2.0 with PKCE. Tokens are stored in the macOS
+Keychain, and disconnecting an account revokes and removes its token.
+
+Official builds include the public OAuth client IDs needed for sign-in. Custom
+builds can override them with `DAYLINE_GOOGLE_CLIENT_ID` and
+`DAYLINE_LINEAR_CLIENT_ID`.
+
+<details>
+<summary><strong>Configure different OAuth applications</strong></summary>
+
+### Google
+
+1. Create a Google Cloud project and enable the Google Calendar API.
+2. Configure and publish the external OAuth consent screen.
+3. Create an OAuth client of type **iOS** with bundle ID `build.local.Dayline`.
+4. Put the client ID in `Sources/Dayline/Auth/AuthConfig.swift` or provide `DAYLINE_GOOGLE_CLIENT_ID` at launch.
+
+Google's iOS client redirects through the reversed client ID scheme, which
+Dayline derives automatically.
+
+### Linear
+
+1. Create an OAuth application in Linear under Settings → API → OAuth Applications.
+2. Enable refresh tokens and add `dayline://oauth/callback` as a callback URL.
+3. Mark the application public if it should work across other workspaces.
+4. Put the client ID in `Sources/Dayline/Auth/AuthConfig.swift` or provide `DAYLINE_LINEAR_CLIENT_ID` at launch.
+
+Dayline requests the `read,write` scopes.
+
+</details>
+
+## Privacy
+
+Dayline talks directly from your Mac to Google Calendar and Linear over HTTPS.
+There is no Dayline server between them.
+
+- OAuth tokens live in the macOS Keychain.
+- Notes live in `~/Library/Application Support/Dayline/notes.json`.
+- Calendar and Linear data is held in memory for display.
+- Dayline does not include analytics, tracking, advertising, or an account system.
+
+## Build from Source
+
+Clone the repository, then build and launch the local app bundle:
 
 ```sh
-./script/configure_release_secrets.sh
+git clone https://github.com/robin-liquidium/dayline.git
+cd dayline
+./script/build_and_run.sh
 ```
 
-After release changes are committed, merged, and synchronized on `main`, publish a version with:
+Useful development modes:
 
 ```sh
-./script/tag_release.sh 0.1.4
+./script/build_and_run.sh --verify
+./script/build_and_run.sh --debug
+./script/build_and_run.sh --logs
+./script/build_and_run.sh --telemetry
 ```
 
-Regular pushes and pull requests only run `.github/workflows/ci.yml`; they never publish a release.
+The script builds with SwiftPM, creates `dist/Dayline.app`, and launches it as a
+menu bar accessory app.
 
-### Manual Fallback
+## Screenshot Mode
 
-Create local release artifacts:
+Dayline includes an isolated mock app for screenshots, demos, and visual testing:
 
 ```sh
-./script/package_release.sh
+./script/build_mock_and_run.sh
+DAYLINE_APP_NAME="Dayline Mock" ./script/menu_test.sh open
 ```
 
-The release script builds a release SwiftPM binary, wraps it in `dist/release/Dayline.app`, signs it with the best available local certificate, and creates:
+`Dayline Mock.app` has its own bundle ID and connected-looking sample Calendar,
+Linear, and Notes data. Refreshes, account actions, issue updates, and note edits
+remain in memory and never use real OAuth tokens, APIs, or the production notes
+file.
 
-- `dist/artifacts/Dayline-<version>.dmg`
-- `dist/artifacts/Dayline-<version>.app.zip`
+## Development Helpers
 
-To manually package a clean, exactly tagged commit with local notarization credentials:
-
-```sh
-xcrun notarytool store-credentials dayline-notary
-NOTARY_PROFILE=dayline-notary ./script/package_release.sh --notarize
-```
-
-Then publish the artifacts:
-
-```sh
-./script/publish_github_release.sh
-```
-
-The release scripts reject dirty, untagged, mismatched, and duplicate public releases.
-
-## Use
-
-Open the menu bar calendar icon to see:
-
-- `Up Next`: remaining timed calendar events today
-- `Show tomorrow`: expand or collapse tomorrow's timed calendar events
-- `Linear`: active assigned Linear issues
-- `+`: create a Linear issue
-- issue rows: horizontally swipe or scroll to reveal `Cancel`
-- `Show more`: reveal more fetched Linear issues
-- `Show less`: collapse expanded Linear issues
-- `Notes`: local notes stored on this Mac
-- `+`: create a local note in a small editor window
-- note rows: horizontally swipe or scroll to reveal `Delete`
-- `Show more`: reveal more fetched notes
-- `Show less`: collapse expanded notes
-
-Issue row shortcuts while hovering a Linear issue:
-
-- `C` by default: copy issue URL. This can be changed in Settings.
-- `S` by default: change issue status. This can be changed in Settings.
-- `P` by default: change issue priority. This can be changed in Settings.
-
-Settings lets you change:
-
-- connected Google Calendar and Linear accounts
-- launch at login
-- refresh cadence
-- copy hotkey
-- status picker hotkey
-- priority picker hotkey
-- Linear issue ordering
-- default note count
-- note ordering by update time, creation time, or first-line title
-
-## UI Test Helpers
-
-The app includes a small Accessibility-driven helper for fast local testing:
+The Accessibility-driven menu helper can inspect and operate either the real or
+mock app:
 
 ```sh
 ./script/menu_test.sh open
@@ -170,17 +209,18 @@ The app includes a small Accessibility-driven helper for fast local testing:
 ./script/menu_test.sh press-id calendar.tomorrow.toggle
 ./script/menu_test.sh press-id linear.new
 ./script/menu_test.sh press-id linear.showMore
-./script/menu_test.sh press-id linear.showLess
 ./script/menu_test.sh press-id notes.new
-./script/menu_test.sh press-id notes.showMore
-./script/menu_test.sh press-id notes.showLess
-./script/menu_test.sh hover refresh
-./script/menu_test.sh hover settings
-./script/menu_test.sh hover quit
 ./script/menu_test.sh scroll down
 ```
 
-Stable Accessibility identifiers include:
+Run the complete smoke test with:
+
+```sh
+./script/smoke_test.sh
+```
+
+<details>
+<summary><strong>Stable accessibility identifiers</strong></summary>
 
 - `dayline.refresh`
 - `dayline.settings`
@@ -221,25 +261,84 @@ Stable Accessibility identifiers include:
 - `settings.defaultNoteCount`
 - `settings.localNoteSortOrder`
 
-Run the smoke test:
-
-```sh
-./script/smoke_test.sh
-```
+</details>
 
 ## Project Layout
 
 ```text
-Sources/Dayline/App/        App entrypoint
-Sources/Dayline/Auth/       OAuth, PKCE, and Keychain token storage
-Sources/Dayline/Models/     Value models
-Sources/Dayline/Services/   Google Calendar API, Linear GraphQL API, and local persistence
+Sources/Dayline/App/        App entry point
+Sources/Dayline/Auth/       OAuth sessions, PKCE, and Keychain token storage
+Sources/Dayline/Models/     Display and persistence models
+Sources/Dayline/Services/   Google Calendar, Linear, and local notes services
 Sources/Dayline/Stores/     App state and refresh loop
-Sources/Dayline/Support/    Formatters and small helpers
+Sources/Dayline/Support/    Formatters, mock data, and window helpers
 Sources/Dayline/Views/      SwiftUI views
-script/                     Build, smoke, and release helpers
+script/                     Build, release, smoke, and menu test helpers
+website/                    TanStack Start landing page for Cloudflare Workers
 ```
 
-## Notes
+## Release Process
 
-Calendar and Linear data is fetched directly from each provider over HTTPS. OAuth tokens are stored in the macOS Keychain, and notes are stored locally in Dayline's Application Support folder. A note's first line is its menu title; the rest becomes the preview.
+Public releases are built, signed, notarized, stapled, and published by GitHub
+Actions when a `vX.Y.Z` tag is pushed.
+
+<details>
+<summary><strong>Maintainer release instructions</strong></summary>
+
+### One-time setup
+
+Export the Developer ID Application certificate and private key as a
+password-protected `.p12`, create an App Store Connect API key for notarization,
+then run:
+
+```sh
+./script/configure_release_secrets.sh
+```
+
+Required GitHub Actions secrets:
+
+- `MACOS_CERTIFICATE_P12_BASE64`
+- `MACOS_CERTIFICATE_PASSWORD`
+- `APP_STORE_CONNECT_KEY_P8_BASE64`
+- `APP_STORE_CONNECT_KEY_ID`
+- `APP_STORE_CONNECT_ISSUER_ID`
+
+### Publish a version
+
+After release changes are merged to a clean, synchronized `main` branch:
+
+```sh
+./script/tag_release.sh 0.1.4
+```
+
+The script validates the branch, clean tree, remote synchronization, and version
+uniqueness before pushing the tag. The release workflow then:
+
+1. Builds and tests the exact tagged commit.
+2. Imports the Developer ID certificate.
+3. Signs with hardened runtime and timestamping.
+4. Notarizes and staples the app and DMG.
+5. Publishes the versioned DMG, app ZIP, and stable `Dayline.dmg` asset.
+
+CI also runs `swift build` and `swift test` for pull requests and pushes to
+`main`. Regular pushes never publish releases.
+
+### Manual fallback
+
+Create local unsigned or development-signed artifacts:
+
+```sh
+./script/package_release.sh
+```
+
+For a notarized local release from a clean, exactly tagged commit:
+
+```sh
+xcrun notarytool store-credentials dayline-notary
+NOTARY_PROFILE=dayline-notary ./script/package_release.sh --notarize
+./script/publish_github_release.sh
+```
+
+The scripts reject dirty, untagged, mismatched, or duplicate public releases.
+
+</details>
