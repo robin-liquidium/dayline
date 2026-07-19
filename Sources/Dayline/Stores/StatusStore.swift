@@ -25,11 +25,14 @@ final class StatusStore: ObservableObject {
   /// Local notes persistence error shown as a compact status row.
   @Published private(set) var notesError: String?
 
-  /// Installation/authentication state for required local CLIs.
-  @Published private(set) var dependencyStatuses = DependencyStatus.checkingAll
+  /// Connection state for Google and Linear accounts.
+  @Published private(set) var connectionStatuses = ConnectionStatus.checkingAll
 
   /// Whether a refresh is currently running.
   @Published private(set) var isRefreshing = false
+
+  /// Changes whenever a provider disconnects so in-flight results can be discarded.
+  private var connectionRevisions: [AuthProvider: Int] = [:]
 
   /// Time when the last refresh completed successfully or partially.
   @Published private(set) var lastUpdatedAt: Date?
@@ -225,8 +228,9 @@ final class StatusStore: ObservableObject {
   private let calendarService: CalendarService
   private let linearService: LinearService
   private let notesService: LocalNotesService
-  private let dependencyService: DependencyService
+  private let authSessions: [AuthProvider: OAuthSession]
   private let launchAtLoginService: LaunchAtLoginService
+  private let mockData: MockData?
   private var allIssues: [LinearIssueItem] = []
   private var allNotes: [LocalNoteItem] = []
   private var refreshTimer: Timer?
@@ -237,14 +241,16 @@ final class StatusStore: ObservableObject {
     calendarService: CalendarService = CalendarService(),
     linearService: LinearService = LinearService(),
     notesService: LocalNotesService = LocalNotesService(),
-    dependencyService: DependencyService = DependencyService(),
-    launchAtLoginService: LaunchAtLoginService = LaunchAtLoginService()
+    authSessions: [AuthProvider: OAuthSession] = [.google: .google, .linear: .linear],
+    launchAtLoginService: LaunchAtLoginService = LaunchAtLoginService(),
+    mockData: MockData? = nil
   ) {
     self.calendarService = calendarService
     self.linearService = linearService
     self.notesService = notesService
-    self.dependencyService = dependencyService
+    self.authSessions = authSessions
     self.launchAtLoginService = launchAtLoginService
+    self.mockData = mockData
     self.refreshIntervalMinutes = UserDefaults.standard.integer(forKey: Self.refreshIntervalKey)
     self.copyIssueHotkey = Self.normalizedHotkey(UserDefaults.standard.string(forKey: Self.copyIssueHotkeyKey), defaultValue: "c")
     self.statusPickerHotkey = Self.normalizedHotkey(UserDefaults.standard.string(forKey: Self.statusPickerHotkeyKey), defaultValue: "s")
@@ -271,10 +277,14 @@ final class StatusStore: ObservableObject {
     }
     menuBarEventLeadTimeMinutes = Self.clampedMenuBarLeadTime(menuBarEventLeadTimeMinutes)
     menuBarEventPostStartGraceMinutes = Self.clampedMenuBarPostStartGrace(menuBarEventPostStartGraceMinutes)
-    loadPersistedNotes()
-    scheduleRefreshTimer()
+    if let mockData {
+      applyMockData(mockData)
+    } else {
+      loadPersistedNotes()
+      scheduleRefreshTimer()
+      Task { await refresh() }
+    }
     scheduleMenuBarClockTimer()
-    Task { await refresh() }
   }
 
   deinit {
@@ -282,25 +292,35 @@ final class StatusStore: ObservableObject {
     menuBarClockTimer?.invalidate()
   }
 
-  /// Refreshes dependency, calendar, and Linear data.
+  /// Refreshes connection, calendar, and Linear data.
   func refresh() async {
+    if let mockData {
+      applyMockData(mockData)
+      return
+    }
+
     guard !isRefreshing else {
       return
     }
 
     isRefreshing = true
-    await refreshDependencyStatus()
+    await refreshConnectionStatus()
+    let googleRevision = connectionRevisions[.google, default: 0]
+    let linearRevision = connectionRevisions[.linear, default: 0]
 
-    async let calendarResult: Result<[CalendarEventItem], Error>? = isDependencyReady(.googleWorkspace) ? loadCalendarEvents() : nil
-    async let tomorrowCalendarResult: Result<[CalendarEventItem], Error>? = isDependencyReady(.googleWorkspace) ? loadTomorrowCalendarEvents() : nil
-    async let linearResult: Result<[LinearIssueItem], Error>? = isDependencyReady(.linear) ? loadLinearIssues() : nil
+    async let calendarResult: Result<[CalendarEventItem], Error>? = isConnected(.google) ? loadCalendarEvents() : nil
+    async let tomorrowCalendarResult: Result<[CalendarEventItem], Error>? = isConnected(.google) ? loadTomorrowCalendarEvents() : nil
+    async let linearResult: Result<[LinearIssueItem], Error>? = isConnected(.linear) ? loadLinearIssues() : nil
 
     switch await calendarResult {
-    case .success(let fetchedEvents)?:
+    case .success(let fetchedEvents)? where connectionRevisions[.google, default: 0] == googleRevision && isConnected(.google):
       events = fetchedEvents
       calendarError = nil
-    case .failure(let error)?:
+    case .failure(let error)? where connectionRevisions[.google, default: 0] == googleRevision && isConnected(.google):
+      handleFetchFailure(error, for: .google)
       calendarError = error.localizedDescription
+    case .some(_):
+      break
     case nil:
       events = []
       tomorrowEvents = []
@@ -308,23 +328,28 @@ final class StatusStore: ObservableObject {
     }
 
     switch await tomorrowCalendarResult {
-    case .success(let fetchedEvents)?:
+    case .success(let fetchedEvents)? where connectionRevisions[.google, default: 0] == googleRevision && isConnected(.google):
       tomorrowEvents = fetchedEvents
-    case .failure(let error)?:
+    case .failure(let error)? where connectionRevisions[.google, default: 0] == googleRevision && isConnected(.google):
       if calendarError == nil {
         calendarError = error.localizedDescription
       }
+    case .some(_):
+      break
     case nil:
       break
     }
 
     switch await linearResult {
-    case .success(let fetchedIssues)?:
+    case .success(let fetchedIssues)? where connectionRevisions[.linear, default: 0] == linearRevision && isConnected(.linear):
       allIssues = fetchedIssues
       applyLinearIssueOrder()
       linearError = nil
-    case .failure(let error)?:
+    case .failure(let error)? where connectionRevisions[.linear, default: 0] == linearRevision && isConnected(.linear):
+      handleFetchFailure(error, for: .linear)
       linearError = error.localizedDescription
+    case .some(_):
+      break
     case nil:
       allIssues = []
       applyLinearIssueOrder()
@@ -335,37 +360,132 @@ final class StatusStore: ObservableObject {
     isRefreshing = false
   }
 
-  /// Rechecks install/auth state for the local CLIs.
-  func refreshDependencyStatus() async {
-    dependencyStatuses = DependencyStatus.checkingAll
-    dependencyStatuses = await dependencyService.checkAll()
+  /// Rechecks stored credentials for Google and Linear.
+  func refreshConnectionStatus() async {
+    if let mockData {
+      connectionStatuses = mockData.connectionStatuses
+      return
+    }
+
+    var statuses: [ConnectionStatus] = []
+
+    for provider in AuthProvider.allCases {
+      guard let session = authSessions[provider] else {
+        statuses.append(ConnectionStatus(provider: provider, state: .disconnected, detail: nil, accountLabel: nil))
+        continue
+      }
+
+      let hasTokens = await session.hasTokens()
+      let previous = connectionStatuses.first { $0.provider == provider }
+      if hasTokens {
+        var accountLabel: String?
+        if let existingLabel = previous?.accountLabel, !existingLabel.isEmpty {
+          accountLabel = existingLabel
+        } else {
+          accountLabel = try? await fetchAccountLabel(for: provider)
+          if !(await session.hasTokens()) {
+            statuses.append(ConnectionStatus(
+              provider: provider,
+              state: .disconnected,
+              detail: "Sign in again.",
+              accountLabel: nil
+            ))
+            continue
+          }
+        }
+        statuses.append(ConnectionStatus(
+          provider: provider,
+          state: .connected,
+          detail: nil,
+          accountLabel: accountLabel
+        ))
+      } else {
+        let detail = provider.isConfigured ? nil : "This build is missing its OAuth client ID."
+        statuses.append(ConnectionStatus(
+          provider: provider,
+          state: .disconnected,
+          detail: detail,
+          accountLabel: nil
+        ))
+      }
+    }
+
+    connectionStatuses = statuses
   }
 
-  /// Dependencies that need user setup.
-  var dependencySetupItems: [DependencyStatus] {
-    dependencyStatuses.filter { status in
-      status.state != .ready
+  /// Providers that still need the user to connect an account.
+  var connectionSetupItems: [ConnectionStatus] {
+    connectionStatuses.filter { status in
+      status.state != .connected
     }
   }
 
   /// Whether the setup section should be visible.
-  var hasDependencySetupItems: Bool {
-    !dependencySetupItems.isEmpty
+  var hasConnectionSetupItems: Bool {
+    !connectionSetupItems.isEmpty
+  }
+
+  /// Starts the browser sign-in flow for one provider.
+  func connect(_ provider: AuthProvider) async {
+    guard mockData == nil else { return }
+
+    guard let session = authSessions[provider],
+          connectionStatuses.first(where: { $0.provider == provider })?.state != .connecting else {
+      return
+    }
+
+    updateConnectionStatus(
+      provider,
+      state: .connecting,
+      detail: "Finish sign-in in your browser.",
+      accountLabel: nil
+    )
+
+    do {
+      try await session.signIn()
+      let accountLabel = try? await fetchAccountLabel(for: provider)
+      updateConnectionStatus(provider, state: .connected, detail: nil, accountLabel: accountLabel)
+      await refresh()
+      presentSettingsAfterAuth()
+    } catch OAuthError.authorizationCancelled {
+      updateConnectionStatus(provider, state: .disconnected, detail: nil, accountLabel: nil)
+    } catch {
+      updateConnectionStatus(
+        provider,
+        state: .disconnected,
+        detail: error.localizedDescription.compactLine(limit: 96),
+        accountLabel: nil
+      )
+    }
+  }
+
+  /// Revokes and removes the stored credentials for one provider.
+  func disconnect(_ provider: AuthProvider) async {
+    guard mockData == nil else { return }
+
+    guard let session = authSessions[provider] else {
+      return
+    }
+
+    connectionRevisions[provider, default: 0] += 1
+    await session.signOut()
+    updateConnectionStatus(provider, state: .disconnected, detail: nil, accountLabel: nil)
+
+    switch provider {
+    case .google:
+      events = []
+      tomorrowEvents = []
+      calendarError = nil
+    case .linear:
+      allIssues = []
+      applyLinearIssueOrder()
+      linearError = nil
+    }
   }
 
   /// Persists a new refresh cadence selected from Settings.
   func setRefreshInterval(minutes: Int) {
     refreshIntervalMinutes = minutes
-  }
-
-  /// Opens a dependency install command in Terminal.
-  func installDependency(_ status: DependencyStatus) {
-    TerminalLauncher.run(status.kind.installCommand)
-  }
-
-  /// Opens a dependency auth command in Terminal.
-  func authenticateDependency(_ status: DependencyStatus) {
-    TerminalLauncher.run(status.kind.authCommand)
   }
 
   /// Persists how early the menu bar switches to the meeting title.
@@ -604,6 +724,25 @@ final class StatusStore: ObservableObject {
     updatingStatusIssueID = issueID
     statusPickerIssueID = nil
 
+    if mockData != nil {
+      if let issue = allIssues.first(where: { $0.id == issueID }) {
+        replaceFetchedIssue(LinearIssueItem(
+          id: issue.id,
+          title: issue.title,
+          priority: issue.priority,
+          priorityLabel: issue.priorityLabel,
+          stateName: state.name,
+          stateID: state.id,
+          stateType: state.type,
+          workflowStates: issue.workflowStates,
+          dueDate: issue.dueDate,
+          url: issue.url
+        ))
+      }
+      updatingStatusIssueID = nil
+      return
+    }
+
     do {
       let updatedIssue = try await linearService.updateIssueStatus(issueID: issueID, stateID: state.id)
       replaceFetchedIssue(updatedIssue)
@@ -623,6 +762,25 @@ final class StatusStore: ObservableObject {
 
     updatingPriorityIssueID = issueID
     priorityPickerIssueID = nil
+
+    if mockData != nil {
+      if let issue = allIssues.first(where: { $0.id == issueID }) {
+        replaceFetchedIssue(LinearIssueItem(
+          id: issue.id,
+          title: issue.title,
+          priority: priority.value,
+          priorityLabel: priority.label,
+          stateName: issue.stateName,
+          stateID: issue.stateID,
+          stateType: issue.stateType,
+          workflowStates: issue.workflowStates,
+          dueDate: issue.dueDate,
+          url: issue.url
+        ))
+      }
+      updatingPriorityIssueID = nil
+      return
+    }
 
     do {
       let updatedIssue = try await linearService.updateIssuePriority(issueID: issueID, priority: priority.value)
@@ -652,16 +810,41 @@ final class StatusStore: ObservableObject {
 
   /// Loads Linear teams and states for the issue creator.
   func linearIssueCreateTeamOptions() async throws -> [LinearTeamOption] {
-    try await linearService.fetchTeamOptions()
+    if let mockData { return mockData.teams }
+    return try await linearService.fetchTeamOptions()
   }
 
   /// Loads Linear users for the issue creator assignee picker.
   func linearIssueCreateAssigneeOptions() async throws -> [LinearUserOption] {
-    try await linearService.fetchUserOptions()
+    if let mockData { return mockData.users }
+    return try await linearService.fetchUserOptions()
   }
 
   /// Creates a Linear issue from a draft and refreshes assigned issues.
   func createLinearIssue(draft: LinearIssueCreateDraft) async throws {
+    if let mockData {
+      let team = mockData.teams.first { $0.id == draft.team }
+      let state = team?.states.first(where: { $0.id == draft.state })
+        ?? team?.states.first(where: { $0.type == "unstarted" })
+      let priority = LinearPriorityOption.allCases.first(where: { $0.value == draft.priority })
+        ?? LinearPriorityOption(value: 0, label: "No priority")
+      allIssues.append(LinearIssueItem(
+        id: "DAY-\(120 + allIssues.count)",
+        title: draft.title,
+        priority: priority.value,
+        priorityLabel: priority.label,
+        stateName: state?.name ?? "Todo",
+        stateID: state?.id ?? "mock-todo",
+        stateType: state?.type ?? "unstarted",
+        workflowStates: team?.states ?? [],
+        dueDate: draft.dueDate.isEmpty ? nil : draft.dueDate,
+        url: URL(string: "https://linear.app/dayline")
+      ))
+      applyLinearIssueOrder()
+      lastUpdatedAt = Date()
+      return
+    }
+
     try await linearService.createIssue(draft: draft)
 
     do {
@@ -706,7 +889,9 @@ final class StatusStore: ObservableObject {
     }
 
     do {
-      try notesService.saveNotes(allNotes)
+      if mockData == nil {
+        try notesService.saveNotes(allNotes)
+      }
       applyLocalNoteSortOrder()
       notesError = nil
       return savedNote
@@ -724,7 +909,9 @@ final class StatusStore: ObservableObject {
     allNotes.removeAll { $0.id == noteID }
 
     do {
-      try notesService.saveNotes(allNotes)
+      if mockData == nil {
+        try notesService.saveNotes(allNotes)
+      }
       visibleNoteCount = min(max(defaultVisibleNoteCount, visibleNoteCount), max(defaultVisibleNoteCount, allNotes.count))
       applyLocalNoteSortOrder()
       notesError = nil
@@ -757,9 +944,54 @@ final class StatusStore: ObservableObject {
     menuBarClockTimer?.tolerance = 2
   }
 
-  /// Returns whether one dependency is currently ready.
-  private func isDependencyReady(_ kind: DependencyKind) -> Bool {
-    dependencyStatuses.first { $0.kind == kind }?.isReady == true
+  /// Returns whether one provider currently has usable credentials.
+  private func isConnected(_ provider: AuthProvider) -> Bool {
+    connectionStatuses.first { $0.provider == provider }?.isConnected == true
+  }
+
+  /// Replaces one provider's connection status in the published list.
+  private func updateConnectionStatus(
+    _ provider: AuthProvider,
+    state: ConnectionState,
+    detail: String?,
+    accountLabel: String?
+  ) {
+    guard let index = connectionStatuses.firstIndex(where: { $0.provider == provider }) else {
+      return
+    }
+    connectionStatuses[index].state = state
+    connectionStatuses[index].detail = detail
+    connectionStatuses[index].accountLabel = accountLabel
+  }
+
+  /// Marks a provider as needing sign-in again when its tokens are rejected.
+  private func handleFetchFailure(_ error: Error, for provider: AuthProvider) {
+    guard let oauthError = error as? OAuthError else {
+      return
+    }
+    switch oauthError {
+    case .reauthenticationRequired, .notSignedIn:
+      break
+    default:
+      return
+    }
+    updateConnectionStatus(provider, state: .disconnected, detail: "Sign in again.", accountLabel: nil)
+  }
+
+  /// Loads a display label for the connected provider account.
+  private func fetchAccountLabel(for provider: AuthProvider) async throws -> String {
+    switch provider {
+    case .google:
+      try await calendarService.fetchAccountLabel()
+    case .linear:
+      try await linearService.fetchAccountLabel()
+    }
+  }
+
+  /// Opens Settings after a successful browser auth so the user can confirm the account.
+  private func presentSettingsAfterAuth() {
+    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+    SettingsWindowPresenter.bringSettingsToFront()
   }
 
   /// Returns the event that should currently replace the menu bar icon.
@@ -841,6 +1073,22 @@ final class StatusStore: ObservableObject {
       applyLocalNoteSortOrder()
       notesError = error.localizedDescription
     }
+  }
+
+  /// Restores the isolated screenshot state without touching OAuth or disk persistence.
+  private func applyMockData(_ mockData: MockData) {
+    events = mockData.events
+    tomorrowEvents = mockData.tomorrowEvents
+    allIssues = mockData.issues
+    allNotes = mockData.notes
+    connectionStatuses = mockData.connectionStatuses
+    calendarError = nil
+    linearError = nil
+    notesError = nil
+    applyLinearIssueOrder()
+    applyLocalNoteSortOrder()
+    lastUpdatedAt = Date()
+    isRefreshing = false
   }
 
   /// Compares two dates newest-first and returns `nil` for ties.

@@ -34,6 +34,13 @@ struct SettingsView: View {
   /// Builds the settings form.
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
+      ForEach(store.connectionStatuses) { status in
+        accountRow(status)
+      }
+
+      Divider()
+        .padding(.vertical, 2)
+
       checkboxRow {
         Toggle("Launch at login", isOn: launchAtLoginBinding)
           .accessibilityIdentifier("settings.launchAtLogin")
@@ -130,6 +137,55 @@ struct SettingsView: View {
       .labelsHidden()
       .frame(width: controlColumnWidth, alignment: .leading)
       .accessibilityIdentifier(accessibilityIdentifier)
+    }
+  }
+
+  /// Builds one account connection row with a connect/disconnect action.
+  private func accountRow(_ status: ConnectionStatus) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: 16) {
+      settingLabel(status.provider.title)
+
+      HStack(spacing: 12) {
+        Text(accountStateLabel(status))
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+
+        Spacer(minLength: 0)
+
+        if status.state == .checking || status.state == .connecting {
+          ProgressView()
+            .controlSize(.small)
+        } else if status.isConnected {
+          Button("Disconnect") {
+            Task { await store.disconnect(status.provider) }
+          }
+        } else {
+          Button("Connect") {
+            Task { await store.connect(status.provider) }
+          }
+          .disabled(!status.provider.isConfigured)
+        }
+      }
+      .frame(width: controlColumnWidth, alignment: .leading)
+      .accessibilityIdentifier("settings.account.\(status.provider.id)")
+    }
+  }
+
+  /// Compact state label for one account row.
+  private func accountStateLabel(_ status: ConnectionStatus) -> String {
+    switch status.state {
+    case .checking:
+      "Checking..."
+    case .disconnected:
+      status.detail ?? "Not connected"
+    case .connecting:
+      status.detail ?? "Connecting..."
+    case .connected:
+      if let accountLabel = status.accountLabel, !accountLabel.isEmpty {
+        accountLabel
+      } else {
+        "Connected"
+      }
     }
   }
 

@@ -33,6 +33,12 @@ if [[ -f "$ICON_SOURCE" ]]; then
   cp "$ICON_SOURCE" "$APP_RESOURCES/$ICON_FILE"
 fi
 
+# Keep these in sync with AuthConfig / AuthProvider callback schemes.
+GOOGLE_CLIENT_ID="${DAYLINE_GOOGLE_CLIENT_ID:-551177930544-9sl0govp6ok205csb939j4p2dhckrgbk.apps.googleusercontent.com}"
+GOOGLE_URL_SCHEME="com.googleusercontent.apps.${GOOGLE_CLIENT_ID%.apps.googleusercontent.com}"
+LINEAR_CLIENT_ID="${DAYLINE_LINEAR_CLIENT_ID:-00c88957100199ecb91362294a3f6e55}"
+LINEAR_URL_SCHEME="dayline"
+
 cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -46,8 +52,31 @@ cat >"$INFO_PLIST" <<PLIST
   <string>$ICON_FILE</string>
   <key>CFBundleName</key>
   <string>$APP_NAME</string>
+  <key>DaylineGoogleClientID</key>
+  <string>$GOOGLE_CLIENT_ID</string>
+  <key>DaylineLinearClientID</key>
+  <string>$LINEAR_CLIENT_ID</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>$BUNDLE_ID.oauth.linear</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>$LINEAR_URL_SCHEME</string>
+      </array>
+    </dict>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>$BUNDLE_ID.oauth.google</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>$GOOGLE_URL_SCHEME</string>
+      </array>
+    </dict>
+  </array>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>LSUIElement</key>

@@ -8,16 +8,11 @@ struct LinearUserOption: Identifiable, Equatable {
   /// Human-readable Linear profile name.
   let name: String
 
-  /// Linear username accepted by the CLI assignee flag.
+  /// Linear username.
   let displayName: String
 
   /// Whether the user is currently active in Linear.
   let isActive: Bool
-
-  /// Value passed to `linear issue create --assignee`.
-  var assigneeValue: String {
-    displayName.isEmpty ? name : displayName
-  }
 
   /// Compact menu label for pickers.
   var label: String {

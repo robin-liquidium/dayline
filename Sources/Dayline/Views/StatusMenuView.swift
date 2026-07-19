@@ -23,8 +23,8 @@ struct StatusMenuView: View {
       headerBar
       ScrollView {
         VStack(alignment: .leading, spacing: 18) {
-          if store.hasDependencySetupItems {
-            DependencySetupSection(statuses: store.dependencySetupItems)
+          if store.hasConnectionSetupItems {
+            ConnectionSetupSection(statuses: store.connectionSetupItems)
           }
 
           CalendarSection(
@@ -188,7 +188,7 @@ struct StatusMenuView: View {
 
   /// Lightweight estimate that keeps the initial menu compact before expansion.
   private var estimatedContentHeight: CGFloat {
-    let setupRows = store.hasDependencySetupItems ? CGFloat(max(store.dependencySetupItems.count, 1)) * 64 + 44 : 0
+    let setupRows = store.hasConnectionSetupItems ? CGFloat(max(store.connectionSetupItems.count, 1)) * 64 + 44 : 0
     let eventRows = CGFloat(max(store.events.count, 1)) * 34
     let tomorrowRows = store.isTomorrowExpanded ? CGFloat(max(store.tomorrowEvents.count, 1)) * 34 + 34 : 0
     let issueRows = CGFloat(max(store.issues.count, 1)) * workItemRowHeight
@@ -252,12 +252,12 @@ struct StatusMenuView: View {
   }
 }
 
-/// Setup section shown when required local CLIs are missing or unauthenticated.
-private struct DependencySetupSection: View {
+/// Setup section shown when Google or Linear accounts are not connected.
+private struct ConnectionSetupSection: View {
   @EnvironmentObject private var store: StatusStore
 
-  /// Dependency statuses that need user attention.
-  let statuses: [DependencyStatus]
+  /// Connection statuses that need user attention.
+  let statuses: [ConnectionStatus]
 
   /// Builds the setup section.
   var body: some View {
@@ -268,7 +268,7 @@ private struct DependencySetupSection: View {
         Spacer(minLength: 0)
 
         Button {
-          Task { await store.refreshDependencyStatus() }
+          Task { await store.refreshConnectionStatus() }
         } label: {
           Image(systemName: "arrow.clockwise")
             .padding(5)
@@ -276,13 +276,13 @@ private struct DependencySetupSection: View {
         }
         .buttonStyle(.plain)
         .help("Check again")
-        .accessibilityLabel("Check CLI setup again")
+        .accessibilityLabel("Check account connections again")
         .accessibilityIdentifier("setup.checkAgain")
       }
 
       VStack(alignment: .leading, spacing: 8) {
         ForEach(statuses) { status in
-          DependencySetupRow(status: status)
+          ConnectionSetupRow(status: status)
         }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
@@ -290,12 +290,12 @@ private struct DependencySetupSection: View {
   }
 }
 
-/// One setup row for an external CLI dependency.
-private struct DependencySetupRow: View {
+/// One setup row for an external account connection.
+private struct ConnectionSetupRow: View {
   @EnvironmentObject private var store: StatusStore
 
-  /// Dependency status represented by the row.
-  let status: DependencyStatus
+  /// Connection status represented by the row.
+  let status: ConnectionStatus
 
   /// Builds the setup row.
   var body: some View {
@@ -329,60 +329,54 @@ private struct DependencySetupRow: View {
         .fill(Color.primary.opacity(0.05))
     }
     .accessibilityElement(children: .contain)
-    .accessibilityIdentifier("setup.\(status.kind.id)")
+    .accessibilityIdentifier("setup.\(status.provider.id)")
   }
 
-  /// Action button appropriate for the dependency state.
+  /// Action button appropriate for the connection state.
   @ViewBuilder
   private var actionButton: some View {
     switch status.state {
-    case .checking:
+    case .checking, .connecting:
       ProgressView()
         .controlSize(.small)
-        .accessibilityLabel("Checking")
-    case .missing:
-      Button("Install") {
-        store.installDependency(status)
+        .accessibilityLabel(status.state == .connecting ? "Connecting" : "Checking")
+    case .disconnected:
+      Button("Connect") {
+        Task { await store.connect(status.provider) }
       }
       .buttonStyle(.bordered)
       .controlSize(.small)
-      .accessibilityIdentifier("setup.\(status.kind.id).install")
-    case .unauthenticated:
-      Button("Auth") {
-        store.authenticateDependency(status)
-      }
-      .buttonStyle(.bordered)
-      .controlSize(.small)
-      .accessibilityIdentifier("setup.\(status.kind.id).auth")
-    case .ready:
+      .disabled(!status.provider.isConfigured)
+      .accessibilityIdentifier("setup.\(status.provider.id).connect")
+    case .connected:
       EmptyView()
     }
   }
 
-  /// Symbol for the current dependency state.
+  /// Symbol for the current connection state.
   private var systemImage: String {
     switch status.state {
     case .checking:
       "clock.arrow.circlepath"
-    case .missing:
-      "arrow.down.circle.fill"
-    case .unauthenticated:
+    case .disconnected:
       "person.crop.circle.badge.exclamationmark"
-    case .ready:
+    case .connecting:
+      "arrow.triangle.2.circlepath"
+    case .connected:
       "checkmark.circle.fill"
     }
   }
 
-  /// Color for the current dependency state symbol.
+  /// Color for the current connection state symbol.
   private var iconColor: Color {
     switch status.state {
     case .checking:
       .secondary
-    case .missing:
-      .orange
-    case .unauthenticated:
+    case .disconnected:
       .yellow
-    case .ready:
+    case .connecting:
+      .blue
+    case .connected:
       .green
     }
   }

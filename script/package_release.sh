@@ -18,6 +18,7 @@ INFO_PLIST="$APP_CONTENTS/Info.plist"
 ICON_SOURCE="$ROOT_DIR/Resources/DaylineIcon.icns"
 ICON_FILE="DaylineIcon.icns"
 DMG_ROOT="$DIST_DIR/dmg-root"
+NOTARY_ZIP="$DIST_DIR/$APP_NAME-notary.zip"
 
 INSTALL_APP=false
 NOTARIZE=false
@@ -42,10 +43,15 @@ Builds a release Dayline.app bundle plus GitHub-release-ready artifacts:
 
 Environment:
   BUNDLE_ID               Bundle identifier. Defaults to $DEFAULT_BUNDLE_ID.
-  MARKETING_VERSION       App version. Defaults to latest git tag or 0.1.0.
+  MARKETING_VERSION       App version. Defaults to the exact HEAD tag or 0.1.0-dev.
   BUILD_NUMBER            Build number. Defaults to git commit count.
+  DAYLINE_GOOGLE_CLIENT_ID  Google OAuth client ID embedded in the app.
+  DAYLINE_LINEAR_CLIENT_ID  Linear OAuth client ID embedded in the app.
   CODESIGN_IDENTITY       Signing identity. Auto-detects Developer ID, then Apple Development.
-  NOTARY_PROFILE          notarytool keychain profile, required with --notarize.
+  NOTARY_PROFILE          Local notarytool keychain profile.
+  NOTARY_KEY_PATH         App Store Connect API key (.p8) for CI notarization.
+  NOTARY_KEY_ID           App Store Connect API key ID.
+  NOTARY_ISSUER_ID        App Store Connect API issuer ID.
 USAGE
       exit 0
       ;;
@@ -65,12 +71,34 @@ resolve_version() {
     return
   fi
 
-  if git describe --tags --abbrev=0 >/dev/null 2>&1; then
-    git describe --tags --abbrev=0 | sed 's/^v//'
+  if git describe --tags --exact-match HEAD >/dev/null 2>&1; then
+    git describe --tags --exact-match HEAD | sed 's/^v//'
     return
   fi
 
-  printf '0.1.0\n'
+  printf '0.1.0-dev\n'
+}
+
+# require_distribution_source ensures public artifacts map to one clean tagged commit.
+require_distribution_source() {
+  if [[ -n "$(git status --porcelain)" ]]; then
+    echo "Refusing to notarize from a dirty working tree." >&2
+    echo "Commit all release changes first." >&2
+    exit 2
+  fi
+
+  local exact_tag
+  exact_tag="$(git describe --tags --exact-match HEAD 2>/dev/null || true)"
+  if [[ -z "$exact_tag" ]]; then
+    echo "Refusing to notarize an untagged commit." >&2
+    echo "Create and push a version tag such as v0.1.4 first." >&2
+    exit 2
+  fi
+
+  if [[ "$exact_tag" != "v$VERSION" ]]; then
+    echo "MARKETING_VERSION ($VERSION) does not match HEAD tag ($exact_tag)." >&2
+    exit 2
+  fi
 }
 
 # resolve_build_number prints a monotonically increasing build number when git is available.
@@ -111,6 +139,11 @@ detect_codesign_identity() {
 
 # write_info_plist creates the minimal menu-bar app metadata macOS expects.
 write_info_plist() {
+  # Keep these in sync with AuthConfig / AuthProvider callback schemes.
+  local google_client_id="$GOOGLE_CLIENT_ID"
+  local google_url_scheme="com.googleusercontent.apps.${google_client_id%.apps.googleusercontent.com}"
+  local linear_url_scheme="dayline"
+
   /usr/bin/plutil -create xml1 "$INFO_PLIST"
   /usr/bin/plutil -insert CFBundleDevelopmentRegion -string "en" "$INFO_PLIST"
   /usr/bin/plutil -insert CFBundleDisplayName -string "$APP_NAME" "$INFO_PLIST"
@@ -122,6 +155,9 @@ write_info_plist() {
   /usr/bin/plutil -insert CFBundlePackageType -string "APPL" "$INFO_PLIST"
   /usr/bin/plutil -insert CFBundleShortVersionString -string "$VERSION" "$INFO_PLIST"
   /usr/bin/plutil -insert CFBundleVersion -string "$BUILD_NUMBER_RESOLVED" "$INFO_PLIST"
+  /usr/bin/plutil -insert DaylineGoogleClientID -string "$google_client_id" "$INFO_PLIST"
+  /usr/bin/plutil -insert DaylineLinearClientID -string "$LINEAR_CLIENT_ID" "$INFO_PLIST"
+  /usr/bin/plutil -insert CFBundleURLTypes -json "[{\"CFBundleURLName\":\"$BUNDLE_ID.oauth.linear\",\"CFBundleURLSchemes\":[\"$linear_url_scheme\"]},{\"CFBundleURLName\":\"$BUNDLE_ID.oauth.google\",\"CFBundleURLSchemes\":[\"$google_url_scheme\"]}]" "$INFO_PLIST"
   /usr/bin/plutil -insert LSApplicationCategoryType -string "public.app-category.productivity" "$INFO_PLIST"
   /usr/bin/plutil -insert LSMinimumSystemVersion -string "$MIN_SYSTEM_VERSION" "$INFO_PLIST"
   /usr/bin/plutil -insert LSUIElement -bool YES "$INFO_PLIST"
@@ -164,15 +200,42 @@ create_dmg() {
   fi
 }
 
-# notarize_dmg submits and staples the DMG when Apple notary credentials exist.
-notarize_dmg() {
-  if [[ -z "${NOTARY_PROFILE:-}" ]]; then
-    echo "NOTARY_PROFILE is required when using --notarize." >&2
-    echo "Create one with: xcrun notarytool store-credentials <profile-name>" >&2
-    exit 2
+# submit_for_notarization submits one archive using local or CI credentials.
+submit_for_notarization() {
+  local path="$1"
+
+  if [[ -n "${NOTARY_PROFILE:-}" ]]; then
+    xcrun notarytool submit "$path" --keychain-profile "$NOTARY_PROFILE" --wait
+    return
   fi
 
-  xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
+  if [[ -n "${NOTARY_KEY_PATH:-}" && -n "${NOTARY_KEY_ID:-}" && -n "${NOTARY_ISSUER_ID:-}" ]]; then
+    xcrun notarytool submit "$path" \
+      --key "$NOTARY_KEY_PATH" \
+      --key-id "$NOTARY_KEY_ID" \
+      --issuer "$NOTARY_ISSUER_ID" \
+      --wait
+    return
+  fi
+
+  echo "Notarization credentials are required with --notarize." >&2
+  echo "Use NOTARY_PROFILE locally, or NOTARY_KEY_PATH/NOTARY_KEY_ID/NOTARY_ISSUER_ID in CI." >&2
+  exit 2
+}
+
+# notarize_app submits a temporary ZIP, then staples the ticket to the app.
+notarize_app() {
+  rm -f "$NOTARY_ZIP"
+  /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$NOTARY_ZIP"
+  submit_for_notarization "$NOTARY_ZIP"
+  xcrun stapler staple "$APP_BUNDLE"
+  xcrun stapler validate "$APP_BUNDLE"
+  rm -f "$NOTARY_ZIP"
+}
+
+# notarize_dmg submits and staples the final disk image.
+notarize_dmg() {
+  submit_for_notarization "$DMG_PATH"
   xcrun stapler staple "$DMG_PATH"
   xcrun stapler validate "$DMG_PATH"
 }
@@ -186,12 +249,27 @@ install_app() {
 }
 
 BUNDLE_ID="${BUNDLE_ID:-$DEFAULT_BUNDLE_ID}"
+GOOGLE_CLIENT_ID="${DAYLINE_GOOGLE_CLIENT_ID:-551177930544-9sl0govp6ok205csb939j4p2dhckrgbk.apps.googleusercontent.com}"
+LINEAR_CLIENT_ID="${DAYLINE_LINEAR_CLIENT_ID:-00c88957100199ecb91362294a3f6e55}"
 VERSION="$(resolve_version)"
 BUILD_NUMBER_RESOLVED="$(resolve_build_number)"
 SIGNING_IDENTITY="$(detect_codesign_identity)"
 ARTIFACT_BASE="$APP_NAME-$VERSION"
 DMG_PATH="$ARTIFACT_DIR/$ARTIFACT_BASE.dmg"
 ZIP_PATH="$ARTIFACT_DIR/$ARTIFACT_BASE.app.zip"
+
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && ! ( "$NOTARIZE" == false && "$VERSION" == "0.1.0-dev" ) ]]; then
+  echo "Invalid MARKETING_VERSION: $VERSION" >&2
+  exit 2
+fi
+
+if [[ "$NOTARIZE" == true ]]; then
+  require_distribution_source
+  if [[ "$SIGNING_IDENTITY" != Developer\ ID\ Application:* ]]; then
+    echo "--notarize requires a Developer ID Application certificate." >&2
+    exit 2
+  fi
+fi
 
 rm -rf "$RELEASE_DIR" "$ARTIFACT_DIR"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$ARTIFACT_DIR"
@@ -205,6 +283,10 @@ write_info_plist
 copy_app_icon
 sign_path "$APP_BUNDLE"
 /usr/bin/codesign --verify --strict --verbose=2 "$APP_BUNDLE"
+
+if [[ "$NOTARIZE" == true ]]; then
+  notarize_app
+fi
 
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$ZIP_PATH"
 create_dmg

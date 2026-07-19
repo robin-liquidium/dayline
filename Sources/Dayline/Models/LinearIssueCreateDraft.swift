@@ -1,6 +1,6 @@
 import Foundation
 
-/// User-entered fields for creating a Linear issue through the CLI.
+/// User-entered fields for creating a Linear issue through the API.
 struct LinearIssueCreateDraft {
   /// Required issue title.
   var title = ""
@@ -8,42 +8,39 @@ struct LinearIssueCreateDraft {
   /// Optional markdown issue description.
   var description = ""
 
-  /// Optional assignee name accepted by the Linear CLI, commonly `self`.
+  /// Optional assignee: `self` or a Linear user ID.
   var assignee = "self"
 
-  /// Optional team key or name accepted by the Linear CLI.
+  /// Required Linear team ID.
   var team = ""
 
-  /// Optional workflow state name or type accepted by the Linear CLI.
+  /// Optional workflow state ID.
   var state = ""
 
   /// Optional priority value where 1 is urgent and 4 is low.
   var priority: Int?
 
-  /// Optional due date accepted by the Linear CLI.
+  /// Optional due date in `YYYY-MM-DD` form.
   var dueDate = ""
 
   /// Optional issue estimate.
   var estimate: Int?
 
-  /// Optional project name or slug.
+  /// Optional project name.
   var project = ""
 
   /// Optional cycle name, number, or `active`.
   var cycle = ""
 
-  /// Optional project milestone name.
+  /// Optional project milestone name, applied only when a project is set.
   var milestone = ""
 
-  /// Optional parent issue identifier.
+  /// Optional parent issue identifier such as `TEAM-123`.
   var parent = ""
 
   /// Optional comma-separated label names.
   var labels = ""
 
-  /// Whether the issue should be moved into started state after creation.
+  /// Whether the issue should be moved into a started state after creation.
   var shouldStart = false
-
-  /// Whether the Linear CLI should skip the team's default template.
-  var shouldSkipDefaultTemplate = false
 }
