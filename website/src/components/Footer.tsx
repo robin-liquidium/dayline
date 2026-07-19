@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { site } from "../site";
 import { CheckIcon, CopyIcon, GithubIcon } from "./Icons";
@@ -99,18 +100,12 @@ export function Footer({ showSupport = true }: { showSupport?: boolean }) {
             <span>© {new Date().getFullYear()}</span>
           </div>
           <div className="flex items-center gap-6">
-            <a
-              href="/privacy"
-              className="transition-colors hover:text-ink"
-            >
+            <Link to="/privacy" className="transition-colors hover:text-ink">
               Privacy
-            </a>
-            <a
-              href="/terms"
-              className="transition-colors hover:text-ink"
-            >
+            </Link>
+            <Link to="/terms" className="transition-colors hover:text-ink">
               Terms
-            </a>
+            </Link>
             <a
               href={site.githubUrl}
               target="_blank"
