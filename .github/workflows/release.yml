@@ -4,20 +4,27 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
   package-notarize-publish:
     runs-on: macos-26
-    timeout-minutes: 45
+    timeout-minutes: 360
 
     env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
       MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
       MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
       APP_STORE_CONNECT_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 }}
@@ -28,17 +35,18 @@ jobs:
       - name: Check out tagged source
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Validate release tag
         run: |
           git fetch origin main:refs/remotes/origin/main
-          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Release tag must look like v0.1.4" >&2
             exit 2
           fi
-          test "$(git describe --tags --exact-match HEAD)" = "$GITHUB_REF_NAME"
+          test "$(git describe --tags --exact-match HEAD)" = "$RELEASE_TAG"
           git merge-base --is-ancestor HEAD origin/main
 
       - name: Validate release secrets
@@ -103,7 +111,7 @@ jobs:
 
       - name: Package, notarize, and staple
         env:
-          MARKETING_VERSION: ${{ github.ref_name }}
+          MARKETING_VERSION: ${{ env.RELEASE_TAG }}
           BUILD_NUMBER: ${{ github.run_number }}
         run: |
           export MARKETING_VERSION="${MARKETING_VERSION#v}"
@@ -112,7 +120,7 @@ jobs:
       - name: Preserve release artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: dayline-${{ github.ref_name }}
+          name: dayline-${{ env.RELEASE_TAG }}
           path: dist/artifacts/
           if-no-files-found: error
           retention-days: 14
@@ -120,7 +128,7 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MARKETING_VERSION: ${{ github.ref_name }}
+          MARKETING_VERSION: ${{ env.RELEASE_TAG }}
         run: |
           export MARKETING_VERSION="${MARKETING_VERSION#v}"
           ./script/publish_github_release.sh
