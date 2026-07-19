@@ -9,6 +9,8 @@
 </p>
 
 <p align="center">
+  <a href="https://dayline.robin.build"><strong>Website</strong></a>
+  ·
   <a href="https://github.com/robin-liquidium/dayline/releases/latest/download/Dayline.dmg"><strong>Download the latest DMG</strong></a>
   ·
   <a href="https://github.com/robin-liquidium/dayline/releases/latest">Release notes</a>
