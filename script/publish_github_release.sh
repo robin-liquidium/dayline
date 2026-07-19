@@ -14,12 +14,13 @@ resolve_version() {
     return
   fi
 
-  if git describe --tags --abbrev=0 >/dev/null 2>&1; then
-    git describe --tags --abbrev=0 | sed 's/^v//'
+  if git describe --tags --exact-match HEAD >/dev/null 2>&1; then
+    git describe --tags --exact-match HEAD | sed 's/^v//'
     return
   fi
 
-  printf '0.1.0\n'
+  echo "HEAD must have an exact version tag such as v0.1.4." >&2
+  exit 2
 }
 
 # require_remote fails early when the local repository has not been published yet.
@@ -42,31 +43,50 @@ require_artifact() {
   fi
 }
 
+# require_release_source ensures uploaded assets match a clean tagged commit.
+require_release_source() {
+  if [[ -n "$(git status --porcelain)" ]]; then
+    echo "Refusing to publish from a dirty working tree." >&2
+    exit 2
+  fi
+
+  local exact_tag
+  exact_tag="$(git describe --tags --exact-match HEAD 2>/dev/null || true)"
+  if [[ "$exact_tag" != "$TAG" ]]; then
+    echo "HEAD tag ($exact_tag) does not match release tag ($TAG)." >&2
+    exit 2
+  fi
+
+  if gh release view "$TAG" >/dev/null 2>&1; then
+    echo "GitHub release $TAG already exists." >&2
+    exit 2
+  fi
+}
+
 VERSION="$(resolve_version)"
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "Invalid stable release version: $VERSION" >&2
+  exit 2
+fi
 TAG="v$VERSION"
 DMG_PATH="$ARTIFACT_DIR/$APP_NAME-$VERSION.dmg"
 ZIP_PATH="$ARTIFACT_DIR/$APP_NAME-$VERSION.app.zip"
-NOTES_FILE="$(mktemp -t dayline-release-notes.XXXXXX)"
-trap 'rm -f "$NOTES_FILE"' EXIT
+# Stable asset name so /releases/latest/download/Dayline.dmg always works.
+STABLE_DMG_PATH="$ARTIFACT_DIR/$APP_NAME.dmg"
 
 require_remote
+require_release_source
 require_artifact "$DMG_PATH"
 require_artifact "$ZIP_PATH"
 
-cat >"$NOTES_FILE" <<NOTES
-$APP_NAME $VERSION
-
-Downloads:
-- Recommended: $APP_NAME-$VERSION.dmg
-- Direct app bundle archive: $APP_NAME-$VERSION.app.zip
-
-Requirements:
-- macOS 26 or newer
-- Local authenticated gws and linear CLIs
-NOTES
+cp "$DMG_PATH" "$STABLE_DMG_PATH"
 
 gh release create "$TAG" \
   "$DMG_PATH" \
   "$ZIP_PATH" \
+  "$STABLE_DMG_PATH" \
+  --verify-tag \
+  --fail-on-no-commits \
+  --generate-notes \
   --title "$APP_NAME $VERSION" \
-  --notes-file "$NOTES_FILE"
+  --notes "Requires macOS 26 or newer. Connect Google Calendar and Linear directly from Dayline after installation."

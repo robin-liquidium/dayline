@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="Dayline"
+APP_NAME="${DAYLINE_APP_NAME:-Dayline}"
 MENU_ITEM_NAME="Calendar"
 
 usage() {

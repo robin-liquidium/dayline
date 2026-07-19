@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Stock SwiftUI window for creating a Linear issue through the local CLI.
+/// Stock SwiftUI window for creating a Linear issue through the API.
 struct LinearIssueEditorView: View {
   @EnvironmentObject private var store: StatusStore
   @Environment(\.dismiss) private var dismiss
@@ -20,9 +20,9 @@ struct LinearIssueEditorView: View {
 
           formRow("Team") {
             Picker("", selection: teamBinding) {
-              Text("CLI default").tag("")
+              Text("Select team").tag("")
               ForEach(draft.teams) { team in
-                Text(team.label).tag(team.key)
+                Text(team.label).tag(team.id)
               }
             }
             .labelsHidden()
@@ -33,7 +33,7 @@ struct LinearIssueEditorView: View {
             Picker("", selection: stateBinding) {
               Text("Default").tag("")
               ForEach(statusOptions) { state in
-                Text(state.name).tag(state.name)
+                Text(state.name).tag(state.id)
               }
             }
             .labelsHidden()
@@ -55,9 +55,9 @@ struct LinearIssueEditorView: View {
           formRow("Assignee") {
             Picker("", selection: assigneeBinding) {
               Text("Me (self)").tag("self")
-              Text("CLI default").tag("")
+              Text("No assignee").tag("")
               ForEach(draft.assignees) { assignee in
-                Text(assignee.label).tag(assignee.assigneeValue)
+                Text(assignee.label).tag(assignee.id)
               }
             }
             .labelsHidden()
@@ -101,7 +101,7 @@ struct LinearIssueEditorView: View {
               }
 
               formRow("Project") {
-                TextField("Project name or slug", text: projectBinding)
+                TextField("Project name", text: projectBinding)
                   .textFieldStyle(.roundedBorder)
                   .accessibilityIdentifier("linearEditor.project")
               }
@@ -133,11 +133,6 @@ struct LinearIssueEditorView: View {
               formRow("") {
                 Toggle("Start after creating", isOn: shouldStartBinding)
                   .accessibilityIdentifier("linearEditor.start")
-              }
-
-              formRow("") {
-                Toggle("Skip default template", isOn: shouldSkipDefaultTemplateBinding)
-                  .accessibilityIdentifier("linearEditor.skipDefaultTemplate")
               }
             }
             .padding(.top, 8)
@@ -197,7 +192,9 @@ struct LinearIssueEditorView: View {
 
   /// Whether the current draft can create a Linear issue.
   private var canCreate: Bool {
-    !draft.isCreating && !draft.issue.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    !draft.isCreating
+      && !draft.issue.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && !draft.issue.team.isEmpty
   }
 
   /// Workflow states for the selected team.
@@ -207,7 +204,7 @@ struct LinearIssueEditorView: View {
 
   /// Selected Linear team option.
   private var selectedTeam: LinearTeamOption? {
-    draft.teams.first { $0.key == draft.issue.team }
+    draft.teams.first { $0.id == draft.issue.team }
   }
 
   /// Priority choices accepted by `linear issue create`.
@@ -248,6 +245,9 @@ struct LinearIssueEditorView: View {
 
     do {
       draft.teams = try await store.linearIssueCreateTeamOptions()
+      if draft.issue.team.isEmpty {
+        draft.issue.team = draft.teams.first?.id ?? ""
+      }
     } catch {
       optionLoadError = error.localizedDescription.compactLine(limit: 160)
     }
@@ -266,7 +266,7 @@ struct LinearIssueEditorView: View {
     guard !draft.issue.state.isEmpty else {
       return
     }
-    if !statusOptions.contains(where: { $0.name == draft.issue.state }) {
+    if !statusOptions.contains(where: { $0.id == draft.issue.state }) {
       draft.issue.state = ""
     }
   }
@@ -294,12 +294,12 @@ struct LinearIssueEditorView: View {
     Binding(get: { draft.issue.description }, set: { draft.issue.description = $0 })
   }
 
-  /// Binding for the selected team key.
+  /// Binding for the selected team ID.
   private var teamBinding: Binding<String> {
     Binding(get: { draft.issue.team }, set: { draft.issue.team = $0 })
   }
 
-  /// Binding for the selected state name.
+  /// Binding for the selected state ID.
   private var stateBinding: Binding<String> {
     Binding(get: { draft.issue.state }, set: { draft.issue.state = $0 })
   }
@@ -358,11 +358,6 @@ struct LinearIssueEditorView: View {
   /// Binding for the start-after-create toggle.
   private var shouldStartBinding: Binding<Bool> {
     Binding(get: { draft.issue.shouldStart }, set: { draft.issue.shouldStart = $0 })
-  }
-
-  /// Binding for the skip-default-template toggle.
-  private var shouldSkipDefaultTemplateBinding: Binding<Bool> {
-    Binding(get: { draft.issue.shouldSkipDefaultTemplate }, set: { draft.issue.shouldSkipDefaultTemplate = $0 })
   }
 }
 

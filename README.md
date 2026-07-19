@@ -8,79 +8,40 @@ Dayline is a lightweight macOS menu bar app for a compact daily glance at:
 
 It is intentionally menu-bar-only, native SwiftUI, and small. Data refreshes in the background on a configurable cadence.
 
+![Dayline showing upcoming calendar events, Linear issues, and local notes from the macOS menu bar](website/public/images/dayline-menu-overview.webp)
+
 ## Requirements
 
 - macOS 26 or newer
 - SwiftPM / Swift 5.9+
-- Google Workspace CLI, available as `gws`
-- Linear CLI, available as `linear`
 
-The app currently calls these absolute paths:
+No CLI dependencies are required. Dayline talks directly to Google Calendar and Linear using OAuth 2.0 with PKCE and stores tokens in the macOS Keychain.
 
-- `/opt/homebrew/bin/gws`
-- `/opt/homebrew/bin/linear`
+## Connect Accounts
 
-If your tools live somewhere else, launch Dayline with:
+On first launch, use the menu's `Setup` section to connect Google Calendar and Linear. Authentication opens in the default browser and returns directly to Dayline.
 
-```sh
-DAYLINE_GWS_PATH=/path/to/gws DAYLINE_LINEAR_PATH=/path/to/linear ./script/build_and_run.sh direct
-```
+- Google Calendar requests read-only access to the primary calendar.
+- Linear requests `read,write` access for assigned issues and issue actions.
+- Settings shows the connected account and provides a Disconnect action.
 
-On launch, Dayline checks whether both CLIs are installed and authenticated. If either tool is missing or unauthenticated, the menu shows a `Setup` section with install/auth buttons and a check-again button.
+OAuth client IDs are public and bundled in official builds. Source builds can override them with `DAYLINE_GOOGLE_CLIENT_ID` and `DAYLINE_LINEAR_CLIENT_ID`.
 
-## Install CLI Dependencies
+### OAuth Application Configuration
 
-### Google Workspace CLI
+For a different Google OAuth application:
 
-Install `gws` from the Google Workspace CLI project:
+1. Enable the Google Calendar API.
+2. Configure and publish an external OAuth consent screen.
+3. Create an iOS OAuth client with bundle ID `build.local.Dayline`.
+4. Set its client ID in `Sources/Dayline/Auth/AuthConfig.swift` or `DAYLINE_GOOGLE_CLIENT_ID`.
 
-- GitHub: https://github.com/googleworkspace/cli
-- Releases: https://github.com/googleworkspace/cli/releases
-- Homebrew formula: https://formulae.brew.sh/formula/googleworkspace-cli
+For a different Linear OAuth application:
 
-Common install options:
-
-```sh
-brew install googleworkspace-cli
-# or
-npm install -g @googleworkspace/cli
-```
-
-Authenticate `gws` so it can read Calendar events. The app uses:
-
-```sh
-gws auth login
-gws calendar events list --params '<json>' --format json
-```
-
-### Linear CLI
-
-Install `linear` from `schpet/linear-cli`:
-
-- GitHub: https://github.com/schpet/linear-cli
-- Linear API docs: https://linear.app/developers
-
-Authenticate it with Linear:
-
-```sh
-linear auth login
-```
-
-The app uses `linear api` GraphQL calls to fetch assigned issues and update issue status/priority.
-
-## Test Dependency Setup
-
-Test missing or unauthenticated CLIs without touching your real local `gws` or `linear` installation:
-
-```sh
-./script/dependency_sandbox.sh missing
-./script/dependency_sandbox.sh unauthenticated
-./script/dependency_sandbox.sh ready
-./script/dependency_sandbox.sh gws-missing
-./script/dependency_sandbox.sh linear-missing
-```
-
-The sandbox creates temporary fake CLI executables and launches Dayline with `DAYLINE_GWS_PATH` and `DAYLINE_LINEAR_PATH` pointed at those fakes. Install buttons use harmless fake `echo` commands in this mode, and auth buttons run fake auth commands, so your real credentials and packages are not changed.
+1. Create an OAuth application in Linear.
+2. Enable refresh tokens and add `dayline://oauth/callback` as a redirect URI.
+3. Mark it public for use across workspaces.
+4. Set its client ID in `Sources/Dayline/Auth/AuthConfig.swift` or `DAYLINE_LINEAR_CLIENT_ID`.
 
 ## Run
 
@@ -106,7 +67,7 @@ Useful modes:
 
 The script builds with SwiftPM, creates `dist/Dayline.app`, and launches it as a menu-bar accessory app.
 
-## Install And Release
+## Install Locally
 
 Install Dayline into `/Applications`:
 
@@ -114,7 +75,29 @@ Install Dayline into `/Applications`:
 ./script/package_release.sh --install
 ```
 
-Create GitHub-release-ready artifacts:
+This builds a release app, copies it to `/Applications/Dayline.app`, and opens it.
+
+## Public Releases
+
+Public releases are tag-driven. A pushed `vX.Y.Z` tag runs `.github/workflows/release.yml` on `macos-26`, builds and tests the tagged commit, signs with Developer ID, notarizes and staples the app and DMG, then publishes both artifacts to GitHub Releases.
+
+Configure the required encrypted GitHub Secrets once:
+
+```sh
+./script/configure_release_secrets.sh
+```
+
+After release changes are committed, merged, and synchronized on `main`, publish a version with:
+
+```sh
+./script/tag_release.sh 0.1.4
+```
+
+Regular pushes and pull requests only run `.github/workflows/ci.yml`; they never publish a release.
+
+### Manual Fallback
+
+Create local release artifacts:
 
 ```sh
 ./script/package_release.sh
@@ -125,20 +108,20 @@ The release script builds a release SwiftPM binary, wraps it in `dist/release/Da
 - `dist/artifacts/Dayline-<version>.dmg`
 - `dist/artifacts/Dayline-<version>.app.zip`
 
-For public distribution outside the Mac App Store, Apple expects a Developer ID-signed and notarized app. After installing a `Developer ID Application` certificate and storing notary credentials, build the notarized DMG with:
+To manually package a clean, exactly tagged commit with local notarization credentials:
 
 ```sh
 xcrun notarytool store-credentials dayline-notary
 NOTARY_PROFILE=dayline-notary ./script/package_release.sh --notarize
 ```
 
-Upload the notarized `.dmg` to a GitHub Release. The zipped `.app` is useful as a secondary direct-download asset because GitHub cannot serve a raw `.app` bundle as a single file.
-
-After the repo has a GitHub `origin` remote, publish the current artifacts as a release with:
+Then publish the artifacts:
 
 ```sh
 ./script/publish_github_release.sh
 ```
+
+The release scripts reject dirty, untagged, mismatched, and duplicate public releases.
 
 ## Use
 
@@ -147,7 +130,7 @@ Open the menu bar calendar icon to see:
 - `Up Next`: remaining timed calendar events today
 - `Show tomorrow`: expand or collapse tomorrow's timed calendar events
 - `Linear`: active assigned Linear issues
-- `+`: create a Linear issue with the Linear CLI default team
+- `+`: create a Linear issue
 - issue rows: horizontally swipe or scroll to reveal `Cancel`
 - `Show more`: reveal more fetched Linear issues
 - `Show less`: collapse expanded Linear issues
@@ -165,6 +148,7 @@ Issue row shortcuts while hovering a Linear issue:
 
 Settings lets you change:
 
+- connected Google Calendar and Linear accounts
 - launch at login
 - refresh cadence
 - copy hotkey
@@ -194,7 +178,6 @@ The app includes a small Accessibility-driven helper for fast local testing:
 ./script/menu_test.sh hover settings
 ./script/menu_test.sh hover quit
 ./script/menu_test.sh scroll down
-./script/dependency_sandbox.sh unauthenticated
 ```
 
 Stable Accessibility identifiers include:
@@ -203,12 +186,10 @@ Stable Accessibility identifiers include:
 - `dayline.settings`
 - `dayline.quit`
 - `setup.checkAgain`
-- `setup.gws`
-- `setup.gws.install`
-- `setup.gws.auth`
+- `setup.google`
+- `setup.google.connect`
 - `setup.linear`
-- `setup.linear.install`
-- `setup.linear.auth`
+- `setup.linear.connect`
 - `calendar.tomorrow.toggle`
 - `linear.new`
 - `linear.showMore`
@@ -227,6 +208,8 @@ Stable Accessibility identifiers include:
 - `noteEditor.text`
 - `noteEditor.save`
 - `noteEditor.cancel`
+- `settings.account.google`
+- `settings.account.linear`
 - `settings.launchAtLogin`
 - `settings.refreshCadence`
 - `settings.menuBarEventLeadTime`
@@ -248,14 +231,15 @@ Run the smoke test:
 
 ```text
 Sources/Dayline/App/        App entrypoint
+Sources/Dayline/Auth/       OAuth, PKCE, and Keychain token storage
 Sources/Dayline/Models/     Value models
-Sources/Dayline/Services/   gws, Linear CLI, local persistence, and process execution
+Sources/Dayline/Services/   Google Calendar API, Linear GraphQL API, and local persistence
 Sources/Dayline/Stores/     App state and refresh loop
 Sources/Dayline/Support/    Formatters and small helpers
 Sources/Dayline/Views/      SwiftUI views
-script/                          Build, smoke, and menu test helpers
+script/                     Build, smoke, and release helpers
 ```
 
 ## Notes
 
-This is local tooling, not a sandboxed App Store app. Calendar and Linear rely on authenticated local CLI tools; notes are stored locally in Dayline's Application Support folder. A note's first line is its menu title; the rest becomes the preview.
+Calendar and Linear data is fetched directly from each provider over HTTPS. OAuth tokens are stored in the macOS Keychain, and notes are stored locally in Dayline's Application Support folder. A note's first line is its menu title; the rest becomes the preview.
