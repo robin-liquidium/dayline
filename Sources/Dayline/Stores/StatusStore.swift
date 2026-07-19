@@ -16,8 +16,11 @@ final class StatusStore: ObservableObject {
   /// Local notes persisted on this Mac.
   @Published private(set) var notes: [LocalNoteItem] = []
 
-  /// Calendar loading error shown as a compact status row.
-  @Published private(set) var calendarError: String?
+  /// Account- or calendar-scoped warnings that do not hide successful events.
+  @Published private(set) var calendarWarnings: [String] = []
+
+  /// Last successful raw per-calendar events used for immediate local recomputation.
+  private var googleSourceEvents: [CalendarEventItem] = []
 
   /// Linear loading error shown as a compact status row.
   @Published private(set) var linearError: String?
@@ -27,6 +30,15 @@ final class StatusStore: ObservableObject {
 
   /// Connection state for Google and Linear accounts.
   @Published private(set) var connectionStatuses = ConnectionStatus.checkingAll
+
+  /// Persisted Google accounts with their current runtime connection state.
+  @Published private(set) var googleAccounts: [GoogleAccountStatus] = []
+
+  /// Whether a Google browser authorization is currently in progress.
+  @Published private(set) var isGoogleAuthorizationInProgress = false
+
+  /// Compact error from the most recent add/reconnect attempt.
+  @Published private(set) var googleAuthorizationError: String?
 
   /// Whether a refresh is currently running.
   @Published private(set) var isRefreshing = false
@@ -224,31 +236,35 @@ final class StatusStore: ObservableObject {
   private static let defaultMenuBarEventPostStartGraceMinutes = 5
   private static let fallbackDefaultVisibleNoteCount = 3
   private static let menuBarClockRefreshSeconds: TimeInterval = 15
+  private static let todayEventLimit = 6
+  private static let tomorrowEventLimit = 8
 
-  private let calendarService: CalendarService
   private let linearService: LinearService
   private let notesService: LocalNotesService
   private let authSessions: [AuthProvider: OAuthSession]
+  private let googleAccountRepository: GoogleAccountRepository
   private let launchAtLoginService: LaunchAtLoginService
   private let mockData: MockData?
+  private var googleSessions: [UUID: OAuthSession] = [:]
   private var allIssues: [LinearIssueItem] = []
   private var allNotes: [LocalNoteItem] = []
   private var refreshTimer: Timer?
   private var menuBarClockTimer: Timer?
+  private var refreshRequested = false
 
   /// Creates a live store and immediately starts the background refresh loop.
   init(
-    calendarService: CalendarService = CalendarService(),
     linearService: LinearService = LinearService(),
     notesService: LocalNotesService = LocalNotesService(),
-    authSessions: [AuthProvider: OAuthSession] = [.google: .google, .linear: .linear],
+    authSessions: [AuthProvider: OAuthSession] = [.linear: .linear],
+    googleAccountRepository: GoogleAccountRepository = GoogleAccountRepository(),
     launchAtLoginService: LaunchAtLoginService = LaunchAtLoginService(),
     mockData: MockData? = nil
   ) {
-    self.calendarService = calendarService
     self.linearService = linearService
     self.notesService = notesService
     self.authSessions = authSessions
+    self.googleAccountRepository = googleAccountRepository
     self.launchAtLoginService = launchAtLoginService
     self.mockData = mockData
     self.refreshIntervalMinutes = UserDefaults.standard.integer(forKey: Self.refreshIntervalKey)
@@ -280,6 +296,13 @@ final class StatusStore: ObservableObject {
     if let mockData {
       applyMockData(mockData)
     } else {
+      do {
+        googleAccounts = try googleAccountRepository.loadAndMigrateLegacyAccount().map {
+          GoogleAccountStatus(account: $0, state: .checking, detail: nil)
+        }
+      } catch {
+        googleAuthorizationError = error.localizedDescription
+      }
       loadPersistedNotes()
       scheduleRefreshTimer()
       Task { await refresh() }
@@ -300,6 +323,7 @@ final class StatusStore: ObservableObject {
     }
 
     guard !isRefreshing else {
+      refreshRequested = true
       return
     }
 
@@ -308,36 +332,34 @@ final class StatusStore: ObservableObject {
     let googleRevision = connectionRevisions[.google, default: 0]
     let linearRevision = connectionRevisions[.linear, default: 0]
 
-    async let calendarResult: Result<[CalendarEventItem], Error>? = isConnected(.google) ? loadCalendarEvents() : nil
-    async let tomorrowCalendarResult: Result<[CalendarEventItem], Error>? = isConnected(.google) ? loadTomorrowCalendarEvents() : nil
+    async let calendarResult: CalendarAgendaLoadResult? = hasConnectedGoogleAccount ? loadGoogleAgenda() : nil
     async let linearResult: Result<[LinearIssueItem], Error>? = isConnected(.linear) ? loadLinearIssues() : nil
 
-    switch await calendarResult {
-    case .success(let fetchedEvents)? where connectionRevisions[.google, default: 0] == googleRevision && isConnected(.google):
-      events = fetchedEvents
-      calendarError = nil
-    case .failure(let error)? where connectionRevisions[.google, default: 0] == googleRevision && isConnected(.google):
-      handleFetchFailure(error, for: .google)
-      calendarError = error.localizedDescription
-    case .some(_):
-      break
-    case nil:
-      events = []
-      tomorrowEvents = []
-      calendarError = nil
-    }
-
-    switch await tomorrowCalendarResult {
-    case .success(let fetchedEvents)? where connectionRevisions[.google, default: 0] == googleRevision && isConnected(.google):
-      tomorrowEvents = fetchedEvents
-    case .failure(let error)? where connectionRevisions[.google, default: 0] == googleRevision && isConnected(.google):
-      if calendarError == nil {
-        calendarError = error.localizedDescription
+    let resolvedCalendarResult = await calendarResult
+    if connectionRevisions[.google, default: 0] == googleRevision {
+      if let calendarResult = resolvedCalendarResult {
+        if calendarResult.shouldReplaceEvents {
+          googleSourceEvents = calendarResult.sourceEvents
+          events = calendarResult.today
+          tomorrowEvents = calendarResult.tomorrow
+        }
+        calendarWarnings = calendarResult.warnings
+        for accountID in calendarResult.reauthenticationAccountIDs {
+          updateGoogleAccountStatus(
+            accountID,
+            state: .disconnected,
+            detail: "Reconnect required."
+          )
+        }
+        if !calendarResult.reauthenticationAccountIDs.isEmpty {
+          updateGoogleAggregateStatus()
+        }
+      } else {
+        googleSourceEvents = []
+        events = []
+        tomorrowEvents = []
+        calendarWarnings = []
       }
-    case .some(_):
-      break
-    case nil:
-      break
     }
 
     switch await linearResult {
@@ -358,80 +380,115 @@ final class StatusStore: ObservableObject {
 
     lastUpdatedAt = Date()
     isRefreshing = false
+    if refreshRequested {
+      refreshRequested = false
+      await refresh()
+    }
   }
 
-  /// Rechecks stored credentials for Google and Linear.
+  /// Rechecks stored credentials and refreshes each Google account's calendar catalog.
   func refreshConnectionStatus() async {
     if let mockData {
       connectionStatuses = mockData.connectionStatuses
+      googleAccounts = mockData.googleAccounts
       return
     }
 
-    var statuses: [ConnectionStatus] = []
-    let revisions = Dictionary(uniqueKeysWithValues: AuthProvider.allCases.map { ($0, connectionRevisions[$0, default: 0]) })
+    let googleRevision = connectionRevisions[.google, default: 0]
+    var refreshedGoogleAccounts: [GoogleAccountStatus] = []
 
-    for provider in AuthProvider.allCases {
-      guard let session = authSessions[provider] else {
-        statuses.append(ConnectionStatus(provider: provider, state: .disconnected, detail: nil, accountLabel: nil))
+    for status in googleAccounts {
+      let session = googleSession(for: status.account)
+      guard await session.hasTokens() else {
+        refreshedGoogleAccounts.append(GoogleAccountStatus(
+          account: status.account,
+          state: .disconnected,
+          detail: "Reconnect required."
+        ))
         continue
       }
 
-      let hasTokens = await session.hasTokens()
-      let previous = connectionStatuses.first { $0.provider == provider }
-      if hasTokens {
-        var accountLabel: String?
-        if let existingLabel = previous?.accountLabel, !existingLabel.isEmpty {
-          accountLabel = existingLabel
-        } else {
-          accountLabel = try? await fetchAccountLabel(for: provider)
-          if !(await session.hasTokens()) {
-            statuses.append(ConnectionStatus(
-              provider: provider,
-              state: .disconnected,
-              detail: "Sign in again.",
-              accountLabel: nil
-            ))
-            continue
-          }
-        }
-        statuses.append(ConnectionStatus(
-          provider: provider,
-          state: .connected,
-          detail: nil,
-          accountLabel: accountLabel
-        ))
-      } else {
-        let detail = provider.isConfigured ? nil : "This build is missing its OAuth client ID."
-        statuses.append(ConnectionStatus(
-          provider: provider,
-          state: .disconnected,
-          detail: detail,
-          accountLabel: nil
+      do {
+        let discovery = try await CalendarService(authSession: session).fetchAccountDiscovery()
+        var account = status.account.reconcilingCalendars(discovery.calendars)
+        account.providerAccountID = discovery.providerAccountID
+        account.displayLabel = discovery.displayLabel
+        refreshedGoogleAccounts.append(GoogleAccountStatus(account: account, state: .connected, detail: nil))
+      } catch {
+        let tokensRemain = await session.hasTokens()
+        let needsReauthentication = requiresGoogleReauthentication(error) || !tokensRemain
+        refreshedGoogleAccounts.append(GoogleAccountStatus(
+          account: status.account,
+          state: needsReauthentication ? .disconnected : .connected,
+          detail: needsReauthentication
+            ? "Reconnect required."
+            : error.localizedDescription.compactLine(limit: 96)
         ))
       }
     }
 
-    guard AuthProvider.allCases.allSatisfy({ connectionRevisions[$0, default: 0] == revisions[$0] }) else {
+    guard connectionRevisions[.google, default: 0] == googleRevision else {
       return
     }
-    connectionStatuses = statuses
+    googleAccounts = refreshedGoogleAccounts
+    persistGoogleAccounts()
+    updateGoogleAggregateStatus()
+
+    let linearRevision = connectionRevisions[.linear, default: 0]
+    guard let linearSession = authSessions[.linear] else {
+      updateConnectionStatus(.linear, state: .disconnected, detail: nil, accountLabel: nil)
+      return
+    }
+
+    let hasLinearTokens = await linearSession.hasTokens()
+    guard connectionRevisions[.linear, default: 0] == linearRevision else { return }
+    if hasLinearTokens {
+      let previousLabel = connectionStatuses.first(where: { $0.provider == .linear })?.accountLabel
+      let accountLabel: String?
+      if let previousLabel {
+        accountLabel = previousLabel
+      } else {
+        accountLabel = try? await linearService.fetchAccountLabel()
+      }
+      guard connectionRevisions[.linear, default: 0] == linearRevision else { return }
+      updateConnectionStatus(.linear, state: .connected, detail: nil, accountLabel: accountLabel)
+    } else {
+      let detail = AuthProvider.linear.isConfigured ? nil : "This build is missing its OAuth client ID."
+      updateConnectionStatus(.linear, state: .disconnected, detail: detail, accountLabel: nil)
+    }
   }
 
   /// Providers that still need the user to connect an account.
   var connectionSetupItems: [ConnectionStatus] {
     connectionStatuses.filter { status in
-      status.state != .connected
+      status.state != .connected && (status.provider != .google || googleAccounts.isEmpty)
     }
+  }
+
+  /// Existing Google accounts that need account-specific reauthentication.
+  var googleAccountsNeedingAttention: [GoogleAccountStatus] {
+    googleAccounts.filter(\.needsAttention)
+  }
+
+  /// Whether another Google authorization can begin without duplicating a migrated placeholder.
+  var canAddGoogleAccount: Bool {
+    !isGoogleAuthorizationInProgress
+      && !googleAccounts.contains { $0.account.providerAccountID == nil }
   }
 
   /// Whether the setup section should be visible.
   var hasConnectionSetupItems: Bool {
-    !connectionSetupItems.isEmpty
+    !connectionSetupItems.isEmpty || !googleAccountsNeedingAttention.isEmpty
   }
 
   /// Starts the browser sign-in flow for one provider.
   func connect(_ provider: AuthProvider) async {
     guard mockData == nil else { return }
+
+    if provider == .google {
+      await addGoogleAccount()
+      return
+    }
 
     guard let session = authSessions[provider],
           connectionStatuses.first(where: { $0.provider == provider })?.state != .connecting else {
@@ -474,6 +531,13 @@ final class StatusStore: ObservableObject {
   func disconnect(_ provider: AuthProvider) async {
     guard mockData == nil else { return }
 
+    if provider == .google {
+      for account in googleAccounts {
+        await disconnectGoogleAccount(account.id)
+      }
+      return
+    }
+
     guard let session = authSessions[provider] else {
       return
     }
@@ -482,16 +546,68 @@ final class StatusStore: ObservableObject {
     await session.signOut()
     updateConnectionStatus(provider, state: .disconnected, detail: nil, accountLabel: nil)
 
-    switch provider {
-    case .google:
-      events = []
-      tomorrowEvents = []
-      calendarError = nil
-    case .linear:
-      allIssues = []
-      applyLinearIssueOrder()
-      linearError = nil
+    allIssues = []
+    applyLinearIssueOrder()
+    linearError = nil
+  }
+
+  /// Links a new Google account or refreshes credentials for an already-linked identity.
+  func addGoogleAccount() async {
+    guard canAddGoogleAccount else { return }
+    await authorizeGoogleAccount(reconnecting: nil)
+  }
+
+  /// Reauthenticates one existing Google account without allowing an identity swap.
+  func reconnectGoogleAccount(_ accountID: UUID) async {
+    guard let status = googleAccounts.first(where: { $0.id == accountID }) else { return }
+    await authorizeGoogleAccount(reconnecting: status.account)
+  }
+
+  /// Revokes and removes one Google account while retaining all other accounts.
+  func disconnectGoogleAccount(_ accountID: UUID) async {
+    guard mockData == nil,
+          let index = googleAccounts.firstIndex(where: { $0.id == accountID }) else {
+      return
     }
+
+    connectionRevisions[.google, default: 0] += 1
+    let account = googleAccounts[index].account
+    await googleSession(for: account).signOut()
+    guard let removalIndex = googleAccounts.firstIndex(where: { $0.id == accountID }) else {
+      return
+    }
+    googleAccounts.remove(at: removalIndex)
+    connectionRevisions[.google, default: 0] += 1
+    googleSessions[accountID] = nil
+    let accountPrefix = "\(accountID.uuidString)|"
+    googleSourceEvents.removeAll { event in
+      event.sourceIDs.contains { $0.hasPrefix(accountPrefix) }
+    }
+    rebuildAgendaFromCachedGoogleSources()
+    calendarWarnings = []
+    googleAuthorizationError = nil
+    persistGoogleAccounts()
+    updateGoogleAggregateStatus()
+    await refresh()
+  }
+
+  /// Updates one calendar checkbox and immediately recomputes the merged agenda.
+  func setGoogleCalendarEnabled(accountID: UUID, calendarID: String, isEnabled: Bool) {
+    guard let accountIndex = googleAccounts.firstIndex(where: { $0.id == accountID }),
+          let calendarIndex = googleAccounts[accountIndex].account.calendars.firstIndex(where: { $0.id == calendarID }) else {
+      return
+    }
+
+    googleAccounts[accountIndex].account.calendars[calendarIndex].isEnabled = isEnabled
+    connectionRevisions[.google, default: 0] += 1
+    if !isEnabled {
+      let disabledSourceID = CalendarEventItem.sourceID(accountID: accountID, calendarID: calendarID)
+      googleSourceEvents.removeAll { $0.sourceIDs.contains(disabledSourceID) }
+      rebuildAgendaFromCachedGoogleSources()
+      calendarWarnings = []
+    }
+    persistGoogleAccounts()
+    Task { await refresh() }
   }
 
   /// Persists a new refresh cadence selected from Settings.
@@ -955,6 +1071,191 @@ final class StatusStore: ObservableObject {
     menuBarClockTimer?.tolerance = 2
   }
 
+  /// Runs a Google authorization and assigns its tokens only after identity verification.
+  private func authorizeGoogleAccount(reconnecting expectedAccount: GoogleAccount?) async {
+    guard mockData == nil, !isGoogleAuthorizationInProgress else { return }
+
+    isGoogleAuthorizationInProgress = true
+    googleAuthorizationError = nil
+    connectionRevisions[.google, default: 0] += 1
+
+    if let expectedAccount {
+      updateGoogleAccountStatus(
+        expectedAccount.id,
+        state: .connecting,
+        detail: "Finish sign-in in your browser."
+      )
+    } else {
+      updateConnectionStatus(
+        .google,
+        state: .connecting,
+        detail: "Finish sign-in in your browser.",
+        accountLabel: nil
+      )
+    }
+
+    var pendingSession: OAuthSession?
+
+    do {
+      let pendingID = UUID()
+      let session = OAuthSession(
+        provider: .google,
+        credentials: googleAccountRepository.credentials,
+        credentialAccount: "google.pending.\(pendingID.uuidString.lowercased())"
+      )
+      pendingSession = session
+      let tokens = try await session.authorize()
+      await session.stage(tokens)
+      let discovery = try await CalendarService(authSession: session).fetchAccountDiscovery()
+
+      if let expectedID = expectedAccount?.providerAccountID,
+         expectedID.caseInsensitiveCompare(discovery.providerAccountID) != .orderedSame {
+        let selectedAccountIsAlreadyLinked = googleAccounts.contains {
+          $0.account.providerAccountID?.caseInsensitiveCompare(discovery.providerAccountID) == .orderedSame
+        }
+        if !selectedAccountIsAlreadyLinked {
+          await session.signOut()
+        }
+        throw StatusStoreError.googleAccountMismatch(
+          expected: expectedAccount?.label ?? expectedID,
+          actual: discovery.displayLabel
+        )
+      }
+
+      let existingIndex = googleAccounts.firstIndex {
+        $0.account.providerAccountID?.caseInsensitiveCompare(discovery.providerAccountID) == .orderedSame
+      }
+      let targetIndex: Int?
+      let targetAccount: GoogleAccount
+
+      if let expectedAccount,
+         let reconnectIndex = googleAccounts.firstIndex(where: { $0.id == expectedAccount.id }) {
+        targetIndex = reconnectIndex
+        targetAccount = googleAccounts[reconnectIndex].account
+      } else if let existingIndex {
+        targetIndex = existingIndex
+        targetAccount = googleAccounts[existingIndex].account
+      } else {
+        targetIndex = nil
+        targetAccount = GoogleAccount(
+          id: UUID(),
+          providerAccountID: nil,
+          displayLabel: nil,
+          calendars: []
+        )
+      }
+
+      let targetSession = googleSession(for: targetAccount)
+      guard let verifiedTokens = try await session.currentTokens() else {
+        throw OAuthError.notSignedIn
+      }
+      try await targetSession.install(verifiedTokens)
+      await session.discardCredentials()
+      pendingSession = nil
+
+      var verifiedAccount = targetAccount.reconcilingCalendars(discovery.calendars)
+      verifiedAccount.providerAccountID = discovery.providerAccountID
+      verifiedAccount.displayLabel = discovery.displayLabel
+      let verifiedStatus = GoogleAccountStatus(account: verifiedAccount, state: .connected, detail: nil)
+      if let targetIndex {
+        googleAccounts[targetIndex] = verifiedStatus
+      } else {
+        googleAccounts.append(verifiedStatus)
+      }
+
+      connectionRevisions[.google, default: 0] += 1
+      persistGoogleAccounts()
+      updateGoogleAggregateStatus()
+      isGoogleAuthorizationInProgress = false
+      await refresh()
+      presentSettingsAfterAuth()
+    } catch OAuthError.authorizationCancelled {
+      await pendingSession?.discardCredentials()
+      isGoogleAuthorizationInProgress = false
+      if let expectedAccount {
+        updateGoogleAccountStatus(expectedAccount.id, state: .disconnected, detail: "Reconnect required.")
+        connectionRevisions[.google, default: 0] += 1
+      }
+      updateGoogleAggregateStatus()
+    } catch {
+      await pendingSession?.discardCredentials()
+      isGoogleAuthorizationInProgress = false
+      googleAuthorizationError = error.localizedDescription.compactLine(limit: 120)
+      if let expectedAccount {
+        updateGoogleAccountStatus(
+          expectedAccount.id,
+          state: .disconnected,
+          detail: googleAuthorizationError
+        )
+        connectionRevisions[.google, default: 0] += 1
+      }
+      updateGoogleAggregateStatus()
+    }
+  }
+
+  /// Returns the cached account-scoped session or creates it on demand.
+  private func googleSession(for account: GoogleAccount) -> OAuthSession {
+    if let session = googleSessions[account.id] {
+      return session
+    }
+    let session = OAuthSession(
+      provider: .google,
+      credentials: googleAccountRepository.credentials,
+      credentialAccount: account.credentialAccount
+    )
+    googleSessions[account.id] = session
+    return session
+  }
+
+  /// Persists the current Google account descriptors without runtime state.
+  private func persistGoogleAccounts() {
+    do {
+      try googleAccountRepository.save(googleAccounts.map(\.account))
+    } catch {
+      googleAuthorizationError = error.localizedDescription
+    }
+  }
+
+  /// Recomputes the provider-level Google status retained for first-run setup.
+  private func updateGoogleAggregateStatus() {
+    if googleAccounts.isEmpty {
+      let detail = AuthProvider.google.isConfigured
+        ? googleAuthorizationError
+        : "This build is missing its OAuth client ID."
+      updateConnectionStatus(.google, state: .disconnected, detail: detail, accountLabel: nil)
+      return
+    }
+
+    let connectedCount = googleAccounts.filter(\.isConnected).count
+    if connectedCount > 0 {
+      let label = connectedCount == 1
+        ? googleAccounts.first(where: \.isConnected)?.account.label
+        : "\(connectedCount) accounts"
+      updateConnectionStatus(.google, state: .connected, detail: nil, accountLabel: label)
+    } else if isGoogleAuthorizationInProgress {
+      updateConnectionStatus(
+        .google,
+        state: .connecting,
+        detail: "Finish sign-in in your browser.",
+        accountLabel: nil
+      )
+    } else {
+      updateConnectionStatus(.google, state: .disconnected, detail: "Reconnect required.", accountLabel: nil)
+    }
+  }
+
+  /// Updates one Google account's runtime status in place.
+  private func updateGoogleAccountStatus(_ accountID: UUID, state: ConnectionState, detail: String?) {
+    guard let index = googleAccounts.firstIndex(where: { $0.id == accountID }) else { return }
+    googleAccounts[index].state = state
+    googleAccounts[index].detail = detail
+  }
+
+  /// Whether at least one Google account can currently contribute calendar events.
+  private var hasConnectedGoogleAccount: Bool {
+    googleAccounts.contains(where: \.isConnected)
+  }
+
   /// Returns whether one provider currently has usable credentials.
   private func isConnected(_ provider: AuthProvider) -> Bool {
     connectionStatuses.first { $0.provider == provider }?.isConnected == true
@@ -994,7 +1295,7 @@ final class StatusStore: ObservableObject {
   private func fetchAccountLabel(for provider: AuthProvider) async throws -> String {
     switch provider {
     case .google:
-      try await calendarService.fetchAccountLabel()
+      googleAccounts.first?.account.label ?? "Google Calendar"
     case .linear:
       try await linearService.fetchAccountLabel()
     }
@@ -1094,9 +1395,11 @@ final class StatusStore: ObservableObject {
     allIssues = mockData.issues
     allNotes = mockData.notes
     connectionStatuses = mockData.connectionStatuses
+    googleAccounts = mockData.googleAccounts
     visibleIssueCount = Self.initialVisibleIssueCount
     visibleNoteCount = Self.fallbackDefaultVisibleNoteCount
-    calendarError = nil
+    calendarWarnings = []
+    googleAuthorizationError = nil
     linearError = nil
     notesError = nil
     issues = Array(allIssues.prefix(visibleIssueCount))
@@ -1203,22 +1506,128 @@ final class StatusStore: ObservableObject {
     min(max(count, 1), 25)
   }
 
-  /// Loads calendar events and packages thrown errors as `Result`.
-  private func loadCalendarEvents() async -> Result<[CalendarEventItem], Error> {
-    do {
-      return .success(try await calendarService.fetchUpcomingEvents())
-    } catch {
-      return .failure(error)
+  /// Loads all enabled calendars, preserving successful results when individual sources fail.
+  private func loadGoogleAgenda(now: Date = Date()) async -> CalendarAgendaLoadResult {
+    let calendar = Calendar.current
+    let tomorrowStart = calendar.date(
+      byAdding: .day,
+      value: 1,
+      to: calendar.startOfDay(for: now)
+    ) ?? now.addingTimeInterval(24 * 60 * 60)
+    let dayAfterTomorrow = calendar.date(byAdding: .day, value: 1, to: tomorrowStart)
+      ?? tomorrowStart.addingTimeInterval(24 * 60 * 60)
+    let contexts = googleAccounts
+      .filter(\.isConnected)
+      .flatMap { status in
+        status.account.calendars
+          .filter(\.isEnabled)
+          .map { source in
+            GoogleCalendarFetchContext(
+              accountID: status.id,
+              accountLabel: status.account.label,
+              calendar: source,
+              service: CalendarService(authSession: googleSession(for: status.account))
+            )
+          }
+      }
+
+    var sourceBatches: [CalendarAgendaSourceBatch] = []
+    let accountWarnings = googleAccounts.compactMap { status -> String? in
+      guard status.isConnected, let detail = status.detail, !detail.isEmpty else { return nil }
+      return "\(status.account.label): \(detail)"
     }
+    var reauthenticationAccountIDs: Set<UUID> = []
+
+    await withTaskGroup(of: GoogleCalendarFetchOutcome.self) { group in
+      for context in contexts {
+        group.addTask {
+          do {
+            let events = try await context.service.fetchEvents(
+              accountID: context.accountID,
+              calendar: context.calendar,
+              from: now,
+              to: dayAfterTomorrow,
+              cutoff: now
+            )
+            return GoogleCalendarFetchOutcome(context: context, events: events, error: nil, needsReauthentication: false)
+          } catch {
+            return GoogleCalendarFetchOutcome(
+              context: context,
+              events: [],
+              error: error.localizedDescription,
+              needsReauthentication: requiresGoogleReauthentication(error)
+            )
+          }
+        }
+      }
+
+      for await outcome in group {
+        sourceBatches.append(CalendarAgendaSourceBatch(
+          events: outcome.events,
+          warning: outcome.error.map {
+            "\(outcome.context.calendar.name) (\(outcome.context.accountLabel)): \($0)"
+          }
+        ))
+        if outcome.needsReauthentication {
+          reauthenticationAccountIDs.insert(outcome.context.accountID)
+        }
+      }
+    }
+
+    return Self.assembleCalendarAgenda(
+      sourceBatches: sourceBatches,
+      additionalWarnings: accountWarnings,
+      reauthenticationAccountIDs: reauthenticationAccountIDs,
+      tomorrowStart: tomorrowStart,
+      dayAfterTomorrow: dayAfterTomorrow
+    )
   }
 
-  /// Loads tomorrow's calendar events and packages thrown errors as `Result`.
-  private func loadTomorrowCalendarEvents() async -> Result<[CalendarEventItem], Error> {
-    do {
-      return .success(try await calendarService.fetchTomorrowEvents())
-    } catch {
-      return .failure(error)
-    }
+  /// Merges successful source batches without allowing sibling warnings to hide them.
+  static func assembleCalendarAgenda(
+    sourceBatches: [CalendarAgendaSourceBatch],
+    additionalWarnings: [String] = [],
+    reauthenticationAccountIDs: Set<UUID> = [],
+    tomorrowStart: Date,
+    dayAfterTomorrow: Date
+  ) -> CalendarAgendaLoadResult {
+    let sections = CalendarEventItem.agendaSections(
+      from: sourceBatches.flatMap(\.events),
+      tomorrowStart: tomorrowStart,
+      dayAfterTomorrow: dayAfterTomorrow,
+      todayLimit: Self.todayEventLimit,
+      tomorrowLimit: Self.tomorrowEventLimit
+    )
+    let warnings = additionalWarnings + sourceBatches.compactMap(\.warning)
+    return CalendarAgendaLoadResult(
+      sourceEvents: sourceBatches.flatMap(\.events),
+      today: sections.today,
+      tomorrow: sections.tomorrow,
+      warnings: Array(Set(warnings)).sorted(),
+      reauthenticationAccountIDs: reauthenticationAccountIDs,
+      shouldReplaceEvents: sourceBatches.isEmpty || sourceBatches.contains { $0.warning == nil }
+    )
+  }
+
+  /// Rebuilds the visible agenda after a local source is disabled or disconnected.
+  private func rebuildAgendaFromCachedGoogleSources(now: Date = Date()) {
+    let calendar = Calendar.current
+    let tomorrowStart = calendar.date(
+      byAdding: .day,
+      value: 1,
+      to: calendar.startOfDay(for: now)
+    ) ?? now.addingTimeInterval(24 * 60 * 60)
+    let dayAfterTomorrow = calendar.date(byAdding: .day, value: 1, to: tomorrowStart)
+      ?? tomorrowStart.addingTimeInterval(24 * 60 * 60)
+    let sections = CalendarEventItem.agendaSections(
+      from: googleSourceEvents,
+      tomorrowStart: tomorrowStart,
+      dayAfterTomorrow: dayAfterTomorrow,
+      todayLimit: Self.todayEventLimit,
+      tomorrowLimit: Self.tomorrowEventLimit
+    )
+    events = sections.today
+    tomorrowEvents = sections.tomorrow
   }
 
   /// Loads Linear issues and packages thrown errors as `Result`.
@@ -1232,16 +1641,64 @@ final class StatusStore: ObservableObject {
 
 }
 
+/// Immutable context for one enabled calendar fetch.
+private struct GoogleCalendarFetchContext: Sendable {
+  let accountID: UUID
+  let accountLabel: String
+  let calendar: GoogleCalendarSource
+  let service: CalendarService
+}
+
+/// Success or failure from one enabled calendar without aborting sibling fetches.
+private struct GoogleCalendarFetchOutcome: Sendable {
+  let context: GoogleCalendarFetchContext
+  let events: [CalendarEventItem]
+  let error: String?
+  let needsReauthentication: Bool
+}
+
+/// Successful events and an optional warning produced by one independent source.
+struct CalendarAgendaSourceBatch: Sendable {
+  let events: [CalendarEventItem]
+  let warning: String?
+}
+
+/// Fully merged agenda and recoverable source failures from one refresh.
+struct CalendarAgendaLoadResult: Sendable {
+  let sourceEvents: [CalendarEventItem]
+  let today: [CalendarEventItem]
+  let tomorrow: [CalendarEventItem]
+  let warnings: [String]
+  let reauthenticationAccountIDs: Set<UUID>
+  let shouldReplaceEvents: Bool
+}
+
+/// Recognizes OAuth failures that invalidate only the affected Google account.
+private func requiresGoogleReauthentication(_ error: Error) -> Bool {
+  guard let oauthError = error as? OAuthError else { return false }
+  switch oauthError {
+  case .reauthenticationRequired, .notSignedIn, .refreshFailed:
+    return true
+  default:
+    return false
+  }
+}
+
 /// Errors produced by local store operations.
 private enum StatusStoreError: LocalizedError {
   /// The requested local note no longer exists in memory.
   case missingLocalNote
+
+  /// A reconnect flow authenticated a different Google identity.
+  case googleAccountMismatch(expected: String, actual: String)
 
   /// Human-readable local store error text.
   var errorDescription: String? {
     switch self {
     case .missingLocalNote:
       "This note was deleted before it could be saved."
+    case .googleAccountMismatch(let expected, let actual):
+      "Expected \(expected), but Google signed in as \(actual)."
     }
   }
 }

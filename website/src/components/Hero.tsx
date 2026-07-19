@@ -11,11 +11,12 @@ export function Hero() {
         className="h-24 w-24 rounded-[22%] shadow-lg shadow-amber-900/10 ring-1 ring-line"
       />
       <h1 className="mt-8 max-w-2xl font-display text-5xl leading-[1.05] tracking-tight text-balance sm:text-7xl">
-        Your whole day, one glance away.
+        Dayline. Your whole day, one glance away.
       </h1>
       <p className="mt-6 max-w-xl text-lg leading-relaxed text-mute text-balance">
-        Dayline lives in your menu bar and keeps your calendar, Linear issues,
-        and notes in one quiet little place — so you always know what's next.
+        Dayline is a native macOS menu bar app that reads your Google Calendar
+        events and keeps them alongside Linear issues and notes in one quiet
+        little place — so you always know what's next.
       </p>
       <div className="mt-9 flex flex-col items-center gap-4">
         <a

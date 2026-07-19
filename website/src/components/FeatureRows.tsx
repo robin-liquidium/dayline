@@ -51,9 +51,7 @@ export function FeatureRows() {
             className="grid items-center gap-8 sm:grid-cols-2 sm:gap-14"
           >
             <div className={index % 2 === 1 ? "sm:order-2" : ""}>
-              <span className="font-display text-lg text-ember italic">
-                {feature.number}
-              </span>
+              <span className="eyebrow">{feature.number}</span>
               <h3 className="mt-3 font-display text-3xl tracking-tight text-balance sm:text-4xl">
                 {feature.title}
               </h3>

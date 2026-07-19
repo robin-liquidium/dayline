@@ -94,7 +94,10 @@ actor OAuthSession {
   let provider: AuthProvider
 
   /// Keychain store backing token persistence.
-  private let keychain: KeychainStore
+  private let credentials: any CredentialStore
+
+  /// Keychain account containing this session's token bundle.
+  private let credentialAccount: String
 
   /// Logger for OAuth diagnostics.
   private let logger = Logger(subsystem: "build.local.Dayline", category: "oauth")
@@ -109,9 +112,14 @@ actor OAuthSession {
   private var credentialGeneration = 0
 
   /// Creates a session for one provider.
-  init(provider: AuthProvider, keychain: KeychainStore = KeychainStore(service: "build.local.Dayline.oauth")) {
+  init(
+    provider: AuthProvider,
+    credentials: any CredentialStore = KeychainStore(service: "build.local.Dayline.oauth"),
+    credentialAccount: String? = nil
+  ) {
     self.provider = provider
-    self.keychain = keychain
+    self.credentials = credentials
+    self.credentialAccount = credentialAccount ?? provider.keychainAccount
   }
 
   /// Whether any stored credentials exist for this provider.
@@ -121,6 +129,13 @@ actor OAuthSession {
 
   /// Runs the browser authorization flow and persists the resulting tokens.
   func signIn() async throws {
+    let tokens = try await authorize()
+    try install(tokens)
+    logger.info("Stored \(self.provider.id, privacy: .public) tokens")
+  }
+
+  /// Runs browser authorization without replacing any persisted credentials yet.
+  func authorize() async throws -> OAuthTokens {
     guard provider.isConfigured else {
       throw OAuthError.notConfigured
     }
@@ -156,8 +171,29 @@ actor OAuthSession {
     guard generation == credentialGeneration else {
       throw OAuthError.authorizationCancelled
     }
+    return tokens
+  }
+
+  /// Uses freshly authorized tokens in memory before their account identity is verified.
+  func stage(_ tokens: OAuthTokens) {
+    cachedTokens = tokens
+    didLoadTokens = true
+  }
+
+  /// Persists a verified token bundle for this account-scoped session.
+  func install(_ tokens: OAuthTokens) throws {
+    credentialGeneration += 1
     try persist(tokens)
-    logger.info("Stored \(self.provider.id, privacy: .public) tokens")
+  }
+
+  /// Returns the latest token bundle, including any refresh completed during discovery.
+  func currentTokens() throws -> OAuthTokens? {
+    try storedTokens()
+  }
+
+  /// Removes staged credentials without revoking the underlying Google grant.
+  func discardCredentials() {
+    invalidateCredentials()
   }
 
   /// Revokes and removes stored credentials for this provider.
@@ -221,7 +257,9 @@ actor OAuthSession {
       return refreshed.accessToken
     } catch let error as OAuthError {
       if case .refreshFailed = error {
-        invalidateCredentials()
+        if generation == credentialGeneration {
+          invalidateCredentials()
+        }
         throw OAuthError.reauthenticationRequired
       }
       throw error
@@ -299,7 +337,7 @@ actor OAuthSession {
     credentialGeneration += 1
     cachedTokens = nil
     didLoadTokens = true
-    try? keychain.delete(account: provider.keychainAccount)
+    try? credentials.delete(account: credentialAccount)
   }
 
   /// Performs one request attempt with a bearer token attached.
@@ -323,7 +361,7 @@ actor OAuthSession {
 
     defer { didLoadTokens = true }
 
-    guard let data = try keychain.data(for: provider.keychainAccount) else {
+    guard let data = try credentials.data(for: credentialAccount) else {
       cachedTokens = nil
       return nil
     }
@@ -335,7 +373,7 @@ actor OAuthSession {
   /// Persists tokens to cache and Keychain.
   private func persist(_ tokens: OAuthTokens) throws {
     let data = try JSONEncoder().encode(tokens)
-    try keychain.save(data, for: provider.keychainAccount)
+    try credentials.save(data, for: credentialAccount)
     cachedTokens = tokens
     didLoadTokens = true
   }

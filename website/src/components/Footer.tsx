@@ -83,7 +83,7 @@ function CoffeeWallets() {
   );
 }
 
-export function Footer() {
+export function Footer({ showSupport = true }: { showSupport?: boolean }) {
   return (
     <footer className="border-t border-line">
       <div className="mx-auto w-full max-w-5xl px-6 py-10 text-sm text-mute">
@@ -99,6 +99,18 @@ export function Footer() {
             <span>© {new Date().getFullYear()}</span>
           </div>
           <div className="flex items-center gap-6">
+            <a
+              href="/privacy"
+              className="transition-colors hover:text-ink"
+            >
+              Privacy
+            </a>
+            <a
+              href="/terms"
+              className="transition-colors hover:text-ink"
+            >
+              Terms
+            </a>
             <a
               href={site.githubUrl}
               target="_blank"
@@ -119,7 +131,7 @@ export function Footer() {
           </div>
         </div>
 
-        <CoffeeWallets />
+        {showSupport ? <CoffeeWallets /> : null}
       </div>
     </footer>
   );

@@ -1,6 +1,13 @@
 import Foundation
 import Security
 
+/// Storage contract used by OAuth sessions and account migration.
+protocol CredentialStore: Sendable {
+  func data(for account: String) throws -> Data?
+  func save(_ data: Data, for account: String) throws
+  func delete(account: String) throws
+}
+
 /// Failure cases surfaced by Keychain operations.
 enum KeychainStoreError: LocalizedError {
   /// SecItem API returned an unexpected status.
@@ -16,7 +23,7 @@ enum KeychainStoreError: LocalizedError {
 }
 
 /// Minimal generic-password Keychain store used for OAuth token bundles.
-struct KeychainStore: Sendable {
+struct KeychainStore: CredentialStore {
   /// Service namespacing all Dayline Keychain items.
   let service: String
 

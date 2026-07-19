@@ -24,13 +24,16 @@ struct StatusMenuView: View {
       ScrollView {
         VStack(alignment: .leading, spacing: 18) {
           if store.hasConnectionSetupItems {
-            ConnectionSetupSection(statuses: store.connectionSetupItems)
+            ConnectionSetupSection(
+              statuses: store.connectionSetupItems,
+              googleAccounts: store.googleAccountsNeedingAttention
+            )
           }
 
           CalendarSection(
             events: store.events,
             tomorrowEvents: store.tomorrowEvents,
-            error: store.calendarError,
+            warnings: store.calendarWarnings,
             hoveredEventID: store.hoveredEventID,
             isTomorrowExpanded: store.isTomorrowExpanded,
             now: store.calendarHighlightDate
@@ -188,9 +191,10 @@ struct StatusMenuView: View {
 
   /// Lightweight estimate that keeps the initial menu compact before expansion.
   private var estimatedContentHeight: CGFloat {
-    let setupRows = store.hasConnectionSetupItems ? CGFloat(max(store.connectionSetupItems.count, 1)) * 64 + 44 : 0
-    let eventRows = CGFloat(max(store.events.count, 1)) * 34
-    let tomorrowRows = store.isTomorrowExpanded ? CGFloat(max(store.tomorrowEvents.count, 1)) * 34 + 34 : 0
+    let setupItemCount = store.connectionSetupItems.count + store.googleAccountsNeedingAttention.count
+    let setupRows = store.hasConnectionSetupItems ? CGFloat(max(setupItemCount, 1)) * 64 + 44 : 0
+    let eventRows = CGFloat(max(store.events.count, 1)) * 48
+    let tomorrowRows = store.isTomorrowExpanded ? CGFloat(max(store.tomorrowEvents.count, 1)) * 48 + 34 : 0
     let issueRows = CGFloat(max(store.issues.count, 1)) * workItemRowHeight
     let issueMoreRow: CGFloat = store.hasMoreIssues || store.hasExpandedIssues ? 34 : 0
     let noteRows = CGFloat(max(store.notes.count, 1)) * workItemRowHeight
@@ -259,6 +263,9 @@ private struct ConnectionSetupSection: View {
   /// Connection statuses that need user attention.
   let statuses: [ConnectionStatus]
 
+  /// Existing Google accounts that need account-specific reauthentication.
+  let googleAccounts: [GoogleAccountStatus]
+
   /// Builds the setup section.
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -284,9 +291,64 @@ private struct ConnectionSetupSection: View {
         ForEach(statuses) { status in
           ConnectionSetupRow(status: status)
         }
+        ForEach(googleAccounts) { status in
+          GoogleAccountSetupRow(status: status)
+        }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
     }
+  }
+}
+
+/// Setup row that reconnects one affected Google account without touching others.
+private struct GoogleAccountSetupRow: View {
+  @EnvironmentObject private var store: StatusStore
+
+  let status: GoogleAccountStatus
+
+  var body: some View {
+    HStack(alignment: .center, spacing: 10) {
+      Image(systemName: "person.crop.circle.badge.exclamationmark")
+        .font(.callout.weight(.semibold))
+        .foregroundStyle(.yellow)
+        .frame(width: 18)
+
+      VStack(alignment: .leading, spacing: 3) {
+        Text("Reconnect \(status.account.label)")
+          .font(.callout.weight(.medium))
+          .foregroundStyle(.primary)
+
+        if let detail = status.detail, !detail.isEmpty {
+          Text(detail.compactLine(limit: 78))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
+        }
+      }
+
+      Spacer(minLength: 8)
+
+      if status.state == .connecting {
+        ProgressView()
+          .controlSize(.small)
+      } else {
+        Button("Reconnect") {
+          Task { await store.reconnectGoogleAccount(status.id) }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(store.isGoogleAuthorizationInProgress)
+        .accessibilityIdentifier("setup.google.\(status.id.uuidString).reconnect")
+      }
+    }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 7)
+    .background {
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .fill(Color.primary.opacity(0.05))
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("setup.google.\(status.id.uuidString)")
   }
 }
 
@@ -548,8 +610,8 @@ private struct CalendarSection: View {
   /// Tomorrow's timed calendar events.
   let tomorrowEvents: [CalendarEventItem]
 
-  /// Optional calendar loading error.
-  let error: String?
+  /// Recoverable account- or calendar-scoped loading warnings.
+  let warnings: [String]
 
   /// Identifier for the event currently under the pointer.
   let hoveredEventID: CalendarEventItem.ID?
@@ -565,10 +627,11 @@ private struct CalendarSection: View {
     VStack(alignment: .leading, spacing: 10) {
       SectionTitle(title: "Up Next")
 
-      if let error {
-        MessageRow(title: "Calendar unavailable", detail: error)
-      } else {
-        VStack(alignment: .leading, spacing: 0) {
+      ForEach(Array(warnings.prefix(2).enumerated()), id: \.offset) { _, warning in
+        MessageRow(title: "Calendar issue", detail: warning)
+      }
+
+      VStack(alignment: .leading, spacing: 0) {
           if events.isEmpty {
             MessageRow(title: "No more events today", detail: nil)
               .padding(.horizontal, 16)
@@ -608,9 +671,8 @@ private struct CalendarSection: View {
             }
             .padding(.top, 4)
           }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
       }
+      .frame(maxWidth: .infinity, alignment: .leading)
     }
   }
 }
@@ -1012,11 +1074,20 @@ private struct EventRow: View {
           .foregroundStyle(.secondary)
           .frame(width: 92, alignment: .leading)
 
-        Text(event.title)
-          .font(.callout.weight(.medium))
-          .foregroundStyle(.primary)
-          .lineLimit(2)
-          .multilineTextAlignment(.leading)
+        VStack(alignment: .leading, spacing: 2) {
+          Text(event.title)
+            .font(.callout.weight(.medium))
+            .foregroundStyle(.primary)
+            .lineLimit(2)
+            .multilineTextAlignment(.leading)
+
+          if let sourceLabel = event.sourceLabel {
+            Text(sourceLabel)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+          }
+        }
 
         Spacer(minLength: 0)
       }
@@ -1043,7 +1114,11 @@ private struct EventRow: View {
 
   /// VoiceOver summary for the calendar event row.
   private var accessibilityLabel: String {
-    "\(event.title), \(DisplayFormatters.eventTimeRange(start: event.startDate, end: event.endDate))"
+    let time = DisplayFormatters.eventTimeRange(start: event.startDate, end: event.endDate)
+    if let source = event.accessibilitySourceLabel {
+      return "\(event.title), \(time), \(source)"
+    }
+    return "\(event.title), \(time)"
   }
 
   /// Whether this calendar event is currently in progress.

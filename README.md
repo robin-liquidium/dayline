@@ -118,11 +118,15 @@ To create and install a local development build instead:
 
 On first launch, connect either or both integrations from the menu:
 
-- **Google Calendar:** read-only access to the primary calendar.
+- **Google Calendar:** link any number of Google accounts, then choose the readable
+  calendars Dayline should merge into one agenda. Calendars currently visible in
+  Google Calendar are enabled by default.
 - **Linear:** read/write access for assigned issues and issue actions.
 
 Both providers use OAuth 2.0 with PKCE. Tokens are stored in the macOS
-Keychain, and disconnecting an account revokes and removes its token.
+Keychain, and disconnecting a Google account revokes and removes only that
+account's token. Shared meeting occurrences are shown once, with their source
+calendar names visible in the agenda.
 
 Official builds include the public OAuth client IDs needed for sign-in. Custom
 builds can override them with `DAYLINE_GOOGLE_CLIENT_ID` and
@@ -158,6 +162,7 @@ Dayline talks directly from your Mac to Google Calendar and Linear over HTTPS.
 There is no Dayline server between them.
 
 - OAuth tokens live in the macOS Keychain.
+- Linked Google account labels and calendar selections live in local app preferences.
 - Notes live in `~/Library/Application Support/Dayline/notes.json`.
 - Calendar and Linear data is held in memory for display.
 - Dayline does not include analytics, tracking, advertising, or an account system.
@@ -230,6 +235,8 @@ Run the complete smoke test with:
 - `setup.checkAgain`
 - `setup.google`
 - `setup.google.connect`
+- `setup.google.<ACCOUNT-UUID>`
+- `setup.google.<ACCOUNT-UUID>.reconnect`
 - `setup.linear`
 - `setup.linear.connect`
 - `calendar.tomorrow.toggle`
@@ -251,6 +258,11 @@ Run the complete smoke test with:
 - `noteEditor.save`
 - `noteEditor.cancel`
 - `settings.account.google`
+- `settings.account.google.add`
+- `settings.account.google.<ACCOUNT-UUID>`
+- `settings.account.google.<ACCOUNT-UUID>.reconnect`
+- `settings.account.google.<ACCOUNT-UUID>.disconnect`
+- `settings.account.google.<ACCOUNT-UUID>.calendar.<CALENDAR-ID>`
 - `settings.account.linear`
 - `settings.launchAtLogin`
 - `settings.refreshCadence`
