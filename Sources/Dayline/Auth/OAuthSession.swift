@@ -12,9 +12,11 @@ private struct PKCEPair {
   let challenge: String
 
   /// Creates a fresh verifier and its derived S256 challenge.
-  init() {
+  init() throws {
     var bytes = [UInt8](repeating: 0, count: 32)
-    _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+    guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+      throw OAuthError.authorizationFailed("Could not create a secure sign-in challenge.")
+    }
     verifier = Self.base64URLEncoded(Data(bytes))
 
     let digest = SHA256.hash(data: Data(verifier.utf8))
@@ -103,6 +105,9 @@ actor OAuthSession {
   /// Whether tokens have been loaded from the Keychain at least once.
   private var didLoadTokens = false
 
+  /// Changes whenever local credentials are invalidated.
+  private var credentialGeneration = 0
+
   /// Creates a session for one provider.
   init(provider: AuthProvider, keychain: KeychainStore = KeychainStore(service: "build.local.Dayline.oauth")) {
     self.provider = provider
@@ -120,14 +125,15 @@ actor OAuthSession {
       throw OAuthError.notConfigured
     }
 
-    let pkce = PKCEPair()
+    let generation = credentialGeneration
+    let pkce = try PKCEPair()
     let state = UUID().uuidString
     let authorizeURL = provider.authorizeURL(codeChallenge: pkce.challenge, state: state)
     logger.info("Starting \(self.provider.id, privacy: .public) sign-in")
 
     let callbackURL = try await BrowserOAuthCoordinator.shared.authenticate(
       url: authorizeURL,
-      callbackScheme: provider.callbackScheme
+      redirectURI: provider.redirectURI
     )
 
     let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)
@@ -147,18 +153,20 @@ actor OAuthSession {
     }
 
     let tokens = try await exchangeCode(code, verifier: pkce.verifier)
+    guard generation == credentialGeneration else {
+      throw OAuthError.authorizationCancelled
+    }
     try persist(tokens)
     logger.info("Stored \(self.provider.id, privacy: .public) tokens")
   }
 
   /// Revokes and removes stored credentials for this provider.
   func signOut() async {
-    if let tokens = try? storedTokens() {
-      await revoke(tokens.accessToken)
+    let accessToken = (try? storedTokens())?.accessToken
+    invalidateCredentials()
+    if let accessToken {
+      await revoke(accessToken)
     }
-    cachedTokens = nil
-    didLoadTokens = true
-    try? keychain.delete(account: provider.keychainAccount)
   }
 
   /// Performs an authorized request, refreshing and retrying once on 401.
@@ -171,8 +179,7 @@ actor OAuthSession {
       (data, response) = try await perform(request, accessToken: refreshedToken)
 
       guard response.statusCode != 401 else {
-        try? keychain.delete(account: provider.keychainAccount)
-        cachedTokens = nil
+        invalidateCredentials()
         throw OAuthError.reauthenticationRequired
       }
     }
@@ -203,15 +210,18 @@ actor OAuthSession {
     guard let tokens = try storedTokens(), let refreshToken = tokens.refreshToken else {
       throw OAuthError.reauthenticationRequired
     }
+    let generation = credentialGeneration
 
     do {
       let refreshed = try await refresh(refreshToken: refreshToken)
+      guard generation == credentialGeneration else {
+        throw OAuthError.notSignedIn
+      }
       try persist(refreshed)
       return refreshed.accessToken
     } catch let error as OAuthError {
       if case .refreshFailed = error {
-        try? keychain.delete(account: provider.keychainAccount)
-        cachedTokens = nil
+        invalidateCredentials()
         throw OAuthError.reauthenticationRequired
       }
       throw error
@@ -264,25 +274,32 @@ actor OAuthSession {
     request.httpBody = Self.formEncoded(parameters)
 
     let (data, response) = try await URLSession.shared.data(for: request)
-    let body = String(data: data, encoding: .utf8)?.compactLine(limit: 240) ?? ""
     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
 
     do {
       let decoded = try JSONDecoder().decode(OAuthTokenResponse.self, from: data)
       if let error = decoded.error {
-        logger.error("Token endpoint error (\(statusCode)): \(error, privacy: .public) \(decoded.errorDescription ?? "", privacy: .public)")
+        logger.error("Token endpoint error (\(statusCode)): \(error, privacy: .public)")
         return decoded
       }
       if statusCode >= 400 {
-        throw OAuthError.tokenExchangeFailed(body.isEmpty ? "Token request failed (\(statusCode))." : body)
+        throw OAuthError.tokenExchangeFailed("Token request failed (\(statusCode)).")
       }
       return decoded
     } catch let error as OAuthError {
       throw error
     } catch {
-      logger.error("Token decode failed (\(statusCode)): \(body, privacy: .public)")
-      throw OAuthError.tokenExchangeFailed(body.isEmpty ? error.localizedDescription : body)
+      logger.error("Token response decode failed (\(statusCode)): \(error.localizedDescription, privacy: .public)")
+      throw OAuthError.tokenExchangeFailed("The token server returned an invalid response.")
     }
+  }
+
+  /// Clears local credentials and invalidates in-flight token operations.
+  private func invalidateCredentials() {
+    credentialGeneration += 1
+    cachedTokens = nil
+    didLoadTokens = true
+    try? keychain.delete(account: provider.keychainAccount)
   }
 
   /// Performs one request attempt with a bearer token attached.

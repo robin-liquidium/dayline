@@ -368,6 +368,7 @@ final class StatusStore: ObservableObject {
     }
 
     var statuses: [ConnectionStatus] = []
+    let revisions = Dictionary(uniqueKeysWithValues: AuthProvider.allCases.map { ($0, connectionRevisions[$0, default: 0]) })
 
     for provider in AuthProvider.allCases {
       guard let session = authSessions[provider] else {
@@ -410,6 +411,9 @@ final class StatusStore: ObservableObject {
       }
     }
 
+    guard AuthProvider.allCases.allSatisfy({ connectionRevisions[$0, default: 0] == revisions[$0] }) else {
+      return
+    }
     connectionStatuses = statuses
   }
 
@@ -433,6 +437,8 @@ final class StatusStore: ObservableObject {
           connectionStatuses.first(where: { $0.provider == provider })?.state != .connecting else {
       return
     }
+    connectionRevisions[provider, default: 0] += 1
+    let revision = connectionRevisions[provider, default: 0]
 
     updateConnectionStatus(
       provider,
@@ -443,13 +449,18 @@ final class StatusStore: ObservableObject {
 
     do {
       try await session.signIn()
+      guard connectionRevisions[provider, default: 0] == revision else { return }
       let accountLabel = try? await fetchAccountLabel(for: provider)
+      guard connectionRevisions[provider, default: 0] == revision else { return }
       updateConnectionStatus(provider, state: .connected, detail: nil, accountLabel: accountLabel)
       await refresh()
+      guard connectionRevisions[provider, default: 0] == revision else { return }
       presentSettingsAfterAuth()
     } catch OAuthError.authorizationCancelled {
+      guard connectionRevisions[provider, default: 0] == revision else { return }
       updateConnectionStatus(provider, state: .disconnected, detail: nil, accountLabel: nil)
     } catch {
+      guard connectionRevisions[provider, default: 0] == revision else { return }
       updateConnectionStatus(
         provider,
         state: .disconnected,
@@ -975,6 +986,7 @@ final class StatusStore: ObservableObject {
     default:
       return
     }
+    connectionRevisions[provider, default: 0] += 1
     updateConnectionStatus(provider, state: .disconnected, detail: "Sign in again.", accountLabel: nil)
   }
 
@@ -1082,11 +1094,13 @@ final class StatusStore: ObservableObject {
     allIssues = mockData.issues
     allNotes = mockData.notes
     connectionStatuses = mockData.connectionStatuses
+    visibleIssueCount = Self.initialVisibleIssueCount
+    visibleNoteCount = Self.fallbackDefaultVisibleNoteCount
     calendarError = nil
     linearError = nil
     notesError = nil
-    applyLinearIssueOrder()
-    applyLocalNoteSortOrder()
+    issues = Array(allIssues.prefix(visibleIssueCount))
+    notes = Array(allNotes.prefix(visibleNoteCount))
     lastUpdatedAt = Date()
     isRefreshing = false
   }

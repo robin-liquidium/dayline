@@ -199,7 +199,10 @@ struct LinearService {
 
     var stateID = draft.state.trimmingCharacters(in: .whitespacesAndNewlines)
     if stateID.isEmpty, draft.shouldStart {
-      stateID = try await fetchStartedStateID(teamID: teamID) ?? ""
+      guard let startedStateID = try await fetchStartedStateID(teamID: teamID) else {
+        throw LinearServiceError.unresolvedField("No started Linear state is available for that team.")
+      }
+      stateID = startedStateID
     }
     if !stateID.isEmpty {
       input["stateId"] = stateID

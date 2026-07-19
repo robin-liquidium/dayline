@@ -15,19 +15,24 @@ final class BrowserOAuthCoordinator {
   private var pending: PendingAuthorization?
 
   /// Opens the provider authorization page and awaits the custom-scheme callback.
-  func authenticate(url: URL, callbackScheme: String) async throws -> URL {
+  func authenticate(url: URL, redirectURI: String) async throws -> URL {
     if let existing = pending {
       existing.continuation.resume(throwing: OAuthError.authorizationCancelled)
       pending = nil
     }
 
     let attemptID = UUID()
-    logger.info("Opening browser OAuth for scheme \(callbackScheme, privacy: .public)")
+    guard let redirectURL = URL(string: redirectURI) else {
+      throw OAuthError.invalidCallback
+    }
+    logger.info("Opening browser OAuth for scheme \(redirectURL.scheme ?? "", privacy: .public)")
 
     return try await withCheckedThrowingContinuation { continuation in
       pending = PendingAuthorization(
         id: attemptID,
-        callbackScheme: callbackScheme.lowercased(),
+        callbackScheme: redirectURL.scheme?.lowercased() ?? "",
+        callbackHost: redirectURL.host?.lowercased(),
+        callbackPath: redirectURL.path,
         continuation: continuation
       )
 
@@ -54,7 +59,9 @@ final class BrowserOAuthCoordinator {
   func handleOpenURL(_ url: URL) -> Bool {
     guard let scheme = url.scheme?.lowercased(),
           let pending,
-          scheme == pending.callbackScheme else {
+          scheme == pending.callbackScheme,
+          url.host?.lowercased() == pending.callbackHost,
+          url.path == pending.callbackPath else {
       return false
     }
 
@@ -81,6 +88,12 @@ private struct PendingAuthorization {
 
   /// Expected callback URL scheme, lowercased.
   let callbackScheme: String
+
+  /// Expected callback host, lowercased when present.
+  let callbackHost: String?
+
+  /// Expected callback path.
+  let callbackPath: String
 
   /// Continuation resumed when the redirect arrives or the attempt fails.
   let continuation: CheckedContinuation<URL, Error>
