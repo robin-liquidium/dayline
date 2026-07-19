@@ -200,27 +200,57 @@ create_dmg() {
   fi
 }
 
-# submit_for_notarization submits one archive using local or CI credentials.
-submit_for_notarization() {
-  local path="$1"
-
+# Runs notarytool with local or CI credentials.
+notarytool_with_credentials() {
   if [[ -n "${NOTARY_PROFILE:-}" ]]; then
-    xcrun notarytool submit "$path" --keychain-profile "$NOTARY_PROFILE" --wait
+    xcrun notarytool "$@" --keychain-profile "$NOTARY_PROFILE"
     return
   fi
 
   if [[ -n "${NOTARY_KEY_PATH:-}" && -n "${NOTARY_KEY_ID:-}" && -n "${NOTARY_ISSUER_ID:-}" ]]; then
-    xcrun notarytool submit "$path" \
+    xcrun notarytool "$@" \
       --key "$NOTARY_KEY_PATH" \
       --key-id "$NOTARY_KEY_ID" \
-      --issuer "$NOTARY_ISSUER_ID" \
-      --wait
+      --issuer "$NOTARY_ISSUER_ID"
     return
   fi
 
   echo "Notarization credentials are required with --notarize." >&2
   echo "Use NOTARY_PROFILE locally, or NOTARY_KEY_PATH/NOTARY_KEY_ID/NOTARY_ISSUER_ID in CI." >&2
   exit 2
+}
+
+# Submits once, then polls by ID so temporary status-check outages are retryable.
+submit_for_notarization() {
+  local path="$1"
+  local submission submission_id info status
+
+  submission="$(notarytool_with_credentials submit "$path" --output-format json)"
+  submission_id="$(/usr/bin/plutil -extract id raw -o - - <<< "$submission")"
+  echo "Notary submission: $submission_id"
+
+  while true; do
+    if info="$(notarytool_with_credentials info "$submission_id" --output-format json)"; then
+      status="$(/usr/bin/plutil -extract status raw -o - - <<< "$info")"
+      case "$status" in
+        Accepted)
+          echo "Notary submission accepted: $submission_id"
+          return
+          ;;
+        Invalid|Rejected)
+          echo "Notary submission failed: $submission_id ($status)" >&2
+          notarytool_with_credentials log "$submission_id" || true
+          return 1
+          ;;
+        *)
+          echo "Notary submission $submission_id: $status"
+          ;;
+      esac
+    else
+      echo "Could not check notarization status; retrying in 60 seconds." >&2
+    fi
+    sleep 60
+  done
 }
 
 # notarize_app submits a temporary ZIP, then staples the ticket to the app.
