@@ -401,6 +401,84 @@ finalize_accepted_dmg() {
   echo "Published notarized release v$version"
 }
 
+ensure_prepared_app_asset() {
+  local release_id="$1"
+  local release_json="$2"
+  local state_json="$3"
+  local tag commit_sha tagged_commit version build_number app_asset app_sha asset_json asset_id asset_state recovered_id
+  local rebuild_root source_dir app_path verification_path now
+
+  app_asset="$(jq -r '.app_submission_asset' <<< "$state_json")" || return 1
+  app_sha="$(jq -r '.app_submission_sha256' <<< "$state_json")" || return 1
+  asset_json="$(jq -c --arg name "$app_asset" '.assets[]? | select(.name == $name)' <<< "$release_json")" || return 1
+  asset_id="$(jq -r '.id // empty' <<< "$asset_json")" || return 1
+  asset_state="$(jq -r '.state // empty' <<< "$asset_json")" || return 1
+  if [[ -n "$asset_id" && "$asset_state" == "uploaded" ]]; then
+    mkdir -p "$WORK_DIR" || return 1
+    verification_path="$WORK_DIR/verify-$app_asset"
+    download_asset "$release_json" "$app_asset" "$verification_path" || return 1
+    if verify_sha256 "$verification_path" "$app_sha"; then
+      rm -f "$verification_path" || return 1
+      return 0
+    fi
+    rm -f "$verification_path" || return 1
+  fi
+
+  recovered_id="$(submission_id_from_history "$app_asset")" || return 1
+  if [[ -n "$recovered_id" ]]; then
+    echo "Apple submission $recovered_id exists for missing asset $app_asset; refusing to rebuild different bytes." >&2
+    return 1
+  fi
+  if [[ -n "$asset_id" ]]; then
+    delete_asset_if_present "$release_json" "$app_asset" || return 1
+  fi
+
+  tag="$(jq -r '.tag' <<< "$state_json")" || return 1
+  commit_sha="$(jq -r '.commit_sha' <<< "$state_json")" || return 1
+  version="$(jq -r '.version' <<< "$state_json")" || return 1
+  build_number="$(jq -r '.build_number' <<< "$state_json")" || return 1
+  git fetch --no-tags origin "refs/tags/$tag:refs/tags/$tag" || return 1
+  tagged_commit="$(git rev-parse "${tag}^{commit}")" || return 1
+  if [[ "$tagged_commit" != "$commit_sha" ]]; then
+    echo "$tag resolves to $tagged_commit, not the draft commit $commit_sha; refusing recovery." >&2
+    return 1
+  fi
+
+  rebuild_root="$(mktemp -d "${RUNNER_TEMP:-/tmp}/dayline-release-rebuild.XXXXXX")" || return 1
+  source_dir="$rebuild_root/source"
+  if ! git worktree add --detach "$source_dir" "$commit_sha"; then
+    rmdir "$rebuild_root" || true
+    return 1
+  fi
+  if ! (
+    cd "$source_dir"
+    MARKETING_VERSION="$version" BUILD_NUMBER="$build_number" \
+      ./script/package_release.sh --prepare-notarization
+  ); then
+    git worktree remove --force "$source_dir" || true
+    rmdir "$rebuild_root" || true
+    return 1
+  fi
+
+  mkdir -p "$WORK_DIR" || return 1
+  app_path="$WORK_DIR/$app_asset"
+  if ! mv "$source_dir/dist/$APP_NAME-notary.zip" "$app_path"; then
+    git worktree remove --force "$source_dir" || true
+    rmdir "$rebuild_root" || true
+    return 1
+  fi
+  git worktree remove --force "$source_dir" || return 1
+  rmdir "$rebuild_root" || true
+
+  app_sha="$(sha256 "$app_path")" || return 1
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)" || return 1
+  state_json="$(jq -c --arg sha "$app_sha" --arg now "$now" \
+    '.app_submission_sha256 = $sha | .updated_at = $now' <<< "$state_json")" || return 1
+  save_state "$release_id" "$state_json" || return 1
+  upload_asset "$release_id" "$app_asset" "$app_path" || return 1
+  echo "Rebuilt and preserved missing app asset for $tag."
+}
+
 continue_release() {
   local tag="$1"
   local release_json release_id state_json stage kind submission_id info status
@@ -439,6 +517,9 @@ continue_release() {
 
   case "$stage" in
     app_prepared)
+      ensure_prepared_app_asset "$release_id" "$release_json" "$state_json" || return 1
+      release_json="$(gh api "repos/$REPOSITORY/releases/$release_id")"
+      state_json="$(state_from_release "$release_json")"
       submit_preserved_asset "$release_id" "$release_json" "$state_json" "app"
       return 0
       ;;
