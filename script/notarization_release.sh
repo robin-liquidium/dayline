@@ -153,7 +153,12 @@ upload_asset() {
   local asset_name="$2"
   local path="$3"
   local content_type="application/octet-stream"
-  local release_json
+  local release_json upload_url auth_value
+
+  if [[ ! "$asset_name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    echo "Invalid release asset name: $asset_name" >&2
+    return 1
+  fi
 
   case "$asset_name" in
     *.zip) content_type="application/zip" ;;
@@ -162,12 +167,22 @@ upload_asset() {
     *.json) content_type="application/json" ;;
   esac
 
+  gh auth token --hostname github.com >/dev/null || return 1
   release_json="$(gh api "repos/$REPOSITORY/releases/$release_id")"
   delete_asset_if_present "$release_json" "$asset_name"
-  gh api --hostname uploads.github.com --method POST \
-    -H "Content-Type: $content_type" \
-    --input "$path" \
-    "repos/$REPOSITORY/releases/$release_id/assets?name=$asset_name" >/dev/null
+  upload_url="$(jq -r '.upload_url | sub("\\{.*$"; "")' <<< "$release_json")"
+  if ! gh auth token --hostname github.com | {
+    IFS= read -r auth_value
+    printf 'Authorization: Bearer %s\n' "$auth_value"
+  } | curl --fail-with-body --silent --show-error --request POST \
+      -H @- \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      -H "Content-Type: $content_type" \
+      --data-binary "@$path" \
+      "$upload_url?name=$asset_name" >/dev/null; then
+    return 1
+  fi
 }
 
 download_asset() {
@@ -669,6 +684,7 @@ continue_all() {
 require_command gh
 require_command jq
 require_command xcrun
+require_command curl
 
 if [[ -z "$REPOSITORY" ]]; then
   REPOSITORY="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
