@@ -1,13 +1,25 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?><!-- sparkle-sign-warning:
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
---><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
-  <channel>
-    <title>Dayline Updates</title>
-    <link>https://dayline.robin.build</link>
-    <description>Notarized stable releases of Dayline for macOS.</description>
-    <language>en</language>
-  </channel>
-</rss><!-- sparkle-signatures:
-edSignature: 3/QJGu+MFZP1JzCWoMFCBc22bFM2ZpdQBDP1XH2R85XpuJpe3PAxrh+ya3WZz9tHziNSHD/7oV2bvO5PH8ciBw==
-length: 597
+-->
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Dayline Updates</title>
+        <link>https://dayline.robin.build</link>
+        <description>Notarized stable releases of Dayline for macOS.</description>
+        <language>en</language>
+        <item>
+            <title>0.1.7</title>
+            <pubDate>Mon, 20 Jul 2026 23:43:33 +0000</pubDate>
+            <sparkle:version>9</sparkle:version>
+            <sparkle:shortVersionString>0.1.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/robin-liquidium/dayline/releases/download/v0.1.7/Dayline-0.1.7.app.zip" length="3818915" type="application/octet-stream" sparkle:edSignature="/iMOKAC3bTgQq6cYANUTUQK01bdYMDFkv4CGlKin2MZqQxnsnqHiH2hFgcjj09E+umOmvMLYdBz43PYL6hEwCQ=="/>
+        </item>
+    </channel>
+</rss>
+<!-- sparkle-signatures:
+edSignature: fUh8aP+yDTzCujrG+bgjTA58ng/UUu9hls6zRMhozPv7scP/wq0zFhTjKbor1T0O6zHadPFTsoZ0v3fxElTyAQ==
+length: 1309
 -->
