@@ -118,7 +118,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DAYLINE_SPARKLE_PRIVATE_KEY: ${{ secrets.DAYLINE_SPARKLE_PRIVATE_KEY }}
           MARKETING_VERSION: ${{ env.RELEASE_TAG }}
-          BUILD_NUMBER: ${{ github.run_number }}
         run: |
           export MARKETING_VERSION="${MARKETING_VERSION#v}"
           ./script/notarization_release.sh submit "$RELEASE_TAG"
