@@ -13,7 +13,7 @@ private let destructiveButtonSize: CGFloat = 30
 /// Popover content shown when the user opens the menu bar extra.
 struct StatusMenuView: View {
   @EnvironmentObject private var store: StatusStore
-  @Environment(\.openSettings) private var openSettings
+  @EnvironmentObject private var updateService: UpdateService
   @Environment(\.openWindow) private var openWindow
   @FocusState private var isKeyboardTargetFocused: Bool
 
@@ -72,7 +72,7 @@ struct StatusMenuView: View {
       .clipped()
       footerBar
     }
-    .frame(width: 430)
+    .frame(width: 400)
     .focusable()
     .focusEffectDisabled()
     .focused($isKeyboardTargetFocused)
@@ -135,44 +135,67 @@ struct StatusMenuView: View {
       .frame(maxWidth: .infinity, alignment: .leading)
   }
 
-  /// Footer row with settings and quit actions.
+  /// Footer row with settings, update, and quit actions.
   private var footer: some View {
-    HStack {
-      Button {
-        openSettings()
-        SettingsWindowPresenter.bringSettingsToFront()
-      } label: {
-        Label("Settings", systemImage: "gearshape")
-          .padding(.horizontal, 8)
-          .padding(.vertical, 5)
-          .contentShape(Rectangle())
-          .hoverHighlight(isHovered: store.hoveredControlID == .settings)
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel("Settings")
-      .accessibilityHint("Open Dayline settings")
-      .accessibilityIdentifier("dayline.settings")
-      .onHover { isHovered in
-        store.setHoveredControl(isHovered ? .settings : nil)
+    ZStack {
+      HStack {
+        Button {
+          openWindow(id: "settings")
+          SettingsWindowPresenter.bringSettingsToFront()
+        } label: {
+          Label("Settings", systemImage: "gearshape")
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+            .hoverHighlight(isHovered: store.hoveredControlID == .settings)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Settings")
+        .accessibilityHint("Open Dayline settings")
+        .accessibilityIdentifier("dayline.settings")
+        .onHover { isHovered in
+          store.setHoveredControl(isHovered ? .settings : nil)
+        }
+
+        Spacer()
+
+        Button {
+          NSApplication.shared.terminate(nil)
+        } label: {
+          Label("Quit", systemImage: "power")
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+            .hoverHighlight(isHovered: store.hoveredControlID == .quit)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Quit")
+        .accessibilityHint("Quit Dayline")
+        .accessibilityIdentifier("dayline.quit")
+        .onHover { isHovered in
+          store.setHoveredControl(isHovered ? .quit : nil)
+        }
       }
 
-      Spacer()
-
-      Button {
-        NSApplication.shared.terminate(nil)
-      } label: {
-        Label("Quit", systemImage: "power")
-          .padding(.horizontal, 8)
-          .padding(.vertical, 5)
-          .contentShape(Rectangle())
-          .hoverHighlight(isHovered: store.hoveredControlID == .quit)
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel("Quit")
-      .accessibilityHint("Quit Dayline")
-      .accessibilityIdentifier("dayline.quit")
-      .onHover { isHovered in
-        store.setHoveredControl(isHovered ? .quit : nil)
+      if let availableUpdateVersion = updateService.availableVersion {
+        Button {
+          updateService.performUpdate()
+        } label: {
+          Label("Update", systemImage: "arrow.down.circle")
+            .foregroundStyle(.blue)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+            .hoverHighlight(isHovered: store.hoveredControlID == .update)
+        }
+        .buttonStyle(.plain)
+        .help("Download and install Dayline \(availableUpdateVersion)")
+        .accessibilityLabel("Update Dayline")
+        .accessibilityHint("Download and install version \(availableUpdateVersion)")
+        .accessibilityIdentifier("dayline.update")
+        .onHover { isHovered in
+          store.setHoveredControl(isHovered ? .update : nil)
+        }
       }
     }
   }

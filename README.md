@@ -316,6 +316,35 @@ Required GitHub Actions secrets:
 - `APP_STORE_CONNECT_KEY_P8_BASE64`
 - `APP_STORE_CONNECT_KEY_ID`
 - `APP_STORE_CONNECT_ISSUER_ID`
+- `DAYLINE_SPARKLE_PRIVATE_KEY`
+
+### Automatic updates
+
+Dayline uses Sparkle 2. The production feed is the signed
+[`website/public/appcast.xml`](website/public/appcast.xml) served at
+`https://dayline.robin.build/appcast.xml`; release archives remain immutable,
+versioned GitHub Release assets. Never hand-edit the feed after it has been
+signed.
+
+The EdDSA private key is stored in the maintainer's macOS Keychain under the
+Sparkle account `dayline` and in the encrypted GitHub Actions secret
+`DAYLINE_SPARKLE_PRIVATE_KEY`. GitHub secrets cannot be exported again, so keep
+a separate secure backup of the key. The public key compiled into Dayline is
+not secret.
+
+Only an exact stable `vX.Y.Z` release may enter the production feed. Signed but
+unnotarized test builds must remain prereleases and must never be marked latest.
+After both the app and DMG pass notarization and validation, the continuation
+workflow signs and uploads the appcast, publishes the stable release, then
+commits only the updated appcast to `main` so Cloudflare deploys it. The
+scheduled continuation reconciles that final feed commit if publication fails
+transiently.
+
+The first Sparkle-enabled release is a manual-download bootstrap because older
+Dayline versions contain no updater. Later production releases update
+automatically. Maintainers can exercise the same signed download, replacement,
+and relaunch path before release with isolated lower/higher local builds and a
+localhost appcast.
 
 ### Publish a version
 
@@ -337,7 +366,8 @@ uniqueness before pushing the tag. The release workflows then:
 6. Checks pending drafts every ten minutes, resuming the saved submission ID.
 7. Staples the accepted app, builds and submits the DMG once, and saves that ID.
 8. Staples and validates the accepted DMG and app, runs Gatekeeper checks, then
-   publishes the versioned DMG, app ZIP, and stable `Dayline.dmg` asset.
+   publishes the versioned DMG, app ZIP, stable `Dayline.dmg`, and signed
+   `appcast.xml` assets, then deploys the appcast through the website.
 
 The scheduled continuation is idempotent and verifies preserved artifact hashes
 before contacting Apple. To check one pending release immediately:

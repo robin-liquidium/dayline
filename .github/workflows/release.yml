@@ -15,8 +15,9 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ inputs.tag || github.ref_name }}
+  group: dayline-release-state
   cancel-in-progress: false
+  queue: max
 
 jobs:
   submit-notarization:
@@ -50,13 +51,16 @@ jobs:
           git merge-base --is-ancestor HEAD origin/main
 
       - name: Validate release secrets
+        env:
+          DAYLINE_SPARKLE_PRIVATE_KEY: ${{ secrets.DAYLINE_SPARKLE_PRIVATE_KEY }}
         run: |
           for name in \
             MACOS_CERTIFICATE_P12_BASE64 \
             MACOS_CERTIFICATE_PASSWORD \
             APP_STORE_CONNECT_KEY_P8_BASE64 \
             APP_STORE_CONNECT_KEY_ID \
-            APP_STORE_CONNECT_ISSUER_ID; do
+            APP_STORE_CONNECT_ISSUER_ID \
+            DAYLINE_SPARKLE_PRIVATE_KEY; do
             if [[ -z "${!name:-}" ]]; then
               echo "Missing GitHub Actions secret: $name" >&2
               exit 2
@@ -112,6 +116,7 @@ jobs:
       - name: Preserve and submit signed app
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DAYLINE_SPARKLE_PRIVATE_KEY: ${{ secrets.DAYLINE_SPARKLE_PRIVATE_KEY }}
           MARKETING_VERSION: ${{ env.RELEASE_TAG }}
           BUILD_NUMBER: ${{ github.run_number }}
         run: |

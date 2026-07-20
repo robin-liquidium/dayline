@@ -39,7 +39,7 @@ jobs:
       - name: Validate automation
         run: |
           bash -n script/*.sh
-          ruby -e 'require "yaml"; YAML.load_file(".github/workflows/ci.yml"); YAML.load_file(".github/workflows/release.yml")'
+          ruby -e 'require "yaml"; %w[ci release notarization-continuation].each { |name| YAML.load_file(".github/workflows/#{name}.yml") }'
           git diff --check
           if ./script/tag_release.sh 1.2.3-beta >/dev/null 2>&1; then exit 1; fi
           if MARKETING_VERSION=1.2.3-beta ./script/package_release.sh >/dev/null 2>&1; then exit 1; fi

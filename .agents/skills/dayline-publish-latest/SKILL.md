@@ -49,10 +49,10 @@ Ship one exact commit through source, local installation, GitHub assets, and—o
 
 6. Publish an immediate signed test release.
    - Use a tag shaped `test-vMAJOR.MINOR.PATCH.N`, targeting the exact clean `main` commit. Do not use a tag beginning with `v`; `.github/workflows/release.yml` treats every `v*` tag as an official release trigger.
-   - Upload the versioned DMG, versioned app ZIP, and a byte-identical stable asset named `Dayline.dmg`.
+   - Upload only the versioned DMG and versioned app ZIP. The stable `Dayline.dmg` asset is reserved for notarized production releases.
    - Title and notes must say `signed test build (not notarized)`, briefly describe the tester-visible changes and requirements, and explain the Gatekeeper right-click **Open** / **Open Anyway** path. Keep source commits, hashes, certificate identities, and other internal verification metadata out of public release notes.
-   - Mark it latest so the website's `/releases/latest/download/Dayline.dmg` link resolves to this build.
-   - Download the uploaded assets into a temporary directory and verify their hashes. Confirm GitHub's latest-release API and stable download redirect point at the new release.
+   - Mark it as a prerelease and never mark it latest. The website and Sparkle feed must continue pointing at the latest notarized stable release.
+   - Download the uploaded assets into a temporary directory and verify their hashes. Confirm GitHub's latest-release API and stable download redirect still point at the notarized stable release.
 
 7. Gate the official Apple release.
    - If any Dayline submission is `In Progress`, stop here. Do not create `v$VERSION`, because pushing it automatically submits another artifact to Apple. Report that the signed test release is live and reserve the same version for a later official attempt.
@@ -64,5 +64,5 @@ Ship one exact commit through source, local installation, GitHub assets, and—o
    - On `Invalid` or `Rejected`, retrieve the notarization log, fix the exact failure, and submit one replacement artifact only after the fix is committed.
 
 8. Close out with evidence.
-   - Report the main commit, CI checks, installed version/build, signature and hashes, test-release URL, official workflow/submission status, GitHub latest-download target, and clean or intentionally dirty worktree state.
+   - Report the main commit, CI checks, installed version/build, signature and hashes, prerelease URL, official workflow/submission status, GitHub stable-download target, and clean or intentionally dirty worktree state.
    - Clearly distinguish `signed`, `notarized`, and `stapled`; never call a signed-only test build generally installable.

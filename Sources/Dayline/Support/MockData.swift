@@ -2,6 +2,7 @@ import Foundation
 
 /// Deterministic-looking sample data used by the isolated screenshot build.
 struct MockData {
+  let availableUpdateVersion: String?
   let events: [CalendarEventItem]
   let tomorrowEvents: [CalendarEventItem]
   let issues: [LinearIssueItem]
@@ -118,6 +119,7 @@ struct MockData {
     )
 
     return MockData(
+      availableUpdateVersion: "0.2.0",
       events: [
         event("mock-standup", "Product stand-up", startsIn: 30, duration: 25, source: "Product Team"),
         event("mock-design", "Design review", startsIn: 120, duration: 45, location: "Studio", source: "Work"),

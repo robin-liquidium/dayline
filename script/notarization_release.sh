@@ -56,6 +56,44 @@ release_for_tag() {
     head -n 1
 }
 
+latest_stable_tag() {
+  gh api "repos/$REPOSITORY/releases?per_page=100" |
+    jq -r '
+      [.[]
+        | select(.draft == false and .prerelease == false)
+        | select(.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))]
+      | sort_by(.tag_name | ltrimstr("v") | split(".") | map(tonumber))
+      | (last // {})
+      | .tag_name // empty
+    '
+}
+
+version_is_greater() {
+  local candidate="${1#v}"
+  local baseline="${2#v}"
+  local candidate_major candidate_minor candidate_patch baseline_major baseline_minor baseline_patch
+
+  IFS=. read -r candidate_major candidate_minor candidate_patch <<< "$candidate"
+  IFS=. read -r baseline_major baseline_minor baseline_patch <<< "$baseline"
+  (( 10#$candidate_major > 10#$baseline_major )) ||
+    (( 10#$candidate_major == 10#$baseline_major && 10#$candidate_minor > 10#$baseline_minor )) ||
+    (( 10#$candidate_major == 10#$baseline_major && 10#$candidate_minor == 10#$baseline_minor && 10#$candidate_patch > 10#$baseline_patch ))
+}
+
+other_active_release_tag() {
+  local requested_tag="$1"
+  gh api "repos/$REPOSITORY/releases?per_page=100" |
+    jq -r --arg marker "$STATE_MARKER" --arg requested "$requested_tag" '
+      .[]
+      | select(.draft == true and .tag_name != $requested)
+      | (.body | fromjson?) as $state
+      | select($state.marker == $marker)
+      | select($state.stage != "failed" and $state.stage != "superseded")
+      | .tag_name
+    ' |
+    head -n 1
+}
+
 state_from_release() {
   local release_json="$1"
   jq -er --arg marker "$STATE_MARKER" '
@@ -98,6 +136,18 @@ delete_asset_if_present() {
   fi
 }
 
+delete_submission_assets() {
+  local release_id="$1"
+  local asset_ids asset_id
+
+  asset_ids="$(gh api "repos/$REPOSITORY/releases/$release_id" |
+    jq -r '.assets[]? | select(.name | test("-(app|dmg)-notary\\.(zip|dmg)$")) | .id')"
+  [[ -n "$asset_ids" ]] || return 0
+  while IFS= read -r asset_id; do
+    gh api --method DELETE "repos/$REPOSITORY/releases/assets/$asset_id" >/dev/null
+  done <<< "$asset_ids"
+}
+
 upload_asset() {
   local release_id="$1"
   local asset_name="$2"
@@ -108,6 +158,7 @@ upload_asset() {
   case "$asset_name" in
     *.zip) content_type="application/zip" ;;
     *.dmg) content_type="application/x-apple-diskimage" ;;
+    *.xml) content_type="application/xml" ;;
     *.json) content_type="application/json" ;;
   esac
 
@@ -281,9 +332,18 @@ finalize_accepted_dmg() {
   local release_id="$1"
   local release_json="$2"
   local state_json="$3"
-  local version app_zip_asset app_zip_sha dmg_asset dmg_sha final_dmg stable_dmg app_zip extracted_app
+  local version app_zip_asset app_zip_sha dmg_asset dmg_sha final_dmg stable_dmg app_zip extracted_app appcast latest_tag now
 
   version="$(jq -r '.version' <<< "$state_json")"
+  latest_tag="$(latest_stable_tag)"
+  if [[ -n "$latest_tag" ]] && ! version_is_greater "v$version" "$latest_tag"; then
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    state_json="$(jq -c --arg stage "superseded" --arg latest "$latest_tag" --arg now "$now" \
+      '.stage = $stage | .superseded_by = $latest | .updated_at = $now' <<< "$state_json")"
+    save_state "$release_id" "$state_json"
+    echo "Refusing to publish v$version because $latest_tag is already the newest stable release."
+    return 0
+  fi
   app_zip_asset="$(jq -r '.app_zip_asset' <<< "$state_json")"
   app_zip_sha="$(jq -r '.app_zip_sha256' <<< "$state_json")"
   dmg_asset="$(jq -r '.dmg_submission_asset' <<< "$state_json")"
@@ -316,9 +376,15 @@ finalize_accepted_dmg() {
   upload_asset "$release_id" "$(basename "$final_dmg")" "$final_dmg"
   upload_asset "$release_id" "$(basename "$stable_dmg")" "$stable_dmg"
 
-  delete_asset_if_present "$(gh api "repos/$REPOSITORY/releases/$release_id")" \
-    "$(jq -r '.app_submission_asset' <<< "$state_json")"
-  delete_asset_if_present "$(gh api "repos/$REPOSITORY/releases/$release_id")" "$dmg_asset"
+  appcast="$ARTIFACT_DIR/appcast.xml"
+  "$ROOT_DIR/script/update_appcast.sh" generate "v$version" "$app_zip" "$appcast"
+  upload_asset "$release_id" "$(basename "$appcast")" "$appcast"
+
+  latest_tag="$(latest_stable_tag)"
+  if [[ -n "$latest_tag" ]] && ! version_is_greater "v$version" "$latest_tag"; then
+    echo "Refusing to publish v$version because $latest_tag became the newest stable release." >&2
+    return 1
+  fi
 
   gh api --method PATCH "repos/$REPOSITORY/releases/$release_id" \
     -f name="$APP_NAME $version" \
@@ -326,6 +392,11 @@ finalize_accepted_dmg() {
     -F draft=false \
     -F prerelease=false \
     -f make_latest=true >/dev/null
+
+  "$ROOT_DIR/script/update_appcast.sh" publish "v$version" "$appcast"
+  if ! delete_submission_assets "$release_id"; then
+    echo "Warning: published v$version, but temporary notarization assets still need cleanup." >&2
+  fi
 
   echo "Published notarized release v$version"
 }
@@ -340,7 +411,24 @@ continue_release() {
     return 0
   fi
   if [[ "$(jq -r '.draft' <<< "$release_json")" != "true" ]]; then
-    echo "$tag is already published; skipping."
+    local latest_tag published_appcast="$WORK_DIR/$tag-appcast.xml"
+    latest_tag="$(latest_stable_tag)"
+    if [[ "$tag" != "$latest_tag" ]]; then
+      echo "$tag is published but is not the newest stable release ($latest_tag); skipping feed publication."
+      if ! delete_submission_assets "$(jq -r '.id' <<< "$release_json")"; then
+        echo "Warning: could not clean temporary notarization assets from $tag." >&2
+      fi
+      return 0
+    fi
+    if download_asset "$release_json" "appcast.xml" "$published_appcast"; then
+      "$ROOT_DIR/script/update_appcast.sh" publish "$tag" "$published_appcast"
+      echo "$tag is already published; ensured its appcast is live."
+    else
+      echo "$tag is already published without an appcast asset; skipping feed publication."
+    fi
+    if ! delete_submission_assets "$(jq -r '.id' <<< "$release_json")"; then
+      echo "Warning: could not clean temporary notarization assets from $tag." >&2
+    fi
     return 0
   fi
 
@@ -360,8 +448,8 @@ continue_release() {
       ;;
     app_pending) kind="app" ;;
     dmg_pending) kind="dmg" ;;
-    failed)
-      echo "$tag previously reached a terminal notarization failure; leaving its draft intact."
+    failed|superseded)
+      echo "$tag previously reached terminal stage $stage; leaving its draft intact."
       return 0
       ;;
     *)
@@ -397,7 +485,7 @@ continue_release() {
 
 submit_release() {
   local tag="$1"
-  local version commit_sha build_number release_json release_id app_asset app_path app_sha now state_json
+  local version commit_sha build_number release_json release_id app_asset app_path app_sha now state_json active_tag latest_tag
 
   if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     echo "Release tag must look like v0.1.6." >&2
@@ -418,6 +506,20 @@ submit_release() {
       echo "Existing $tag draft belongs to a different commit." >&2
       return 1
     fi
+  fi
+
+  active_tag="$(other_active_release_tag "$tag")"
+  if [[ -n "$active_tag" ]]; then
+    echo "Refusing to submit $tag while $active_tag is still active." >&2
+    return 1
+  fi
+  latest_tag="$(latest_stable_tag)"
+  if [[ -n "$latest_tag" ]] && ! version_is_greater "$tag" "$latest_tag"; then
+    echo "Refusing to submit $tag because it is not newer than $latest_tag." >&2
+    return 1
+  fi
+
+  if [[ -n "$release_json" ]]; then
     continue_release "$tag"
     return 0
   fi
@@ -456,23 +558,31 @@ submit_release() {
 }
 
 continue_all() {
-  local tags tag
+  local tags tag latest_tag
   tags="$(gh api "repos/$REPOSITORY/releases?per_page=100" |
     jq -r --arg marker "$STATE_MARKER" '
-      .[]
-      | select(.draft == true)
-      | select((.body | fromjson? | .marker) == $marker)
-      | select((.body | fromjson? | .stage) != "failed")
-      | .tag_name
+      [.[]
+        | select(.draft == true)
+        | (.body | fromjson?) as $state
+        | select($state.marker == $marker)
+        | select($state.stage != "failed" and $state.stage != "superseded")]
+      | sort_by(.tag_name | ltrimstr("v") | split(".") | map(tonumber))
+      | .[].tag_name
     ')"
   if [[ -z "$tags" ]]; then
     echo "No pending Dayline notarization drafts."
-    return 0
+  else
+    while IFS= read -r tag; do
+      continue_release "$tag"
+    done <<< "$tags"
   fi
 
-  while IFS= read -r tag; do
-    continue_release "$tag"
-  done <<< "$tags"
+  # Reconcile the production feed after a transient publish failure on an
+  # otherwise-complete release. This is idempotent when the feed is current.
+  latest_tag="$(latest_stable_tag)"
+  if [[ "$latest_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    continue_release "$latest_tag"
+  fi
 }
 
 require_command gh

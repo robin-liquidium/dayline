@@ -14,8 +14,9 @@ permissions:
   contents: write
 
 concurrency:
-  group: dayline-notarization-continuation
+  group: dayline-release-state
   cancel-in-progress: false
+  queue: max
 
 jobs:
   continue-notarization:
@@ -37,18 +38,24 @@ jobs:
           persist-credentials: false
 
       - name: Validate release secrets
+        env:
+          DAYLINE_SPARKLE_PRIVATE_KEY: ${{ secrets.DAYLINE_SPARKLE_PRIVATE_KEY }}
         run: |
           for name in \
             MACOS_CERTIFICATE_P12_BASE64 \
             MACOS_CERTIFICATE_PASSWORD \
             APP_STORE_CONNECT_KEY_P8_BASE64 \
             APP_STORE_CONNECT_KEY_ID \
-            APP_STORE_CONNECT_ISSUER_ID; do
+            APP_STORE_CONNECT_ISSUER_ID \
+            DAYLINE_SPARKLE_PRIVATE_KEY; do
             if [[ -z "${!name:-}" ]]; then
               echo "Missing GitHub Actions secret: $name" >&2
               exit 2
             fi
           done
+
+      - name: Resolve Sparkle publishing tools
+        run: swift build
 
       - name: Import Developer ID certificate
         run: |
@@ -94,6 +101,7 @@ jobs:
       - name: Advance pending notarization
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DAYLINE_SPARKLE_PRIVATE_KEY: ${{ secrets.DAYLINE_SPARKLE_PRIVATE_KEY }}
           RELEASE_TAG: ${{ inputs.tag }}
         run: ./script/notarization_release.sh continue
 

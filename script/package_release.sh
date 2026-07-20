@@ -13,10 +13,14 @@ APP_BUNDLE="$RELEASE_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
+APP_FRAMEWORKS="$APP_CONTENTS/Frameworks"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 ICON_SOURCE="$ROOT_DIR/Resources/DaylineIcon.icns"
 ICON_FILE="DaylineIcon.icns"
+SPARKLE_FRAMEWORK_NAME="Sparkle.framework"
+SPARKLE_PUBLIC_KEY="b7IXyZXo7zqHoVUdwJeOTwxY6gbmJYP/e0NV4i3G/Hk="
+SPARKLE_FEED_URL="https://dayline.robin.build/appcast.xml"
 DMG_ROOT="$DIST_DIR/dmg-root"
 NOTARY_ZIP="$DIST_DIR/$APP_NAME-notary.zip"
 
@@ -186,6 +190,12 @@ write_info_plist() {
   /usr/bin/plutil -insert LSMinimumSystemVersion -string "$MIN_SYSTEM_VERSION" "$INFO_PLIST"
   /usr/bin/plutil -insert LSUIElement -bool YES "$INFO_PLIST"
   /usr/bin/plutil -insert NSPrincipalClass -string "NSApplication" "$INFO_PLIST"
+  /usr/bin/plutil -insert SUFeedURL -string "$SPARKLE_FEED_URL" "$INFO_PLIST"
+  /usr/bin/plutil -insert SUPublicEDKey -string "$SPARKLE_PUBLIC_KEY" "$INFO_PLIST"
+  /usr/bin/plutil -insert SUEnableAutomaticChecks -bool YES "$INFO_PLIST"
+  /usr/bin/plutil -insert SUAutomaticallyUpdate -bool YES "$INFO_PLIST"
+  /usr/bin/plutil -insert SUVerifyUpdateBeforeExtraction -bool YES "$INFO_PLIST"
+  /usr/bin/plutil -insert SURequireSignedFeed -bool YES "$INFO_PLIST"
 }
 
 # copy_app_icon places the generated icon inside the bundle before signing seals resources.
@@ -207,6 +217,36 @@ sign_path() {
   else
     /usr/bin/codesign --force --timestamp --options runtime --sign "$SIGNING_IDENTITY" "$path"
   fi
+}
+
+# embed_and_sign_sparkle copies Sparkle's framework without flattening its symlinks,
+# removes sandbox-only XPC services, and signs the remaining nested code inside-out.
+embed_and_sign_sparkle() {
+  local build_dir="$1"
+  local source_framework="$build_dir/$SPARKLE_FRAMEWORK_NAME"
+  local destination_framework="$APP_FRAMEWORKS/$SPARKLE_FRAMEWORK_NAME"
+  local framework_version="$destination_framework/Versions/B"
+
+  if [[ ! -d "$source_framework" ]]; then
+    echo "Missing Sparkle framework in SwiftPM build products: $source_framework" >&2
+    exit 2
+  fi
+
+  mkdir -p "$APP_FRAMEWORKS"
+  /usr/bin/ditto "$source_framework" "$destination_framework"
+
+  # Dayline is not sandboxed, so Sparkle documents these XPC services as optional.
+  # Keeping only the in-process downloader and installer reduces nested signing surface.
+  /bin/rm -rf "$framework_version/XPCServices"
+  /bin/rm -rf "$destination_framework/XPCServices"
+
+  sign_path "$framework_version/Autoupdate"
+  sign_path "$framework_version/Updater.app"
+  sign_path "$destination_framework"
+
+  /usr/bin/codesign --verify --strict --verbose=2 "$framework_version/Autoupdate"
+  /usr/bin/codesign --verify --strict --verbose=2 "$framework_version/Updater.app"
+  /usr/bin/codesign --verify --strict --verbose=2 "$destination_framework"
 }
 
 # create_dmg builds the drag-install disk image used for GitHub releases.
@@ -368,17 +408,19 @@ SUMMARY
 fi
 
 rm -rf "$RELEASE_DIR" "$ARTIFACT_DIR"
-mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$ARTIFACT_DIR"
+mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$APP_FRAMEWORKS" "$ARTIFACT_DIR"
 
 swift build -c release
-BUILD_BINARY="$(swift build -c release --show-bin-path)/$APP_NAME"
+BUILD_PRODUCTS="$(swift build -c release --show-bin-path)"
+BUILD_BINARY="$BUILD_PRODUCTS/$APP_NAME"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
 
 write_info_plist
 copy_app_icon
+embed_and_sign_sparkle "$BUILD_PRODUCTS"
 sign_path "$APP_BUNDLE"
-/usr/bin/codesign --verify --strict --verbose=2 "$APP_BUNDLE"
+/usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 
 if [[ "$PREPARE_NOTARIZATION" == true ]]; then
   rm -f "$NOTARY_ZIP"

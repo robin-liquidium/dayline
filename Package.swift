@@ -10,15 +10,33 @@ let package = Package(
   products: [
     .executable(name: "Dayline", targets: ["Dayline"])
   ],
+  dependencies: [
+    .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.4")
+  ],
   targets: [
     .executableTarget(
       name: "Dayline",
-      path: "Sources/Dayline"
+      dependencies: [
+        .product(name: "Sparkle", package: "Sparkle")
+      ],
+      path: "Sources/Dayline",
+      linkerSettings: [
+        .unsafeFlags([
+          "-Xlinker", "-rpath",
+          "-Xlinker", "@executable_path/../Frameworks"
+        ])
+      ]
     ),
     .testTarget(
       name: "DaylineTests",
       dependencies: ["Dayline"],
-      path: "Tests/DaylineTests"
+      path: "Tests/DaylineTests",
+      linkerSettings: [
+        .unsafeFlags([
+          "-Xlinker", "-rpath",
+          "-Xlinker", "@loader_path/../../.."
+        ])
+      ]
     )
   ]
 )

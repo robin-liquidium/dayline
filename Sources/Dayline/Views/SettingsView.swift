@@ -3,6 +3,7 @@ import SwiftUI
 /// Native settings view for refresh cadence and menu behavior.
 struct SettingsView: View {
   @EnvironmentObject private var store: StatusStore
+  @EnvironmentObject private var updateService: UpdateService
 
   /// Supported refresh cadence choices in minutes.
   private let cadenceOptions = [5, 10, 15, 30, 60]
@@ -56,6 +57,11 @@ struct SettingsView: View {
               .foregroundStyle(.secondary)
               .accessibilityIdentifier("settings.launchAtLoginError")
           }
+        }
+
+        checkboxRow {
+          Toggle("Install updates automatically", isOn: automaticUpdatesBinding)
+            .accessibilityIdentifier("settings.automaticUpdates")
         }
 
         settingsPicker("Refresh:", selection: cadenceBinding, accessibilityIdentifier: "settings.refreshCadence") {
@@ -118,8 +124,14 @@ struct SettingsView: View {
       .padding(.horizontal, 34)
       .padding(.vertical, 28)
     }
-    .frame(width: 640)
-    .frame(minHeight: 520, maxHeight: 760)
+    .frame(
+      minWidth: 600,
+      idealWidth: 640,
+      maxWidth: .infinity,
+      minHeight: 520,
+      idealHeight: 800,
+      maxHeight: .infinity
+    )
     .accessibilityIdentifier("settings.form")
     .onAppear {
       store.refreshLaunchAtLoginStatus()
@@ -268,6 +280,14 @@ struct SettingsView: View {
     Binding(
       get: { store.launchAtLoginEnabled },
       set: { store.setLaunchAtLoginEnabled($0) }
+    )
+  }
+
+  /// Binding that persists the automatic-update preference.
+  private var automaticUpdatesBinding: Binding<Bool> {
+    Binding(
+      get: { updateService.automaticallyInstallsUpdates },
+      set: { updateService.setAutomaticallyInstallsUpdates($0) }
     )
   }
 

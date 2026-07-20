@@ -196,6 +196,9 @@ final class StatusStore: ObservableObject {
   /// Compact error text from the last launch-at-login update attempt.
   @Published private(set) var launchAtLoginError: String?
 
+  /// Changes when an app-level flow needs to present the Settings window.
+  @Published private(set) var settingsPresentationRequestID = UUID()
+
   /// Stable system image for the menu bar item.
   var menuBarSystemImage: String {
     "calendar"
@@ -232,6 +235,8 @@ final class StatusStore: ObservableObject {
   private static let defaultVisibleNoteCountKey = "defaultVisibleNoteCount"
   private static let menuBarEventLeadTimeKey = "menuBarEventLeadTimeMinutes"
   private static let menuBarEventPostStartGraceKey = "menuBarEventPostStartGraceMinutes"
+  private static let launchAtLoginDefaultConfiguredKey = "launchAtLoginDefaultConfigured"
+  private static let launchAtLoginDefaultPendingKey = "launchAtLoginDefaultPending"
   private static let defaultMenuBarEventLeadTimeMinutes = 30
   private static let defaultMenuBarEventPostStartGraceMinutes = 5
   private static let fallbackDefaultVisibleNoteCount = 3
@@ -261,13 +266,21 @@ final class StatusStore: ObservableObject {
     launchAtLoginService: LaunchAtLoginService = LaunchAtLoginService(),
     mockData: MockData? = nil
   ) {
+    let defaults = UserDefaults.standard
+    // Older builds stored no launch-at-login preference. Using that toggle required opening
+    // Settings, which persists the Settings window frame, so an empty domain has no in-app
+    // opt-out to preserve and should receive the new default.
+    let hadPersistedAppState = Bundle.main.bundleIdentifier
+      .flatMap { defaults.persistentDomain(forName: $0) }
+      .map { !$0.isEmpty }
+      ?? false
     self.linearService = linearService
     self.notesService = notesService
     self.authSessions = authSessions
     self.googleAccountRepository = googleAccountRepository
     self.launchAtLoginService = launchAtLoginService
     self.mockData = mockData
-    self.refreshIntervalMinutes = UserDefaults.standard.integer(forKey: Self.refreshIntervalKey)
+    self.refreshIntervalMinutes = defaults.integer(forKey: Self.refreshIntervalKey)
     self.copyIssueHotkey = Self.normalizedHotkey(UserDefaults.standard.string(forKey: Self.copyIssueHotkeyKey), defaultValue: "c")
     self.statusPickerHotkey = Self.normalizedHotkey(UserDefaults.standard.string(forKey: Self.statusPickerHotkeyKey), defaultValue: "s")
     self.priorityPickerHotkey = Self.normalizedHotkey(UserDefaults.standard.string(forKey: Self.priorityPickerHotkeyKey), defaultValue: "p")
@@ -279,7 +292,7 @@ final class StatusStore: ObservableObject {
     ))
     self.defaultVisibleNoteCount = storedVisibleNoteCount
     self.visibleNoteCount = storedVisibleNoteCount
-    self.launchAtLoginEnabled = launchAtLoginService.isEnabled
+    self.launchAtLoginEnabled = mockData == nil ? launchAtLoginService.isEnabled : true
     self.menuBarEventLeadTimeMinutes = Self.storedInteger(
       forKey: Self.menuBarEventLeadTimeKey,
       defaultValue: Self.defaultMenuBarEventLeadTimeMinutes
@@ -293,6 +306,26 @@ final class StatusStore: ObservableObject {
     }
     menuBarEventLeadTimeMinutes = Self.clampedMenuBarLeadTime(menuBarEventLeadTimeMinutes)
     menuBarEventPostStartGraceMinutes = Self.clampedMenuBarPostStartGrace(menuBarEventPostStartGraceMinutes)
+    if mockData == nil && defaults.object(forKey: Self.launchAtLoginDefaultConfiguredKey) == nil {
+      let shouldApplyDefault = defaults.bool(forKey: Self.launchAtLoginDefaultPendingKey)
+        || !hadPersistedAppState
+      if shouldApplyDefault {
+        defaults.set(true, forKey: Self.launchAtLoginDefaultPendingKey)
+        do {
+          try launchAtLoginService.setEnabled(true)
+          launchAtLoginEnabled = launchAtLoginService.isEnabled
+          if launchAtLoginEnabled {
+            defaults.set(true, forKey: Self.launchAtLoginDefaultConfiguredKey)
+            defaults.removeObject(forKey: Self.launchAtLoginDefaultPendingKey)
+          }
+        } catch {
+          launchAtLoginError = error.localizedDescription.compactLine(limit: 96)
+        }
+      } else {
+        // Existing installs predate this default; preserve their current login-item choice.
+        defaults.set(true, forKey: Self.launchAtLoginDefaultConfiguredKey)
+      }
+    }
     if let mockData {
       applyMockData(mockData)
     } else {
@@ -659,14 +692,23 @@ final class StatusStore: ObservableObject {
 
   /// Refreshes launch-at-login state from macOS.
   func refreshLaunchAtLoginStatus() {
+    guard mockData == nil else {
+      return
+    }
     launchAtLoginEnabled = launchAtLoginService.isEnabled
   }
 
   /// Requests a launch-at-login change and mirrors the resulting macOS state.
   func setLaunchAtLoginEnabled(_ isEnabled: Bool) {
+    guard mockData == nil else {
+      launchAtLoginEnabled = isEnabled
+      return
+    }
     do {
       try launchAtLoginService.setEnabled(isEnabled)
       launchAtLoginError = nil
+      UserDefaults.standard.set(true, forKey: Self.launchAtLoginDefaultConfiguredKey)
+      UserDefaults.standard.removeObject(forKey: Self.launchAtLoginDefaultPendingKey)
     } catch {
       launchAtLoginError = error.localizedDescription.compactLine(limit: 96)
     }
@@ -1303,8 +1345,7 @@ final class StatusStore: ObservableObject {
 
   /// Opens Settings after a successful browser auth so the user can confirm the account.
   private func presentSettingsAfterAuth() {
-    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-    SettingsWindowPresenter.bringSettingsToFront()
+    settingsPresentationRequestID = UUID()
   }
 
   /// Returns the event that should currently replace the menu bar icon.

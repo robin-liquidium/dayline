@@ -29,6 +29,9 @@ enum MenuControlID {
   /// Footer settings button.
   case settings
 
+  /// Footer update-and-restart button.
+  case update
+
   /// Footer quit button.
   case quit
 }

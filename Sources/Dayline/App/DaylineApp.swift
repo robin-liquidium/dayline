@@ -21,10 +21,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct DaylineApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
   @StateObject private var store: StatusStore
+  @StateObject private var updateService: UpdateService
+  private let appDisplayName: String
 
   init() {
-    let mockData = ProcessInfo.processInfo.arguments.contains("--mock") ? MockData.make() : nil
+    let isMock = ProcessInfo.processInfo.arguments.contains("--mock")
+    let mockData = isMock ? MockData.make() : nil
     _store = StateObject(wrappedValue: StatusStore(mockData: mockData))
+    _updateService = StateObject(wrappedValue: UpdateService(
+      isMock: isMock,
+      mockVersion: mockData?.availableUpdateVersion
+    ))
+    appDisplayName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Dayline"
   }
 
   /// Declares the menu bar extra, editor windows, and native settings window.
@@ -32,17 +40,10 @@ struct DaylineApp: App {
     MenuBarExtra {
       StatusMenuView()
         .environmentObject(store)
+        .environmentObject(updateService)
     } label: {
-      if let menuBarEventText = store.menuBarEventText {
-        Text(menuBarEventText)
-          .lineLimit(1)
-          .accessibilityLabel(store.menuBarAccessibilityLabel)
-          .accessibilityIdentifier("dayline.menuBarItem")
-      } else {
-        Label("Today", systemImage: store.menuBarSystemImage)
-          .accessibilityLabel(store.menuBarAccessibilityLabel)
-          .accessibilityIdentifier("dayline.menuBarItem")
-      }
+      MenuBarLabelView()
+        .environmentObject(store)
     }
     .menuBarExtraStyle(.window)
 
@@ -61,9 +62,36 @@ struct DaylineApp: App {
     .defaultSize(width: 620, height: 600)
     .handlesExternalEvents(matching: [])
 
-    Settings {
+    Window("\(appDisplayName) Settings", id: "settings") {
       SettingsView()
         .environmentObject(store)
+        .environmentObject(updateService)
+    }
+    .defaultSize(width: 640, height: 800)
+    .windowResizability(.contentMinSize)
+    .handlesExternalEvents(matching: [])
+  }
+}
+
+/// Always-mounted menu bar label that also handles app-level window requests.
+private struct MenuBarLabelView: View {
+  @EnvironmentObject private var store: StatusStore
+  @Environment(\.openWindow) private var openWindow
+
+  var body: some View {
+    Group {
+      if let menuBarEventText = store.menuBarEventText {
+        Text(menuBarEventText)
+          .lineLimit(1)
+      } else {
+        Label("Today", systemImage: store.menuBarSystemImage)
+      }
+    }
+    .accessibilityLabel(store.menuBarAccessibilityLabel)
+    .accessibilityIdentifier("dayline.menuBarItem")
+    .onChange(of: store.settingsPresentationRequestID) {
+      openWindow(id: "settings")
+      SettingsWindowPresenter.bringSettingsToFront()
     }
   }
 }

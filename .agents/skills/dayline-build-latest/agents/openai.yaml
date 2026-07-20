@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dayline Build Latest"
+  short_description: "Build, package, and install Dayline locally"
+  default_prompt: "Use $dayline-build-latest to commit the intended Dayline changes, build a signed package, and install it locally."
