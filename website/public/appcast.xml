@@ -9,6 +9,15 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
         <description>Notarized stable releases of Dayline for macOS.</description>
         <language>en</language>
         <item>
+            <title>0.1.8</title>
+            <pubDate>Mon, 20 Jul 2026 23:54:11 +0000</pubDate>
+            <sparkle:version>33</sparkle:version>
+            <sparkle:shortVersionString>0.1.8</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/robin-liquidium/dayline/releases/download/v0.1.8/Dayline-0.1.8.app.zip" length="3818744" type="application/octet-stream" sparkle:edSignature="SdNw/ToluOEl4oX38OXUeaAh+D0U/ZLpqdF/ZAM9NsXsQME8LjowtLoxDeDSEU2Oxr9nmYu3Y6Id2KXFnnLgBA=="/>
+        </item>
+        <item>
             <title>0.1.7</title>
             <pubDate>Mon, 20 Jul 2026 23:43:33 +0000</pubDate>
             <sparkle:version>9</sparkle:version>
@@ -20,6 +29,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: fUh8aP+yDTzCujrG+bgjTA58ng/UUu9hls6zRMhozPv7scP/wq0zFhTjKbor1T0O6zHadPFTsoZ0v3fxElTyAQ==
-length: 1309
+edSignature: LIx4btKA1cPppz7y8LLG715A6KM2VQTsaxxZ6xfDrBbJVLoaBh41FIUEIo3HtBvWBuVfp4WJtE7S02A2sUvWAQ==
+length: 1999
 -->
