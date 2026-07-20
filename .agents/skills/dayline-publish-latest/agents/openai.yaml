@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dayline Publish Latest"
+  short_description: "Ship the latest Dayline build safely to GitHub"
+  default_prompt: "Use $dayline-publish-latest to commit, validate, install, push, and publish the latest Dayline release safely."

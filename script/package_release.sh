@@ -22,6 +22,8 @@ NOTARY_ZIP="$DIST_DIR/$APP_NAME-notary.zip"
 
 INSTALL_APP=false
 NOTARIZE=false
+PREPARE_NOTARIZATION=false
+PACKAGE_EXISTING=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -33,9 +35,17 @@ while [[ $# -gt 0 ]]; do
       NOTARIZE=true
       shift
       ;;
+    --prepare-notarization)
+      PREPARE_NOTARIZATION=true
+      shift
+      ;;
+    --package-existing)
+      PACKAGE_EXISTING=true
+      shift
+      ;;
     --help|-h)
       cat <<USAGE
-usage: $0 [--install] [--notarize]
+usage: $0 [--install] [--notarize] [--prepare-notarization | --package-existing]
 
 Builds a release Dayline.app bundle plus GitHub-release-ready artifacts:
   dist/artifacts/Dayline-<version>.dmg
@@ -52,6 +62,10 @@ Environment:
   NOTARY_KEY_PATH         App Store Connect API key (.p8) for CI notarization.
   NOTARY_KEY_ID           App Store Connect API key ID.
   NOTARY_ISSUER_ID        App Store Connect API issuer ID.
+
+Internal CI stages:
+  --prepare-notarization  Build and sign the app, then preserve its notarization ZIP.
+  --package-existing      Package an already-notarized app without rebuilding it.
 USAGE
       exit 0
       ;;
@@ -61,6 +75,16 @@ USAGE
       ;;
   esac
 done
+
+if [[ "$PREPARE_NOTARIZATION" == true && ( "$NOTARIZE" == true || "$PACKAGE_EXISTING" == true || "$INSTALL_APP" == true ) ]]; then
+  echo "--prepare-notarization cannot be combined with other packaging modes." >&2
+  exit 2
+fi
+
+if [[ "$PACKAGE_EXISTING" == true && ( "$NOTARIZE" == true || "$INSTALL_APP" == true ) ]]; then
+  echo "--package-existing cannot be combined with --notarize or --install." >&2
+  exit 2
+fi
 
 cd "$ROOT_DIR"
 
@@ -304,12 +328,43 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && ! ( "$NOTARIZE" == false && "$
   exit 2
 fi
 
-if [[ "$NOTARIZE" == true ]]; then
+if [[ "$NOTARIZE" == true || "$PREPARE_NOTARIZATION" == true ]]; then
   require_distribution_source
   if [[ "$SIGNING_IDENTITY" != Developer\ ID\ Application:* ]]; then
-    echo "--notarize requires a Developer ID Application certificate." >&2
+    echo "Notarization requires a Developer ID Application certificate." >&2
     exit 2
   fi
+fi
+
+if [[ "$PACKAGE_EXISTING" == true ]]; then
+  if [[ ! -d "$APP_BUNDLE" ]]; then
+    echo "Missing preserved app bundle: $APP_BUNDLE" >&2
+    exit 2
+  fi
+  if [[ "$SIGNING_IDENTITY" != Developer\ ID\ Application:* ]]; then
+    echo "Packaging the notarized app requires a Developer ID Application certificate for the DMG." >&2
+    exit 2
+  fi
+
+  app_version="$(/usr/bin/plutil -extract CFBundleShortVersionString raw -o - "$INFO_PLIST" 2>/dev/null || true)"
+  if [[ "$app_version" != "$VERSION" ]]; then
+    echo "Preserved app version ($app_version) does not match MARKETING_VERSION ($VERSION)." >&2
+    exit 2
+  fi
+
+  /usr/bin/codesign --verify --strict --verbose=2 "$APP_BUNDLE"
+  xcrun stapler validate "$APP_BUNDLE"
+  rm -rf "$ARTIFACT_DIR"
+  mkdir -p "$ARTIFACT_DIR"
+  /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$ZIP_PATH"
+  create_dmg
+
+  cat <<SUMMARY
+Packaged preserved $APP_BUNDLE
+Created $DMG_PATH
+Created $ZIP_PATH
+SUMMARY
+  exit 0
 fi
 
 rm -rf "$RELEASE_DIR" "$ARTIFACT_DIR"
@@ -324,6 +379,13 @@ write_info_plist
 copy_app_icon
 sign_path "$APP_BUNDLE"
 /usr/bin/codesign --verify --strict --verbose=2 "$APP_BUNDLE"
+
+if [[ "$PREPARE_NOTARIZATION" == true ]]; then
+  rm -f "$NOTARY_ZIP"
+  /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$NOTARY_ZIP"
+  echo "Prepared signed app for asynchronous notarization: $NOTARY_ZIP"
+  exit 0
+fi
 
 if [[ "$NOTARIZE" == true ]]; then
   notarize_app

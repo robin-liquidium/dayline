@@ -86,7 +86,6 @@ gh release create "$TAG" \
   "$ZIP_PATH" \
   "$STABLE_DMG_PATH" \
   --verify-tag \
-  --fail-on-no-commits \
   --latest \
   --generate-notes \
   --title "$APP_NAME $VERSION" \

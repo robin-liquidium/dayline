@@ -1,30 +1,28 @@
-name: Release
+name: Continue notarization
 
 on:
-  push:
-    tags:
-      - "v*"
+  schedule:
+    - cron: "7,17,27,37,47,57 * * * *"
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag to build
-        required: true
+        description: Optional pending stable release tag to check
+        required: false
         type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ inputs.tag || github.ref_name }}
+  group: dayline-notarization-continuation
   cancel-in-progress: false
 
 jobs:
-  submit-notarization:
+  continue-notarization:
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 45
 
     env:
-      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
       MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
       MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
       APP_STORE_CONNECT_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 }}
@@ -32,22 +30,11 @@ jobs:
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
 
     steps:
-      - name: Check out tagged source
+      - name: Check out release tooling
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag || github.ref }}
-          fetch-depth: 0
+          ref: main
           persist-credentials: false
-
-      - name: Validate release tag
-        run: |
-          git fetch origin main:refs/remotes/origin/main
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Release tag must look like v0.1.4" >&2
-            exit 2
-          fi
-          test "$(git describe --tags --exact-match HEAD)" = "$RELEASE_TAG"
-          git merge-base --is-ancestor HEAD origin/main
 
       - name: Validate release secrets
         run: |
@@ -71,7 +58,7 @@ jobs:
 
           printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | /usr/bin/base64 -D > "$certificate_path"
           security create-keychain -p "$keychain_password" "$keychain_path"
-          security set-keychain-settings -lut 21600 "$keychain_path"
+          security set-keychain-settings -lut 3600 "$keychain_path"
           security unlock-keychain -p "$keychain_password" "$keychain_path"
           security import "$certificate_path" \
             -k "$keychain_path" \
@@ -104,19 +91,11 @@ jobs:
           echo "NOTARY_KEY_ID=$APP_STORE_CONNECT_KEY_ID" >> "$GITHUB_ENV"
           echo "NOTARY_ISSUER_ID=$APP_STORE_CONNECT_ISSUER_ID" >> "$GITHUB_ENV"
 
-      - name: Build and test
-        run: |
-          swift build
-          swift test
-
-      - name: Preserve and submit signed app
+      - name: Advance pending notarization
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MARKETING_VERSION: ${{ env.RELEASE_TAG }}
-          BUILD_NUMBER: ${{ github.run_number }}
-        run: |
-          export MARKETING_VERSION="${MARKETING_VERSION#v}"
-          ./script/notarization_release.sh submit "$RELEASE_TAG"
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: ./script/notarization_release.sh continue
 
       - name: Clean up signing credentials
         if: always()

@@ -326,13 +326,29 @@ After release changes are merged to a clean, synchronized `main` branch:
 ```
 
 The script validates the branch, clean tree, remote synchronization, and version
-uniqueness before pushing the tag. The release workflow then:
+uniqueness before pushing the tag. The release workflows then:
 
 1. Builds and tests the exact tagged commit.
 2. Imports the Developer ID certificate.
 3. Signs with hardened runtime and timestamping.
-4. Notarizes and staples the app and DMG.
-5. Publishes the versioned DMG, app ZIP, and stable `Dayline.dmg` asset.
+4. Uploads the exact signed app to a private draft release before submitting it
+   to Apple once.
+5. Exits instead of holding a GitHub-hosted runner open while Apple processes it.
+6. Checks pending drafts every ten minutes, resuming the saved submission ID.
+7. Staples the accepted app, builds and submits the DMG once, and saves that ID.
+8. Staples and validates the accepted DMG and app, runs Gatekeeper checks, then
+   publishes the versioned DMG, app ZIP, and stable `Dayline.dmg` asset.
+
+The scheduled continuation is idempotent and verifies preserved artifact hashes
+before contacting Apple. To check one pending release immediately:
+
+```sh
+gh workflow run notarization-continuation.yml -f tag=v0.1.4
+```
+
+Do not rerun the submission workflow while its private draft is pending. The
+continuation resumes the stored artifact and submission rather than uploading a
+new copy merely because Apple is slow.
 
 CI also runs `swift build` and `swift test` for pull requests and pushes to
 `main`. Regular pushes never publish releases.
@@ -345,14 +361,8 @@ Create local unsigned or development-signed artifacts:
 ./script/package_release.sh
 ```
 
-For a notarized local release from a clean, exactly tagged commit:
-
-```sh
-xcrun notarytool store-credentials dayline-notary
-NOTARY_PROFILE=dayline-notary ./script/package_release.sh --notarize
-./script/publish_github_release.sh
-```
-
-The scripts reject dirty, untagged, mismatched, or duplicate public releases.
+Official notarization should run through GitHub Actions so the preserved artifact,
+submission IDs, and continuation state stay together. The scripts reject dirty,
+untagged, mismatched, corrupt, or duplicate public releases.
 
 </details>
