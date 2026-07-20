@@ -52,7 +52,12 @@ notarytool_with_credentials() {
 release_for_tag() {
   local tag="$1"
   gh api "repos/$REPOSITORY/releases?per_page=100" |
-    jq -c --arg tag "$tag" '.[] | select(.tag_name == $tag)' |
+    jq -c --arg tag "$tag" --arg marker "$STATE_MARKER" '
+      .[]
+      | (try (.body | fromjson) catch {}) as $state
+      | select(.tag_name == $tag or
+          (.draft == true and $state.marker == $marker and $state.tag == $tag))
+    ' |
     head -n 1
 }
 
@@ -85,11 +90,12 @@ other_active_release_tag() {
   gh api "repos/$REPOSITORY/releases?per_page=100" |
     jq -r --arg marker "$STATE_MARKER" --arg requested "$requested_tag" '
       .[]
-      | select(.draft == true and .tag_name != $requested)
-      | (.body | fromjson?) as $state
+      | select(.draft == true)
+      | (try (.body | fromjson) catch {}) as $state
       | select($state.marker == $marker)
+      | select($state.tag != $requested)
       | select($state.stage != "failed" and $state.stage != "superseded")
-      | .tag_name
+      | $state.tag
     ' |
     head -n 1
 }
@@ -402,6 +408,7 @@ finalize_accepted_dmg() {
   fi
 
   gh api --method PATCH "repos/$REPOSITORY/releases/$release_id" \
+    -f tag_name="v$version" \
     -f name="$APP_NAME $version" \
     -f body="Requires macOS 26 or newer. Connect Google Calendar and Linear directly from Dayline after installation." \
     -F draft=false \
@@ -661,9 +668,10 @@ continue_all() {
         | select(.draft == true)
         | (.body | fromjson?) as $state
         | select($state.marker == $marker)
-        | select($state.stage != "failed" and $state.stage != "superseded")]
-      | sort_by(.tag_name | ltrimstr("v") | split(".") | map(tonumber))
-      | .[].tag_name
+        | select($state.stage != "failed" and $state.stage != "superseded")
+        | $state]
+      | sort_by(.tag | ltrimstr("v") | split(".") | map(tonumber))
+      | .[].tag
     ')"
   if [[ -z "$tags" ]]; then
     echo "No pending Dayline notarization drafts."
