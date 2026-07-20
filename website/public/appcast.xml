@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+  <channel>
+    <title>Dayline Updates</title>
+    <link>https://dayline.robin.build</link>
+    <description>Notarized stable releases of Dayline for macOS.</description>
+    <language>en</language>
+  </channel>
+</rss><!-- sparkle-signatures:
+edSignature: 3/QJGu+MFZP1JzCWoMFCBc22bFM2ZpdQBDP1XH2R85XpuJpe3PAxrh+ya3WZz9tHziNSHD/7oV2bvO5PH8ciBw==
+length: 597
+-->
