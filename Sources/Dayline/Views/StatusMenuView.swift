@@ -64,10 +64,10 @@ struct StatusMenuView: View {
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 10)
-        .padding(.trailing, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
       }
       .scrollContentBackground(.hidden)
+      .scrollIndicators(.hidden)
       .frame(height: scrollContentHeight)
       .clipped()
       footerBar
