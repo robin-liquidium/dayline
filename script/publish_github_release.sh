@@ -87,6 +87,7 @@ gh release create "$TAG" \
   "$STABLE_DMG_PATH" \
   --verify-tag \
   --fail-on-no-commits \
+  --latest \
   --generate-notes \
   --title "$APP_NAME $VERSION" \
   --notes "Requires macOS 26 or newer. Connect Google Calendar and Linear directly from Dayline after installation."
