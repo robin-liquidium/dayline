@@ -1,0 +1,32 @@
+version: 2
+
+updates:
+  - package-ecosystem: swift
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      swift-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: bun
+    directory: /website
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      website-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      workflow-actions:
+        patterns:
+          - "*"
