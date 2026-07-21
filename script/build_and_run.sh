@@ -12,10 +12,13 @@ APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
+APP_FRAMEWORKS="$APP_CONTENTS/Frameworks"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 ICON_SOURCE="$ROOT_DIR/Resources/DaylineIcon.icns"
 ICON_FILE="DaylineIcon.icns"
+WORDMARK_SOURCE="$ROOT_DIR/Resources/DaylineWordmark.pdf"
+WORDMARK_FILE="DaylineWordmark.pdf"
 
 cd "$ROOT_DIR"
 
@@ -25,13 +28,15 @@ swift build
 BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
 
 rm -rf "$APP_BUNDLE"
-mkdir -p "$APP_MACOS" "$APP_RESOURCES"
+mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$APP_FRAMEWORKS"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
+/usr/bin/ditto "$(swift build --show-bin-path)/Sparkle.framework" "$APP_FRAMEWORKS/Sparkle.framework"
 
 if [[ -f "$ICON_SOURCE" ]]; then
   cp "$ICON_SOURCE" "$APP_RESOURCES/$ICON_FILE"
 fi
+cp "$WORDMARK_SOURCE" "$APP_RESOURCES/$WORDMARK_FILE"
 
 # Keep these in sync with AuthConfig / AuthProvider callback schemes.
 GOOGLE_CLIENT_ID="${DAYLINE_GOOGLE_CLIENT_ID:-551177930544-9sl0govp6ok205csb939j4p2dhckrgbk.apps.googleusercontent.com}"
@@ -86,6 +91,22 @@ cat >"$INFO_PLIST" <<PLIST
 </dict>
 </plist>
 PLIST
+
+# Sign the complete bundle so its metadata and resources are sealed too.
+DEV_SIGNING_IDENTITY="${DAYLINE_DEV_SIGNING_IDENTITY:-}"
+if [[ -z "$DEV_SIGNING_IDENTITY" ]]; then
+  IDENTITY_OUTPUT="$(security find-identity -v -p codesigning)"
+  while IFS= read -r identity_line; do
+    if [[ "$identity_line" =~ \"(Apple\ Development:[^\"]*)\" ]]; then
+      DEV_SIGNING_IDENTITY="${BASH_REMATCH[1]}"
+      break
+    fi
+  done <<< "$IDENTITY_OUTPUT"
+fi
+if [[ -n "$DEV_SIGNING_IDENTITY" ]]; then
+  /usr/bin/codesign --force --sign "$DEV_SIGNING_IDENTITY" "$APP_FRAMEWORKS/Sparkle.framework"
+  /usr/bin/codesign --force --sign "$DEV_SIGNING_IDENTITY" "$APP_BUNDLE"
+fi
 
 open_app() {
   /usr/bin/open -n "$APP_BUNDLE"

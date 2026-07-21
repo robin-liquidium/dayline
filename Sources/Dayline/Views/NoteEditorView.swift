@@ -12,27 +12,25 @@ struct NoteEditorView: View {
 
   /// Builds the note editor window content.
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(spacing: 0) {
       TextEditor(text: $draft.text)
         .font(.body)
         .scrollContentBackground(.hidden)
-        .padding(6)
-        .background {
-          RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill(Color.primary.opacity(0.04))
-        }
-        .overlay {
-          RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .stroke(Color.primary.opacity(0.08))
-        }
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
         .accessibilityIdentifier("noteEditor.text")
 
       if let errorMessage = draft.errorMessage {
         Text(errorMessage)
           .font(.caption)
           .foregroundStyle(.secondary)
+          .padding(.horizontal, 14)
+          .padding(.vertical, 6)
+          .frame(maxWidth: .infinity, alignment: .leading)
           .accessibilityIdentifier("noteEditor.error")
       }
+
+      Divider()
 
       HStack {
         Spacer()
@@ -50,9 +48,10 @@ struct NoteEditorView: View {
         .disabled(!canSave)
         .accessibilityIdentifier("noteEditor.save")
       }
+      .padding(.horizontal, 14)
+      .padding(.vertical, 10)
     }
-    .padding(20)
-    .frame(minWidth: 460, minHeight: 360)
+    .frame(minWidth: 440, minHeight: 320)
     .navigationTitle(request.isExisting ? "Note" : "New Note")
     .onAppear(perform: loadInitialNoteIfNeeded)
   }

@@ -45,6 +45,7 @@ struct FeedbackView: View {
         .font(.headline)
 
       TextEditor(text: $message)
+        .accessibilityLabel("Feedback message")
         .font(.body)
         .scrollContentBackground(.hidden)
         .padding(6)
@@ -62,7 +63,7 @@ struct FeedbackView: View {
       Toggle("Include anonymous app and system information", isOn: $includesAnonymousSystemInformation)
         .accessibilityIdentifier("feedback.includeSystemInformation")
 
-      Text("Includes only the Dayline version, macOS version, and chip type. It never includes your name, device name, IP address, accounts, calendar, Linear data, notes, tokens, or logs.")
+      Text("Includes only the Dayline version, macOS version, and chip type. The feedback report never includes your name, device name, IP address, accounts, calendar, Linear data, notes, tokens, or logs.")
         .font(.caption)
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)

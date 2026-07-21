@@ -8,13 +8,12 @@ import {
 function environment(
   options: {
     burstAllowed?: boolean;
-    getFails?: boolean;
-    hourlyCount?: number;
-    putFails?: boolean;
+    hourlyAllowed?: boolean;
+    hourlyLimitFails?: boolean;
   } = {},
 ) {
-  const writes: Array<{ key: string; value: string }> = [];
   const burstKeys: string[] = [];
+  const hourlyReservations: Array<{ hour: number; key: string; limit: number }> = [];
   const mock: FeedbackEnvironment = {
     FEEDBACK_RATE_LIMIT: {
       limit: async ({ key }) => {
@@ -22,26 +21,23 @@ function environment(
         return { success: options.burstAllowed ?? true };
       },
     },
-    FEEDBACK_RATE_LIMITS: {
-      get: async <T>() => {
-        if (options.getFails) {
-          throw new Error("simulated KV failure");
-        }
-        return (options.hourlyCount ?? null) as T | null;
-      },
-      put: async (key, value) => {
-        if (options.putFails) {
-          throw new Error("simulated KV failure");
-        }
-        writes.push({ key, value });
-      },
+    FEEDBACK_RATE_LIMITER: {
+      getByName: (key) => ({
+        reserve: async (hour, limit) => {
+          hourlyReservations.push({ hour, key, limit });
+          if (options.hourlyLimitFails) {
+            throw new Error("simulated Durable Object failure");
+          }
+          return options.hourlyAllowed ?? true;
+        },
+      }),
     },
     FEEDBACK_RATE_LIMIT_SECRET: "x",
     GITHUB_APP_ID: "1",
     GITHUB_INSTALLATION_ID: "2",
     GITHUB_PRIVATE_KEY: "",
   };
-  return { burstKeys, mock, writes };
+  return { burstKeys, hourlyReservations, mock };
 }
 
 function feedbackRequest(body: unknown) {
@@ -58,7 +54,7 @@ function feedbackRequest(body: unknown) {
 
 describe("feedback endpoint", () => {
   test("creates an anonymized public issue", async () => {
-    const { burstKeys, mock, writes } = environment();
+    const { burstKeys, hourlyReservations, mock } = environment();
     let capturedDraft: ReturnType<typeof makeGitHubIssueDraft> | undefined;
     const response = await handleFeedbackRequest(
       feedbackRequest({
@@ -93,7 +89,9 @@ describe("feedback endpoint", () => {
     expect(capturedDraft?.body).toContain("\n    https://github.com/robin-liquidium/dayline/issues/123");
     expect(capturedDraft?.body).not.toContain("192.0.2.1");
     expect(burstKeys[0]).not.toContain("192.0.2.1");
-    expect(writes).toHaveLength(1);
+    expect(hourlyReservations).toHaveLength(1);
+    expect(hourlyReservations[0]?.key).toBe(burstKeys[0]);
+    expect(hourlyReservations[0]?.limit).toBe(3);
   });
 
   test("omits system information when the user opts out", async () => {
@@ -132,7 +130,7 @@ describe("feedback endpoint", () => {
   });
 
   test("enforces the anonymous hourly limit", async () => {
-    const { mock } = environment({ hourlyCount: 3 });
+    const { mock } = environment({ hourlyAllowed: false });
     const response = await handleFeedbackRequest(
       feedbackRequest({ category: "bug", message: "This is a valid report." }),
       mock,
@@ -165,29 +163,23 @@ describe("feedback endpoint", () => {
     expect(response.status).toBe(413);
   });
 
-  test("returns the created issue when the hourly backstop update fails", async () => {
-    const { mock } = environment({ putFails: true });
+  test("fails closed when the hourly limiter is unavailable", async () => {
+    const { burstKeys, mock } = environment({ hourlyLimitFails: true });
+    let createdIssue = false;
     const response = await handleFeedbackRequest(
       feedbackRequest({ category: "other", message: "This is valid feedback." }),
       mock,
-      async () => ({ html_url: "https://github.com/example/issues/42", number: 42 }),
+      async () => {
+        createdIssue = true;
+        return { html_url: "https://github.com/example/issues/42", number: 42 };
+      },
     );
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(503);
     expect(await response.json()).toEqual({
-      issueURL: "https://github.com/example/issues/42",
-      issueNumber: 42,
+      error: "Feedback is temporarily unavailable. Please try again.",
     });
-  });
-
-  test("uses the burst limiter when the hourly backstop read fails", async () => {
-    const { mock } = environment({ getFails: true });
-    const response = await handleFeedbackRequest(
-      feedbackRequest({ category: "other", message: "This is valid feedback." }),
-      mock,
-      async () => ({ html_url: "https://github.com/example/issues/42", number: 42 }),
-    );
-
-    expect(response.status).toBe(200);
+    expect(burstKeys).toHaveLength(1);
+    expect(createdIssue).toBe(false);
   });
 });

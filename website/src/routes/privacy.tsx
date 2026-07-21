@@ -50,9 +50,10 @@ function PrivacyPolicy() {
         </p>
         <p>
           Cloudflare necessarily processes the connection&apos;s IP address. To
-          prevent spam, the Worker uses it transiently and keeps only a
-          short-lived, secret-keyed hash for rate limiting; Dayline does not
-          store the raw address.
+          prevent spam, the Worker converts it to a secret-keyed hash used only
+          for rate limiting; the raw address is never added to your feedback or
+          public GitHub issue. Cloudflare&apos;s operational Worker logs may retain
+          request metadata, including the IP address, for up to seven days.
         </p>
       </LegalSection>
 

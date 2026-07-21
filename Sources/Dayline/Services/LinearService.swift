@@ -43,6 +43,7 @@ struct LinearService {
             priority
             priorityLabel
             dueDate
+            branchName
             url
             state { id name type }
             team {
@@ -73,6 +74,7 @@ struct LinearService {
           priority
           priorityLabel
           dueDate
+          branchName
           url
           state { id name type }
           team {
@@ -107,6 +109,7 @@ struct LinearService {
           priority
           priorityLabel
           dueDate
+          branchName
           url
           state { id name type }
           team {
@@ -125,6 +128,40 @@ struct LinearService {
     ], as: LinearUpdateResponse.self)
     guard response.data.issueUpdate.success else {
       throw LinearServiceError.priorityUpdateFailed
+    }
+    return response.data.issueUpdate.issue.displayItem
+  }
+
+  /// Updates or clears a Linear issue due date in `YYYY-MM-DD` form.
+  func updateIssueDueDate(issueID: String, dueDate: String?) async throws -> LinearIssueItem {
+    let mutation = """
+    mutation UpdateIssueDueDate($id: String!, $dueDate: TimelessDate) {
+      issueUpdate(id: $id, input: { dueDate: $dueDate }) {
+        success
+        issue {
+          identifier
+          title
+          priority
+          priorityLabel
+          dueDate
+          branchName
+          url
+          state { id name type }
+          team {
+            states(first: 50) {
+              nodes { id name type position }
+            }
+          }
+        }
+      }
+    }
+    """
+
+    var variables: [String: Any] = ["id": issueID]
+    variables["dueDate"] = dueDate ?? NSNull()
+    let response = try await graphQL(mutation, variables: variables, as: LinearUpdateResponse.self)
+    guard response.data.issueUpdate.success else {
+      throw LinearServiceError.dueDateUpdateFailed
     }
     return response.data.issueUpdate.issue.displayItem
   }
@@ -172,7 +209,119 @@ struct LinearService {
       .sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
   }
 
-  /// Creates a Linear issue from a draft, resolving free-text fields to IDs.
+  /// Loads visible Linear projects for the issue creator project picker.
+  func fetchProjectOptions() async throws -> [LinearProjectOption] {
+    let query = """
+    query LinearProjects($first: Int!, $after: String) {
+      projects(first: $first, after: $after) {
+        nodes { id name }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+    """
+
+    var projects: [LinearNamedNode] = []
+    var after: String?
+    repeat {
+      var variables: [String: Any] = ["first": 50]
+      if let after { variables["after"] = after }
+      let response = try await graphQL(query, variables: variables, as: LinearProjectsResponse.self)
+      projects.append(contentsOf: response.data.projects.nodes)
+      after = response.data.projects.pageInfo.nextCursor
+    } while after != nil
+
+    return projects
+      .map { LinearProjectOption(id: $0.id, name: $0.name) }
+      .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+  }
+
+  /// Loads a team's cycles for the issue creator cycle picker, most recent first.
+  func fetchCycleOptions(teamID: String) async throws -> [LinearCycleOption] {
+    let query = """
+    query TeamCycles($id: String!, $first: Int!, $after: String) {
+      team(id: $id) {
+        cycles(first: $first, after: $after) {
+          nodes { id number name }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    }
+    """
+
+    var cycles: [LinearCycleNode] = []
+    var after: String?
+    repeat {
+      var variables: [String: Any] = ["id": teamID, "first": 50]
+      if let after { variables["after"] = after }
+      let response = try await graphQL(query, variables: variables, as: LinearCyclesResponse.self)
+      guard let connection = response.data.team?.cycles else { break }
+      cycles.append(contentsOf: connection.nodes)
+      after = connection.pageInfo.nextCursor
+    } while after != nil
+
+    return cycles
+      .sorted { $0.number > $1.number }
+      .map { LinearCycleOption(id: $0.id, number: $0.number, name: $0.name ?? "") }
+  }
+
+  /// Loads a team's issue labels for the issue creator label picker.
+  func fetchLabelOptions(teamID: String) async throws -> [LinearLabelOption] {
+    let query = """
+    query TeamLabels($id: String!, $first: Int!, $after: String) {
+      team(id: $id) {
+        labels(first: $first, after: $after) {
+          nodes { id name color }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    }
+    """
+
+    var labels: [LinearLabelNode] = []
+    var after: String?
+    repeat {
+      var variables: [String: Any] = ["id": teamID, "first": 50]
+      if let after { variables["after"] = after }
+      let response = try await graphQL(query, variables: variables, as: LinearLabelsResponse.self)
+      guard let connection = response.data.team?.labels else { break }
+      labels.append(contentsOf: connection.nodes)
+      after = connection.pageInfo.nextCursor
+    } while after != nil
+
+    return labels
+      .map { LinearLabelOption(id: $0.id, name: $0.name, color: $0.color) }
+      .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+  }
+
+  /// Loads a project's milestones for the issue creator milestone picker.
+  func fetchMilestoneOptions(projectID: String) async throws -> [LinearMilestoneOption] {
+    let query = """
+    query ProjectMilestones($id: String!, $first: Int!, $after: String) {
+      project(id: $id) {
+        projectMilestones(first: $first, after: $after) {
+          nodes { id name }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    }
+    """
+
+    var milestones: [LinearNamedNode] = []
+    var after: String?
+    repeat {
+      var variables: [String: Any] = ["id": projectID, "first": 50]
+      if let after { variables["after"] = after }
+      let response = try await graphQL(query, variables: variables, as: LinearMilestonesResponse.self)
+      guard let connection = response.data.project?.projectMilestones else { break }
+      milestones.append(contentsOf: connection.nodes)
+      after = connection.pageInfo.nextCursor
+    } while after != nil
+
+    return milestones
+      .map { LinearMilestoneOption(id: $0.id, name: $0.name) }
+  }
+
+  /// Creates a Linear issue from a draft.
   func createIssue(draft: LinearIssueCreateDraft) async throws {
     let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
     let teamID = draft.team.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -197,13 +346,7 @@ struct LinearService {
       input["assigneeId"] = assignee
     }
 
-    var stateID = draft.state.trimmingCharacters(in: .whitespacesAndNewlines)
-    if stateID.isEmpty, draft.shouldStart {
-      guard let startedStateID = try await fetchStartedStateID(teamID: teamID) else {
-        throw LinearServiceError.unresolvedField("No started Linear state is available for that team.")
-      }
-      stateID = startedStateID
-    }
+    let stateID = draft.state.trimmingCharacters(in: .whitespacesAndNewlines)
     if !stateID.isEmpty {
       input["stateId"] = stateID
     }
@@ -216,25 +359,20 @@ struct LinearService {
       input["estimate"] = estimate
     }
 
-    let dueDate = draft.dueDate.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !dueDate.isEmpty {
+    if let dueDate = draft.formattedDueDate {
       input["dueDate"] = dueDate
     }
 
-    let projectName = draft.project.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !projectName.isEmpty {
-      let projectID = try await fetchProjectID(named: projectName)
-      input["projectId"] = projectID
+    if !draft.project.isEmpty {
+      input["projectId"] = draft.project
 
-      let milestoneName = draft.milestone.trimmingCharacters(in: .whitespacesAndNewlines)
-      if !milestoneName.isEmpty {
-        input["projectMilestoneId"] = try await fetchMilestoneID(projectID: projectID, named: milestoneName)
+      if !draft.milestone.isEmpty {
+        input["projectMilestoneId"] = draft.milestone
       }
     }
 
-    let cycle = draft.cycle.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !cycle.isEmpty {
-      input["cycleId"] = try await fetchCycleID(teamID: teamID, matching: cycle)
+    if !draft.cycle.isEmpty {
+      input["cycleId"] = draft.cycle
     }
 
     let parent = draft.parent.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -242,12 +380,8 @@ struct LinearService {
       input["parentId"] = try await fetchIssueID(identifier: parent)
     }
 
-    let labelNames = draft.labels
-      .split(separator: ",")
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
-    if !labelNames.isEmpty {
-      input["labelIds"] = try await fetchLabelIDs(teamID: teamID, names: labelNames)
+    if !draft.label.isEmpty {
+      input["labelIds"] = [draft.label]
     }
 
     let mutation = """
@@ -295,92 +429,6 @@ struct LinearService {
     return response.data.viewer.id
   }
 
-  /// Loads the first started-state ID for a team, used by start-after-create.
-  private func fetchStartedStateID(teamID: String) async throws -> String? {
-    let query = """
-    query TeamStartedStates($id: String!) {
-      team(id: $id) {
-        states(first: 10, filter: { type: { eq: "started" } }) {
-          nodes { id position }
-        }
-      }
-    }
-    """
-
-    let response = try await graphQL(query, variables: ["id": teamID], as: LinearTeamStatesResponse.self)
-    return response.data.team?.states.nodes
-      .sorted { $0.position < $1.position }
-      .first?.id
-  }
-
-  /// Resolves a project name to its Linear ID.
-  private func fetchProjectID(named name: String) async throws -> String {
-    let query = """
-    query ProjectByName($name: String!) {
-      projects(first: 1, filter: { name: { eqIgnoreCase: $name } }) {
-        nodes { id }
-      }
-    }
-    """
-
-    let response = try await graphQL(query, variables: ["name": name], as: LinearProjectsResponse.self)
-    guard let projectID = response.data.projects.nodes.first?.id else {
-      throw LinearServiceError.unresolvedField("No Linear project named \"\(name)\".")
-    }
-    return projectID
-  }
-
-  /// Resolves a milestone name inside a project to its Linear ID.
-  private func fetchMilestoneID(projectID: String, named name: String) async throws -> String {
-    let query = """
-    query ProjectMilestones($id: String!) {
-      project(id: $id) {
-        projectMilestones(first: 50) {
-          nodes { id name }
-        }
-      }
-    }
-    """
-
-    let response = try await graphQL(query, variables: ["id": projectID], as: LinearMilestonesResponse.self)
-    guard let milestoneID = response.data.project?.projectMilestones.nodes.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame })?.id else {
-      throw LinearServiceError.unresolvedField("No milestone named \"\(name)\" in that project.")
-    }
-    return milestoneID
-  }
-
-  /// Resolves a cycle name, number, or `active` to its Linear ID.
-  private func fetchCycleID(teamID: String, matching text: String) async throws -> String {
-    let query = """
-    query TeamCycles($id: String!) {
-      team(id: $id) {
-        cycles(first: 50) {
-          nodes { id number name startsAt endsAt }
-        }
-      }
-    }
-    """
-
-    let response = try await graphQL(query, variables: ["id": teamID], as: LinearCyclesResponse.self)
-    let cycles = response.data.team?.cycles.nodes ?? []
-    let now = Date()
-
-    let match = cycles.first { cycle in
-      if text.lowercased() == "active" {
-        return (cycle.startDate...cycle.endDate).contains(now)
-      }
-      if let number = Int(text) {
-        return cycle.number == number
-      }
-      return cycle.name?.caseInsensitiveCompare(text) == .orderedSame
-    }
-
-    guard let cycleID = match?.id else {
-      throw LinearServiceError.unresolvedField("No cycle matching \"\(text)\" on that team.")
-    }
-    return cycleID
-  }
-
   /// Resolves a parent issue identifier such as `DEV-123` to its Linear ID.
   private func fetchIssueID(identifier: String) async throws -> String {
     let query = """
@@ -395,29 +443,6 @@ struct LinearService {
     }
     return issueID
   }
-
-  /// Resolves label names on a team to their Linear IDs.
-  private func fetchLabelIDs(teamID: String, names: [String]) async throws -> [String] {
-    let query = """
-    query TeamLabels($id: String!) {
-      team(id: $id) {
-        labels(first: 100) {
-          nodes { id name }
-        }
-      }
-    }
-    """
-
-    let response = try await graphQL(query, variables: ["id": teamID], as: LinearLabelsResponse.self)
-    let labels = response.data.team?.labels.nodes ?? []
-
-    return try names.map { name in
-      guard let label = labels.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) else {
-        throw LinearServiceError.unresolvedField("No label named \"\(name)\" on that team.")
-      }
-      return label.id
-    }
-  }
 }
 
 /// Linear service failure cases.
@@ -427,6 +452,9 @@ enum LinearServiceError: LocalizedError {
 
   /// Linear accepted the priority mutation but reported failure.
   case priorityUpdateFailed
+
+  /// Linear accepted the due date mutation but reported failure.
+  case dueDateUpdateFailed
 
   /// Linear accepted the create mutation but reported failure.
   case createFailed
@@ -447,6 +475,8 @@ enum LinearServiceError: LocalizedError {
       "Linear did not update the issue status."
     case .priorityUpdateFailed:
       "Linear did not update the issue priority."
+    case .dueDateUpdateFailed:
+      "Linear did not update the issue due date."
     case .createFailed:
       "Linear did not create the issue."
     case .missingTeamOrTitle:
@@ -555,12 +585,6 @@ private struct LinearViewerID: Decodable {
   let id: String
 }
 
-/// Root GraphQL response shape for team state lookups.
-private struct LinearTeamStatesResponse: Decodable {
-  /// GraphQL data payload.
-  let data: LinearTeamLookupData
-}
-
 /// Root GraphQL response shape for project lookups.
 private struct LinearProjectsResponse: Decodable {
   /// GraphQL data payload.
@@ -591,33 +615,6 @@ private struct LinearLabelsResponse: Decodable {
   let data: LinearLabelsData
 }
 
-/// Team lookup data payload shared by team-scoped queries.
-private struct LinearTeamLookupData: Decodable {
-  /// Looked-up team, when found.
-  let team: LinearStartedStatesTeam?
-}
-
-/// Team payload carrying started workflow states.
-private struct LinearStartedStatesTeam: Decodable {
-  /// Started workflow states.
-  let states: LinearStartedStateConnection
-}
-
-/// Started workflow state connection.
-private struct LinearStartedStateConnection: Decodable {
-  /// Started workflow state nodes.
-  let nodes: [LinearStartedStateNode]
-}
-
-/// Started workflow state node.
-private struct LinearStartedStateNode: Decodable {
-  /// State identifier.
-  let id: String
-
-  /// Workflow position in Linear.
-  let position: Double
-}
-
 /// Project lookup data payload.
 private struct LinearProjectsData: Decodable {
   /// Matching projects.
@@ -627,7 +624,10 @@ private struct LinearProjectsData: Decodable {
 /// Project connection payload.
 private struct LinearProjectConnection: Decodable {
   /// Matching project nodes.
-  let nodes: [LinearIDNode]
+  let nodes: [LinearNamedNode]
+
+  /// Cursor metadata for the next page.
+  let pageInfo: LinearPageInfo
 }
 
 /// Milestone lookup data payload.
@@ -646,6 +646,9 @@ private struct LinearMilestoneProject: Decodable {
 private struct LinearMilestoneConnection: Decodable {
   /// Milestone nodes.
   let nodes: [LinearNamedNode]
+
+  /// Cursor metadata for the next page.
+  let pageInfo: LinearPageInfo
 }
 
 /// Cycle lookup data payload.
@@ -664,6 +667,9 @@ private struct LinearCycleTeam: Decodable {
 private struct LinearCycleConnection: Decodable {
   /// Cycle nodes.
   let nodes: [LinearCycleNode]
+
+  /// Cursor metadata for the next page.
+  let pageInfo: LinearPageInfo
 }
 
 /// Raw Linear cycle node.
@@ -676,22 +682,6 @@ private struct LinearCycleNode: Decodable {
 
   /// Optional cycle name.
   let name: String?
-
-  /// Cycle start timestamp.
-  let startsAt: String
-
-  /// Cycle end timestamp.
-  let endsAt: String
-
-  /// Parsed cycle start.
-  var startDate: Date {
-    DateParsers.rfc3339Date(from: startsAt) ?? .distantPast
-  }
-
-  /// Parsed cycle end.
-  var endDate: Date {
-    DateParsers.rfc3339Date(from: endsAt) ?? .distantFuture
-  }
 }
 
 /// Issue ID lookup data payload.
@@ -715,7 +705,33 @@ private struct LinearLabelTeam: Decodable {
 /// Label connection payload.
 private struct LinearLabelConnection: Decodable {
   /// Label nodes.
-  let nodes: [LinearNamedNode]
+  let nodes: [LinearLabelNode]
+
+  /// Cursor metadata for the next page.
+  let pageInfo: LinearPageInfo
+}
+
+/// Relay cursor metadata shared by paginated Linear option queries.
+private struct LinearPageInfo: Decodable {
+  let hasNextPage: Bool
+  let endCursor: String?
+
+  /// Cursor to request only when Linear reports another page.
+  var nextCursor: String? {
+    hasNextPage ? endCursor : nil
+  }
+}
+
+/// Raw Linear label node.
+private struct LinearLabelNode: Decodable {
+  /// Label identifier.
+  let id: String
+
+  /// Label name.
+  let name: String
+
+  /// Label color as a hex string.
+  let color: String
 }
 
 /// Generic node carrying only an identifier.
@@ -859,6 +875,9 @@ private struct LinearIssueNode: Decodable {
   /// Optional Linear due date in `YYYY-MM-DD` form.
   let dueDate: String?
 
+  /// Suggested git branch name.
+  let branchName: String?
+
   /// Browser URL.
   let url: String?
 
@@ -882,6 +901,7 @@ private struct LinearIssueNode: Decodable {
         .map(\.displayItem)
         .sorted { $0.position < $1.position },
       dueDate: dueDate,
+      branchName: branchName,
       url: url.flatMap(URL.init(string:))
     )
   }

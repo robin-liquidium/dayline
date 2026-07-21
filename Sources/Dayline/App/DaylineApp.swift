@@ -93,5 +93,13 @@ private struct MenuBarLabelView: View {
       openWindow(id: "settings")
       SettingsWindowPresenter.bringSettingsToFront()
     }
+    .onChange(of: store.noteCreationRequestID) {
+      openWindow(value: NoteEditorRequest.new)
+      NoteEditorWindowPresenter.bringNoteWindowToFront()
+    }
+    .onChange(of: store.linearIssueCreationRequestID) {
+      openWindow(id: "linearIssueCreator")
+      LinearIssueEditorWindowPresenter.bringIssueWindowToFront()
+    }
   }
 }

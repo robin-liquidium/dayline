@@ -3,14 +3,22 @@
   "name": "dayline-website",
   "compatibility_date": "2026-07-18",
   "compatibility_flags": ["nodejs_compat"],
-  "main": "@tanstack/react-start/server-entry",
+  "main": "src/server.ts",
   "preview_urls": true,
-  "kv_namespaces": [
-    {
-      "binding": "FEEDBACK_RATE_LIMITS",
-      "id": "0eff1b2be37543ae8f44c57b20f9e877",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "FEEDBACK_RATE_LIMITER",
+        "class_name": "FeedbackRateLimiter",
+      },
+    ],
+  },
+  "exports": {
+    "FeedbackRateLimiter": {
+      "type": "durable-object",
+      "storage": "sqlite",
     },
-  ],
+  },
   "ratelimits": [
     {
       "name": "FEEDBACK_RATE_LIMIT",

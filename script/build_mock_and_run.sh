@@ -15,6 +15,7 @@ APP_FRAMEWORKS="$APP_CONTENTS/Frameworks"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 ICON_SOURCE="$ROOT_DIR/Resources/DaylineIcon.icns"
+WORDMARK_SOURCE="$ROOT_DIR/Resources/DaylineWordmark.pdf"
 
 cd "$ROOT_DIR"
 
@@ -27,6 +28,7 @@ mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$APP_FRAMEWORKS"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
 cp "$ICON_SOURCE" "$APP_RESOURCES/DaylineIcon.icns"
+cp "$WORDMARK_SOURCE" "$APP_RESOURCES/DaylineWordmark.pdf"
 /usr/bin/ditto "$(swift build --show-bin-path)/Sparkle.framework" "$APP_FRAMEWORKS/Sparkle.framework"
 
 cat >"$INFO_PLIST" <<PLIST

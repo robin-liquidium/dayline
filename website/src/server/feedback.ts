@@ -23,18 +23,17 @@ interface RateLimitBinding {
   limit(options: { key: string }): Promise<{ success: boolean }>;
 }
 
-interface KeyValueBinding {
-  get<T>(key: string, type: "json"): Promise<T | null>;
-  put(
-    key: string,
-    value: string,
-    options?: { expirationTtl?: number },
-  ): Promise<void>;
+interface FeedbackRateLimiterStub {
+  reserve(hour: number, limit: number): Promise<boolean>;
+}
+
+interface FeedbackRateLimiterNamespace {
+  getByName(name: string): FeedbackRateLimiterStub;
 }
 
 export interface FeedbackEnvironment {
   FEEDBACK_RATE_LIMIT: RateLimitBinding;
-  FEEDBACK_RATE_LIMITS: KeyValueBinding;
+  FEEDBACK_RATE_LIMITER: FeedbackRateLimiterNamespace;
   FEEDBACK_RATE_LIMIT_SECRET: string;
   GITHUB_APP_ID: string;
   GITHUB_INSTALLATION_ID: string;
@@ -95,21 +94,6 @@ export async function handleFeedbackRequest(
     return rateLimitedResponse();
   }
 
-  const hour = Math.floor(Date.now() / 3_600_000);
-  const hourlyKey = `feedback:${clientKey}:${hour}`;
-  // KV is a best-effort hourly backstop. The native rate-limit binding above
-  // is the authoritative atomic guard against submission bursts.
-  let hourlyCount = 0;
-  try {
-    hourlyCount =
-      (await environment.FEEDBACK_RATE_LIMITS.get<number>(hourlyKey, "json")) ?? 0;
-  } catch {
-    console.error("Feedback rate-limit backstop read failed.");
-  }
-  if (hourlyCount >= hourlySubmissionLimit) {
-    return rateLimitedResponse();
-  }
-
   let rawBody: string;
   try {
     rawBody = await readLimitedText(request, 16_384);
@@ -129,19 +113,23 @@ export async function handleFeedbackRequest(
   }
 
   try {
-    const issue = await createIssue(submission, environment);
-    try {
-      await environment.FEEDBACK_RATE_LIMITS.put(
-        hourlyKey,
-        JSON.stringify(hourlyCount + 1),
-        { expirationTtl: 3_700 },
-      );
-    } catch {
-      // The public issue already exists. Returning an error would invite a
-      // retry and create a duplicate, so keep the successful issue response.
-      console.error("Feedback rate-limit backstop update failed.");
+    const hour = Math.floor(Date.now() / 3_600_000);
+    const reserved = await environment.FEEDBACK_RATE_LIMITER
+      .getByName(clientKey)
+      .reserve(hour, hourlySubmissionLimit);
+    if (!reserved) {
+      return rateLimitedResponse();
     }
+  } catch {
+    console.error("Feedback rate limiter failed.");
+    return jsonResponse(
+      { error: "Feedback is temporarily unavailable. Please try again." },
+      503,
+    );
+  }
 
+  try {
+    const issue = await createIssue(submission, environment);
     return jsonResponse({
       issueURL: issue.html_url,
       issueNumber: issue.number,

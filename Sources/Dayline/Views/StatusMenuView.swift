@@ -4,6 +4,12 @@ import SwiftUI
 /// Shared row height for compact Linear and Notes rows.
 private let workItemRowHeight: CGFloat = 46
 
+/// Row height for calendar event rows showing their source calendar.
+private let eventRowHeight: CGFloat = 48
+
+/// Compact row height for calendar event rows without a source calendar label.
+private let compactEventRowHeight: CGFloat = 36
+
 /// Width of the trailing swipe reveal lane for destructive row actions.
 private let destructiveRevealWidth: CGFloat = 52
 
@@ -45,6 +51,7 @@ struct StatusMenuView: View {
             copiedIssueID: store.copiedIssueID,
             updatingStatusIssueID: store.updatingStatusIssueID,
             updatingPriorityIssueID: store.updatingPriorityIssueID,
+            updatingDueDateIssueID: store.updatingDueDateIssueID,
             openNewIssue: {
               openLinearIssueCreator()
             }
@@ -82,24 +89,14 @@ struct StatusMenuView: View {
     .onKeyPress { keyPress in
       handleKeyPress(keyPress.characters) ? .handled : .ignored
     }
-    .popover(isPresented: statusPickerBinding, arrowEdge: .trailing) {
-      if let issue = store.statusPickerIssue {
-        StatusPickerPopover(issue: issue)
-          .environmentObject(store)
-      }
-    }
-    .popover(isPresented: priorityPickerBinding, arrowEdge: .trailing) {
-      if let issue = store.priorityPickerIssue {
-        PriorityPickerPopover(issue: issue)
-          .environmentObject(store)
-      }
-    }
   }
 
   /// Header row with title, freshness, and refresh action.
   private var header: some View {
     HStack(spacing: 10) {
-      Label("Dayline", systemImage: "sun.max")
+      DaylineWordmark()
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("Dayline")
 
       Spacer()
 
@@ -217,37 +214,14 @@ struct StatusMenuView: View {
   private var estimatedContentHeight: CGFloat {
     let setupItemCount = store.connectionSetupItems.count + store.googleAccountsNeedingAttention.count
     let setupRows = store.hasConnectionSetupItems ? CGFloat(max(setupItemCount, 1)) * 64 + 44 : 0
-    let eventRows = CGFloat(max(store.events.count, 1)) * 48
-    let tomorrowRows = store.isTomorrowExpanded ? CGFloat(max(store.tomorrowEvents.count, 1)) * 48 + 34 : 0
+    let eventRowEstimate: CGFloat = store.showsCalendarSourceNames ? 48 : compactEventRowHeight
+    let eventRows = CGFloat(max(store.events.count, 1)) * eventRowEstimate
+    let tomorrowRows = store.isTomorrowExpanded ? CGFloat(max(store.tomorrowEvents.count, 1)) * eventRowEstimate + 34 : 0
     let issueRows = CGFloat(max(store.issues.count, 1)) * workItemRowHeight
     let issueMoreRow: CGFloat = store.hasMoreIssues || store.hasExpandedIssues ? 34 : 0
     let noteRows = CGFloat(max(store.notes.count, 1)) * workItemRowHeight
     let noteMoreRow: CGFloat = store.hasMoreNotes || store.hasExpandedNotes ? 34 : 0
     return 108 + setupRows + eventRows + tomorrowRows + issueRows + issueMoreRow + noteRows + noteMoreRow
-  }
-
-  /// Binding used by SwiftUI's native status chooser popover.
-  private var statusPickerBinding: Binding<Bool> {
-    Binding(
-      get: { store.statusPickerIssue != nil },
-      set: { isPresented in
-        if !isPresented {
-          store.dismissStatusPicker()
-        }
-      }
-    )
-  }
-
-  /// Binding used by SwiftUI's native priority chooser popover.
-  private var priorityPickerBinding: Binding<Bool> {
-    Binding(
-      get: { store.priorityPickerIssue != nil },
-      set: { isPresented in
-        if !isPresented {
-          store.dismissPriorityPicker()
-        }
-      }
-    )
   }
 
   /// Handles menu-level keyboard shortcuts.
@@ -260,8 +234,12 @@ struct StatusMenuView: View {
       return store.presentPriorityPickerForHoveredIssue()
     }
 
+    if store.matchesDueDatePickerHotkey(characters) {
+      return store.presentDueDatePickerForHoveredIssue()
+    }
+
     if store.matchesCopyIssueHotkey(characters) {
-      return store.copyHoveredIssueLink()
+      return store.copyHoveredIssueLink() || store.copyHoveredEventLink()
     }
 
     return false
@@ -468,6 +446,41 @@ private struct ConnectionSetupRow: View {
   }
 }
 
+/// One selectable option row with the menu's standard subtle hover background.
+private struct PickerOptionRow<Content: View>: View {
+  @State private var isHovered = false
+
+  /// Whether the row is currently disabled.
+  let isDisabled: Bool
+
+  /// Action run when the row is pressed.
+  let action: () -> Void
+
+  /// Row label content.
+  @ViewBuilder let content: Content
+
+  /// Builds the option row.
+  var body: some View {
+    Button(action: action) {
+      content
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .disabled(isDisabled)
+    .padding(.horizontal, 8)
+    .padding(.vertical, 6)
+    .background {
+      if isHovered && !isDisabled {
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+          .fill(Color.primary.opacity(0.06))
+      }
+    }
+    .animation(.easeOut(duration: 0.12), value: isHovered)
+    .onHover { isHovered = $0 }
+  }
+}
+
 /// Native popover for changing the status of a hovered Linear issue.
 private struct StatusPickerPopover: View {
   @EnvironmentObject private var store: StatusStore
@@ -491,11 +504,14 @@ private struct StatusPickerPopover: View {
 
       VStack(alignment: .leading, spacing: 0) {
         ForEach(issue.workflowStates) { state in
-          Button {
-            Task {
-              await store.changeIssueStatus(issueID: issue.id, state: state)
+          PickerOptionRow(
+            isDisabled: state.id == issue.stateID || store.updatingStatusIssueID == issue.id,
+            action: {
+              Task {
+                await store.changeIssueStatus(issueID: issue.id, state: state)
+              }
             }
-          } label: {
+          ) {
             HStack(spacing: 8) {
               Image(systemName: state.id == issue.stateID ? "checkmark" : statusIcon(for: state))
                 .frame(width: 16)
@@ -505,16 +521,11 @@ private struct StatusPickerPopover: View {
 
               Spacer(minLength: 0)
             }
-            .contentShape(Rectangle())
           }
-          .buttonStyle(.plain)
-          .disabled(state.id == issue.stateID || store.updatingStatusIssueID == issue.id)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 6)
-      .accessibilityLabel(state.name)
-      .accessibilityHint("Change issue status")
-      .accessibilityIdentifier("linear.status.\(state.id)")
-    }
+          .accessibilityLabel(state.name)
+          .accessibilityHint("Change issue status")
+          .accessibilityIdentifier("linear.status.\(state.id)")
+        }
       }
     }
     .padding(12)
@@ -577,11 +588,14 @@ private struct PriorityPickerPopover: View {
 
       VStack(alignment: .leading, spacing: 0) {
         ForEach(LinearPriorityOption.allCases) { priority in
-          Button {
-            Task {
-              await store.changeIssuePriority(issueID: issue.id, priority: priority)
+          PickerOptionRow(
+            isDisabled: priority.value == issue.priority || store.updatingPriorityIssueID == issue.id,
+            action: {
+              Task {
+                await store.changeIssuePriority(issueID: issue.id, priority: priority)
+              }
             }
-          } label: {
+          ) {
             HStack(spacing: 8) {
               Image(systemName: priority.value == issue.priority ? "checkmark" : priorityStyle(for: priority).systemImage)
                 .frame(width: 16)
@@ -591,15 +605,10 @@ private struct PriorityPickerPopover: View {
 
               Spacer(minLength: 0)
             }
-            .contentShape(Rectangle())
           }
-          .buttonStyle(.plain)
-          .disabled(priority.value == issue.priority || store.updatingPriorityIssueID == issue.id)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 6)
-      .accessibilityLabel(priority.label)
-      .accessibilityHint("Change issue priority")
-      .accessibilityIdentifier("linear.priority.\(priority.value)")
+          .accessibilityLabel(priority.label)
+          .accessibilityHint("Change issue priority")
+          .accessibilityIdentifier("linear.priority.\(priority.value)")
         }
       }
     }
@@ -621,6 +630,70 @@ private struct PriorityPickerPopover: View {
     default:
       MetadataStyle(systemImage: "ellipsis.circle", color: .secondary)
     }
+  }
+}
+
+/// Native popover for changing the due date of a hovered Linear issue.
+private struct DueDatePickerPopover: View {
+  @EnvironmentObject private var store: StatusStore
+
+  /// Issue whose due date can be changed.
+  let issue: LinearIssueItem
+
+  /// Date currently selected in the calendar.
+  @State private var selectedDate: Date
+
+  init(issue: LinearIssueItem) {
+    self.issue = issue
+    _selectedDate = State(
+      initialValue: Self.parseDueDate(issue.dueDate) ?? Calendar.current.startOfDay(for: Date())
+    )
+  }
+
+  /// Builds the due date picker popover.
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Change Due Date")
+        .font(.headline)
+
+      Text(issue.title)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .lineLimit(2)
+        .fixedSize(horizontal: false, vertical: true)
+
+      Divider()
+
+      GraphicalDatePicker(selection: $selectedDate)
+        .disabled(store.updatingDueDateIssueID == issue.id)
+        .accessibilityIdentifier("linear.dueDate.calendar.\(issue.id)")
+
+      if issue.dueDate != nil {
+        Button(role: .destructive) {
+          Task { await store.changeIssueDueDate(issueID: issue.id, dueDate: nil) }
+        } label: {
+          Label("Remove due date", systemImage: "xmark.circle")
+            .font(.caption)
+        }
+        .buttonStyle(.plain)
+        .disabled(store.updatingDueDateIssueID == issue.id)
+        .accessibilityIdentifier("linear.dueDate.remove.\(issue.id)")
+      }
+    }
+    .padding(12)
+    .onChange(of: selectedDate) { _, newDate in
+      guard store.updatingDueDateIssueID != issue.id else { return }
+      Task { await store.changeIssueDueDate(issueID: issue.id, dueDate: newDate) }
+    }
+  }
+
+  /// Parses Linear's `YYYY-MM-DD` due date string.
+  private static func parseDueDate(_ rawDate: String?) -> Date? {
+    guard let rawDate else { return nil }
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter.date(from: rawDate)
   }
 }
 
@@ -662,7 +735,13 @@ private struct CalendarSection: View {
               .padding(.vertical, 5)
           } else {
             ForEach(events) { event in
-              EventRow(event: event, isHovered: hoveredEventID == event.id, now: now)
+              EventRow(
+                event: event,
+                isHovered: hoveredEventID == event.id,
+                now: now,
+                showsSource: store.showsCalendarSourceNames,
+                isCopied: store.copiedEventID == event.id
+              )
                 .onHover { isHovered in
                   store.setHoveredEvent(isHovered ? event.id : nil)
                 }
@@ -684,7 +763,13 @@ private struct CalendarSection: View {
               } else {
                 VStack(alignment: .leading, spacing: 0) {
                   ForEach(tomorrowEvents) { event in
-                    EventRow(event: event, isHovered: hoveredEventID == event.id, now: now)
+                    EventRow(
+                      event: event,
+                      isHovered: hoveredEventID == event.id,
+                      now: now,
+                      showsSource: store.showsCalendarSourceNames,
+                      isCopied: store.copiedEventID == event.id
+                    )
                       .onHover { isHovered in
                         store.setHoveredEvent(isHovered ? event.id : nil)
                       }
@@ -763,6 +848,9 @@ private struct LinearSection: View {
   /// Identifier for the issue whose priority is being updated.
   let updatingPriorityIssueID: LinearIssueItem.ID?
 
+  /// Identifier for the issue whose due date is being updated.
+  let updatingDueDateIssueID: LinearIssueItem.ID?
+
   /// Action run when the user creates a new Linear issue.
   let openNewIssue: () -> Void
 
@@ -801,16 +889,31 @@ private struct LinearSection: View {
               issue: issue,
               isHovered: hoveredIssueID == issue.id,
               isCopied: copiedIssueID == issue.id,
-              isUpdating: updatingStatusIssueID == issue.id || updatingPriorityIssueID == issue.id,
+              isUpdating: updatingStatusIssueID == issue.id
+                || updatingPriorityIssueID == issue.id
+                || updatingDueDateIssueID == issue.id,
               copyHotkey: store.copyIssueHotkey,
               statusHotkey: store.statusPickerHotkey,
               priorityHotkey: store.priorityPickerHotkey,
+              dueDateHotkey: store.dueDatePickerHotkey,
               cancel: {
                 Task { await store.cancelLinearIssue(issueID: issue.id) }
               }
             )
             .onHover { isHovered in
               store.setHoveredIssue(isHovered ? issue.id : nil)
+            }
+            .popover(isPresented: statusPickerBinding(for: issue.id), arrowEdge: .trailing) {
+              StatusPickerPopover(issue: issue)
+                .environmentObject(store)
+            }
+            .popover(isPresented: priorityPickerBinding(for: issue.id), arrowEdge: .trailing) {
+              PriorityPickerPopover(issue: issue)
+                .environmentObject(store)
+            }
+            .popover(isPresented: dueDatePickerBinding(for: issue.id), arrowEdge: .trailing) {
+              DueDatePickerPopover(issue: issue)
+                .environmentObject(store)
             }
           }
 
@@ -828,6 +931,69 @@ private struct LinearSection: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
       }
+    }
+  }
+
+  /// Binding that anchors the status chooser to its selected issue row.
+  private func statusPickerBinding(for issueID: LinearIssueItem.ID) -> Binding<Bool> {
+    Binding(
+      get: { store.statusPickerIssueID == issueID },
+      set: { isPresented in
+        if !isPresented, store.statusPickerIssueID == issueID {
+          store.dismissStatusPicker()
+        }
+      }
+    )
+  }
+
+  /// Binding that anchors the priority chooser to its selected issue row.
+  private func priorityPickerBinding(for issueID: LinearIssueItem.ID) -> Binding<Bool> {
+    Binding(
+      get: { store.priorityPickerIssueID == issueID },
+      set: { isPresented in
+        if !isPresented, store.priorityPickerIssueID == issueID {
+          store.dismissPriorityPicker()
+        }
+      }
+    )
+  }
+
+  /// Binding that anchors the due date chooser to its selected issue row.
+  private func dueDatePickerBinding(for issueID: LinearIssueItem.ID) -> Binding<Bool> {
+    Binding(
+      get: { store.dueDatePickerIssueID == issueID },
+      set: { isPresented in
+        if !isPresented, store.dueDatePickerIssueID == issueID {
+          store.dismissDueDatePicker()
+        }
+      }
+    )
+  }
+}
+
+/// Fixed Dayline wordmark rendered from Instrument Serif vector outlines.
+private struct DaylineWordmark: View {
+  private static let image: NSImage? = {
+    guard
+      let url = Bundle.main.url(forResource: "DaylineWordmark", withExtension: "pdf"),
+      let image = NSImage(contentsOf: url)
+    else {
+      return nil
+    }
+    image.isTemplate = true
+    return image
+  }()
+
+  var body: some View {
+    if let image = Self.image {
+      Image(nsImage: image)
+        .resizable()
+        .renderingMode(.template)
+        .scaledToFit()
+        .frame(height: 22)
+        .foregroundStyle(.primary)
+    } else {
+      Text("Dayline")
     }
   }
 }
@@ -1085,6 +1251,22 @@ private struct EventRow: View {
   /// Current clock tick used to decide whether this event is in progress.
   let now: Date
 
+  /// Whether the source calendar name should be shown.
+  let showsSource: Bool
+
+  /// Whether this row should show a recent copy confirmation.
+  let isCopied: Bool
+
+  /// Fixed row height based on whether a source calendar label is shown.
+  private var rowHeight: CGFloat {
+    showsSourceLabel ? eventRowHeight : compactEventRowHeight
+  }
+
+  /// Whether this row renders a source calendar label.
+  private var showsSourceLabel: Bool {
+    showsSource && event.sourceLabel != nil
+  }
+
   /// Builds the event row.
   var body: some View {
     Button {
@@ -1092,41 +1274,8 @@ private struct EventRow: View {
         NSWorkspace.shared.open(url)
       }
     } label: {
-      HStack(alignment: .firstTextBaseline, spacing: 10) {
-        Text(DisplayFormatters.eventTimeRange(start: event.startDate, end: event.endDate))
-          .font(.caption.monospacedDigit())
-          .foregroundStyle(.secondary)
-          .frame(width: 92, alignment: .leading)
-
-        VStack(alignment: .leading, spacing: 2) {
-          Text(event.title)
-            .font(.callout.weight(.medium))
-            .foregroundStyle(.primary)
-            .lineLimit(2)
-            .multilineTextAlignment(.leading)
-
-          if let sourceLabel = event.sourceLabel {
-            Text(sourceLabel)
-              .font(.caption)
-              .foregroundStyle(.secondary)
-              .lineLimit(1)
-          }
-        }
-
-        Spacer(minLength: 0)
-      }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 5)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background {
-        if isCurrent || isHovered {
-          RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(rowBackgroundColor)
-        }
-      }
-      .animation(.easeOut(duration: 0.12), value: isHovered)
-      .animation(.easeOut(duration: 0.12), value: isCurrent)
-      .contentShape(Rectangle())
+      eventContent
+        .frame(height: rowHeight, alignment: .leading)
     }
     .buttonStyle(.plain)
     .accessibilityElement(children: .ignore)
@@ -1134,6 +1283,54 @@ private struct EventRow: View {
     .accessibilityHint(event.openURL == nil ? "No openable link is available" : "Open meeting link, location link, or calendar event")
     .accessibilityIdentifier("calendar.event.\(event.id)")
     .disabled(event.openURL == nil)
+  }
+
+  /// Main event content.
+  private var eventContent: some View {
+    HStack(alignment: .firstTextBaseline, spacing: 10) {
+      Text(DisplayFormatters.eventTimeRange(start: event.startDate, end: event.endDate))
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .frame(width: 112, alignment: .leading)
+
+      VStack(alignment: .leading, spacing: 2) {
+        Text(event.title)
+          .font(.callout.weight(.medium))
+          .foregroundStyle(.primary)
+          .lineLimit(showsSourceLabel ? 2 : 1)
+          .multilineTextAlignment(.leading)
+
+        if showsSource, let sourceLabel = event.sourceLabel {
+          Text(sourceLabel)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+      }
+
+      Spacer(minLength: 0)
+
+      if isCopied {
+        Label("Copied", systemImage: "checkmark")
+          .font(.caption)
+          .foregroundStyle(.green)
+          .transition(.opacity)
+      }
+    }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 5)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+    .background {
+      if isCurrent || isHovered {
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .fill(rowBackgroundColor)
+      }
+    }
+    .animation(.easeOut(duration: 0.12), value: isHovered)
+    .animation(.easeOut(duration: 0.12), value: isCurrent)
+    .animation(.easeOut(duration: 0.12), value: isCopied)
+    .contentShape(Rectangle())
   }
 
   /// VoiceOver summary for the calendar event row.
@@ -1182,6 +1379,9 @@ private struct IssueRow: View {
 
   /// Keyboard character that opens the priority picker while hovering.
   let priorityHotkey: String
+
+  /// Keyboard character that opens the due date picker while hovering.
+  let dueDateHotkey: String
 
   /// Action run when the issue is canceled.
   let cancel: () -> Void
@@ -1300,7 +1500,7 @@ private struct IssueRow: View {
       return "No Linear link is available"
     }
 
-    return "Open Linear issue. Press \(copyHotkey.uppercased()) to copy, \(statusHotkey.uppercased()) to change status, or \(priorityHotkey.uppercased()) to change priority while hovering."
+    return "Open Linear issue. Press \(copyHotkey.uppercased()) to copy, \(statusHotkey.uppercased()) to change status, \(priorityHotkey.uppercased()) to change priority, or \(dueDateHotkey.uppercased()) to change the due date while hovering."
   }
 
   /// Visual style for the Linear workflow state.

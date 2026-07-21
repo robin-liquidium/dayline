@@ -11,6 +11,10 @@ struct MockData {
   let googleAccounts: [GoogleAccountStatus]
   let teams: [LinearTeamOption]
   let users: [LinearUserOption]
+  let projects: [LinearProjectOption]
+  let cycles: [LinearCycleOption]
+  let labels: [LinearLabelOption]
+  let milestones: [LinearMilestoneOption]
 
   static func make(now: Date = Date()) -> MockData {
     let calendar = Calendar.current
@@ -71,6 +75,7 @@ struct MockData {
         stateType: stateType,
         workflowStates: workflowStates,
         dueDate: dueDate,
+        branchName: "alex/\(id.lowercased())-\(title.lowercased().replacingOccurrences(of: " ", with: "-"))",
         url: URL(string: "https://linear.app/dayline/issue/\(id.lowercased())")
       )
     }
@@ -147,6 +152,22 @@ struct MockData {
       teams: teams,
       users: [
         LinearUserOption(id: "mock-user", name: "Alex Morgan", displayName: "alex", isActive: true)
+      ],
+      projects: [
+        LinearProjectOption(id: "mock-project-1", name: "Menu Bar Redesign"),
+        LinearProjectOption(id: "mock-project-2", name: "Mobile Companion")
+      ],
+      cycles: [
+        LinearCycleOption(id: "mock-cycle-12", number: 12, name: "Polish"),
+        LinearCycleOption(id: "mock-cycle-11", number: 11, name: "")
+      ],
+      labels: [
+        LinearLabelOption(id: "mock-label-bug", name: "Bug", color: "#EB5757"),
+        LinearLabelOption(id: "mock-label-feature", name: "Feature", color: "#5E6AD2")
+      ],
+      milestones: [
+        LinearMilestoneOption(id: "mock-milestone-1", name: "Beta"),
+        LinearMilestoneOption(id: "mock-milestone-2", name: "1.0")
       ]
     )
   }
