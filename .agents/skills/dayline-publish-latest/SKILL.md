@@ -1,17 +1,18 @@
 ---
 name: dayline-publish-latest
-description: "Review and ship the latest Dayline work end to end: inspect all local and unpushed changes, run independent subagents plus Codex and CodeRabbit reviews, investigate and fix legitimate findings, validate the app, create and clean up a PR, merge to main, build and install the signed app, publish the Apple-notarized GitHub release, update the website and Sparkle feed, update Homebrew, and verify every distribution path. Use when Robin invokes $dayline-publish-latest or asks to publish, ship, or release the latest Dayline build."
+description: "Review and ship the latest Dayline work end to end: inspect all local and unpushed changes, run independent subagents plus Codex and CodeRabbit reviews, investigate and fix legitimate findings, validate the app, create and clean up a PR, merge to main, validate the signed artifact without replacing the installed app, publish the Apple-notarized GitHub release, update the website and Sparkle feed, update Homebrew, and verify every distribution path. Use when Robin invokes $dayline-publish-latest or asks to publish, ship, or release the latest Dayline build."
 ---
 
 # Dayline Publish Latest
 
-Ship one exact reviewed commit through PR, local installation, GitHub, Apple notarization, the website, Sparkle, and Homebrew. Continue automatically through the full production release unless the user explicitly narrows or stops the workflow.
+Ship one exact reviewed commit through PR, artifact validation, GitHub, Apple notarization, the website, Sparkle, and Homebrew. Continue automatically through the full production release unless the user explicitly narrows or stops the workflow.
 
 ## Authority boundary
 
-- Treat invocation as authorization to create a release branch, review and fix the intended work, commit it, create and merge its PR after all gates pass, push and tag `main`, package and install Dayline, publish the release, and update `robin-liquidium/homebrew-tap`.
+- Treat invocation as authorization to create a release branch, review and fix the intended work, commit it, create and merge its PR after all gates pass, push and tag `main`, package and validate Dayline without installing it, publish the release, and update `robin-liquidium/homebrew-tap`.
 - Treat every tracked, staged, unstaged, untracked, committed-but-unpushed, and pushed-but-unmerged change relative to `origin/main` as a release candidate. Inspect all of it. Exclude generated, accidental, or unrelated files only after verifying that classification; ask only when ambiguity would materially change the release.
 - Preserve unrelated user work. Never force-push, rewrite a published tag, print secrets, or discard changes.
+- Never replace, upgrade, delete, or otherwise modify `/Applications/Dayline.app`. Record its version and build before starting and preserve it so Robin can personally test the production Sparkle update after publication.
 - Start official notarization unless the user explicitly says otherwise. Do not suppress a new submission merely because another submission is `In Progress`.
 - Use GitHub Actions as the sole notarization submitter. Never run local `package_release.sh --notarize` in parallel with CI, and never resubmit merely because Apple is slow.
 
@@ -49,16 +50,16 @@ Ship one exact reviewed commit through PR, local installation, GitHub, Apple not
    - Ignore test-release tags. Never reuse or move an existing stable tag, collide with an existing draft for another commit, or release a version older than the latest stable release.
    - Ensure the resolved `CFBundleVersion` is greater than every previously published build number so Sparkle recognizes the release as an update.
 
-6. Build, sign, install, and verify before publication.
+6. Build, sign, and verify before publication without installing.
 
    ```bash
    DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
      MARKETING_VERSION="$VERSION" \
-     ./script/package_release.sh --install
+     ./script/package_release.sh
    ```
 
-   - Do not add `--notarize` here.
-   - Verify Developer ID signing, hardened runtime, DMG integrity, app and DMG versions, installed process liveness, and matching packaged/installed executable hashes.
+   - Do not add `--install` or `--notarize` here.
+   - Verify Developer ID signing, hardened runtime, DMG integrity, app and DMG versions, and the packaged executable hash without copying or launching the app from `/Applications`.
 
 7. Start and safely continue the official release unless the user opted out.
    - Run `./script/tag_release.sh "$VERSION"` exactly once. The stable tag is the only action that starts official notarization; do not block it on other Apple submissions being `In Progress`. If this or any later exactly-once action returns an uncertain result, reconcile remote tags, workflow runs, draft releases, and persisted Apple submission IDs before retrying. Resume the existing release when they identify one exact attempt; abort safely when the state remains ambiguous.
@@ -72,14 +73,16 @@ Ship one exact reviewed commit through PR, local installation, GitHub, Apple not
    - Confirm the stable GitHub release is public, non-prerelease, latest, and contains the versioned DMG, versioned app ZIP, stable `Dayline.dmg`, and signed `appcast.xml`.
    - Download the published assets and verify hashes, versions, Developer ID signatures, hardened runtime, staples, Gatekeeper acceptance, and DMG integrity.
    - Confirm the website download resolves to the new notarized `Dayline.dmg` and the live `https://dayline.robin.build/appcast.xml` matches the signed release asset with the new version and monotonically increasing build.
-   - Starting from an isolated installation of the previous stable version, verify that Dayline detects the production Sparkle update, shows the update action, downloads and installs it, relaunches, and reports the new version.
-   - Install the final notarized GitHub artifact into `/Applications`, replacing the earlier signed-only build, and recheck its version, signature, staple, Gatekeeper result, process liveness, and executable hash.
+   - Do not click the update button, run an automated Sparkle update, install an isolated previous version, relaunch through Sparkle, or install the final artifact into `/Applications`. Leave the entire in-app update experience for Robin to perform manually.
+   - Recheck that `/Applications/Dayline.app` still has the exact version and build recorded before the release.
 
 9. Update and verify Homebrew.
    - In `robin-liquidium/homebrew-tap`, update `Casks/dayline.rb` to the new version and the SHA-256 of the final notarized versioned DMG.
    - Create a focused tap PR, wait for its complete test matrix and review state, fix legitimate findings, merge it, and synchronize the tap's `main`.
-   - Run `brew update`, then verify a clean install or `brew upgrade --cask --greedy robin-liquidium/tap/dayline`. The greedy flag is required because the cask declares `auto_updates true`. Confirm the installed version, signature, staple, and Gatekeeper result.
+   - Run `brew update`, then `brew fetch --cask robin-liquidium/tap/dayline` without installing it. Verify the fetched cask version, URL, checksum, signature, staple, Gatekeeper result, and DMG integrity.
+   - Never run `brew install`, `brew reinstall`, or `brew upgrade` for Dayline.
 
 10. Close out with evidence.
-    - Report the Dayline PR and merge commit, latest-head CI and review state, stable tag and release URL, Apple submission IDs/stages, installed version/build, signatures and hashes, website download target, live Sparkle feed and previous-version upgrade result, Homebrew PR and install/upgrade result, and clean or intentionally dirty worktree state.
+    - Report the Dayline PR and merge commit, latest-head CI and review state, stable tag and release URL, Apple submission IDs/stages, signatures and hashes, website download target, live Sparkle feed, Homebrew PR and fetched-cask verification, preserved installed version/build, and clean or intentionally dirty worktree state.
+    - State that the release is available through GitHub, the website, Sparkle, and Homebrew while the manual in-app update experience remains intentionally untested for Robin. Never claim that manual update succeeded.
     - Clearly distinguish `signed`, `notarized`, `stapled`, `submitted`, and `published`. If Apple or another durable continuation is pending, say exactly what remains instead of claiming the release is complete.
