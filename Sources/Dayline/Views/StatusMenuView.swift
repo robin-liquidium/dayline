@@ -99,7 +99,7 @@ struct StatusMenuView: View {
   /// Header row with title, freshness, and refresh action.
   private var header: some View {
     HStack(spacing: 10) {
-      Label("Today", systemImage: "calendar")
+      Label("Dayline", systemImage: "sun.max")
 
       Spacer()
 
