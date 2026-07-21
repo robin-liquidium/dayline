@@ -19,7 +19,7 @@ Ship one exact reviewed commit through PR, local installation, GitHub, Apple not
 
 1. Audit and establish the complete release diff before mutation.
    - Fetch `origin/main` and tags, then inspect `git status --short --branch`, `git diff`, `git diff --cached`, untracked file contents, `git diff --stat origin/main...HEAD`, `git diff --numstat origin/main...HEAD`, and the full `origin/main...HEAD` diff.
-   - Inspect stable tags, open PRs, GitHub releases and drafts, and recent CI/release runs. Detect any existing release draft for the same tag and exact commit so it can be resumed instead of duplicated.
+   - Inspect stable tags, open PRs, GitHub releases and drafts, recent CI/release runs, and the active `main` ruleset. Confirm the repository-scoped `APPCAST_DEPLOY_KEY` secret exists so the notarization workflow can publish the signed Sparkle feed through its narrow ruleset bypass. Detect any existing release draft for the same tag and exact commit so it can be resumed instead of duplicated.
    - Create or switch to a topic/release branch before cleanup or commits. Default to a PR even when work began on `main`; push directly to `main` only when the user explicitly requests that.
 
 2. Minimize and review the entire intended change.
