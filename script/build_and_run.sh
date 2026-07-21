@@ -44,6 +44,10 @@ GOOGLE_URL_SCHEME="com.googleusercontent.apps.${GOOGLE_CLIENT_ID%.apps.googleuse
 LINEAR_CLIENT_ID="${DAYLINE_LINEAR_CLIENT_ID:-00c88957100199ecb91362294a3f6e55}"
 LINEAR_URL_SCHEME="dayline"
 
+VERSION="$(git describe --tags --exact-match 2>/dev/null | sed 's/^v//' || true)"
+VERSION="${VERSION:-0.1.0-dev}"
+BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 0)"
+
 cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -63,6 +67,10 @@ cat >"$INFO_PLIST" <<PLIST
   <string>$LINEAR_CLIENT_ID</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>$VERSION</string>
+  <key>CFBundleVersion</key>
+  <string>$BUILD_NUMBER</string>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>

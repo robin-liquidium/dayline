@@ -11,9 +11,18 @@ final class UpdateService: NSObject, ObservableObject {
   /// Whether Sparkle downloads updates in the background and installs them on quit.
   @Published private(set) var automaticallyInstallsUpdates = true
 
+  /// Whether Sparkle can currently begin or focus a user-initiated update check.
+  @Published private(set) var canCheckForUpdates = false
+
+  /// Whether this app bundle includes the configuration required to run Sparkle.
+  var isUpdaterAvailable: Bool {
+    updaterController != nil
+  }
+
   private let isMock: Bool
   private var updaterController: SPUStandardUpdaterController?
   private var automaticallyDownloadsObservation: NSKeyValueObservation?
+  private var canCheckForUpdatesObservation: NSKeyValueObservation?
   private var immediateInstallationHandler: (() -> Void)?
 
   /// Creates either the production Sparkle updater or the isolated mock used for UI testing.
@@ -22,7 +31,11 @@ final class UpdateService: NSObject, ObservableObject {
     availableVersion = mockVersion
     super.init()
 
-    guard !isMock else {
+    guard
+      !isMock,
+      Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") is String,
+      Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") is String
+    else {
       return
     }
 
@@ -33,6 +46,7 @@ final class UpdateService: NSObject, ObservableObject {
     )
     updaterController = controller
     automaticallyInstallsUpdates = controller.updater.automaticallyDownloadsUpdates
+    canCheckForUpdates = controller.updater.canCheckForUpdates
     automaticallyDownloadsObservation = controller.updater.observe(
       \.automaticallyDownloadsUpdates,
       options: [.new]
@@ -42,6 +56,17 @@ final class UpdateService: NSObject, ObservableObject {
       }
       Task { @MainActor [weak self] in
         self?.automaticallyInstallsUpdates = isEnabled
+      }
+    }
+    canCheckForUpdatesObservation = controller.updater.observe(
+      \.canCheckForUpdates,
+      options: [.new]
+    ) { [weak self] _, change in
+      guard let canCheck = change.newValue else {
+        return
+      }
+      Task { @MainActor [weak self] in
+        self?.canCheckForUpdates = canCheck
       }
     }
   }
@@ -59,6 +84,11 @@ final class UpdateService: NSObject, ObservableObject {
     } else if !isMock {
       updaterController?.updater.checkForUpdates()
     }
+  }
+
+  /// Runs a user-initiated update check, letting Sparkle present its standard UI.
+  func checkForUpdates() {
+    updaterController?.checkForUpdates(nil)
   }
 }
 
