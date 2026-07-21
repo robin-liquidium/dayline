@@ -50,6 +50,7 @@ struct SettingsView: View {
           .accessibilityIdentifier("settings.launchAtLogin")
 
         Toggle("Install updates automatically", isOn: automaticUpdatesBinding)
+          .disabled(!updateService.isUpdaterAvailable)
           .accessibilityIdentifier("settings.automaticUpdates")
 
         Picker("Refresh", selection: cadenceBinding) {
@@ -273,6 +274,19 @@ struct SettingsView: View {
       } footer: {
         Text("Feedback is submitted anonymously as a public GitHub issue.")
       }
+
+      Section {
+        LabeledContent("Version", value: versionLabel)
+          .accessibilityIdentifier("settings.version")
+
+        Button("Check for Updates...") {
+          updateService.checkForUpdates()
+        }
+        .disabled(!updateService.canCheckForUpdates)
+        .accessibilityIdentifier("settings.checkForUpdates")
+      } header: {
+        Label("About", systemImage: "info.circle")
+      }
     }
     .formStyle(.grouped)
     .frame(
@@ -305,6 +319,21 @@ struct SettingsView: View {
   /// Whether Linear is ready for authenticated settings requests.
   private var isLinearConnected: Bool {
     store.connectionStatuses.first(where: { $0.provider == .linear })?.isConnected == true
+  }
+
+  /// Marketing version plus build number from the bundle, when present.
+  private var versionLabel: String {
+    let info = Bundle.main.infoDictionary
+    let version = info?["CFBundleShortVersionString"] as? String
+    let build = info?["CFBundleVersion"] as? String
+    switch (version, build) {
+    case let (version?, build?):
+      return "\(version) (\(build))"
+    case let (version?, nil):
+      return version
+    default:
+      return "Unknown"
+    }
   }
 
   /// Connected-account rows for Google and Linear.
