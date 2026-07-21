@@ -85,21 +85,6 @@ version_is_greater() {
     (( 10#$candidate_major == 10#$baseline_major && 10#$candidate_minor == 10#$baseline_minor && 10#$candidate_patch > 10#$baseline_patch ))
 }
 
-other_active_release_tag() {
-  local requested_tag="$1"
-  gh api "repos/$REPOSITORY/releases?per_page=100" |
-    jq -r --arg marker "$STATE_MARKER" --arg requested "$requested_tag" '
-      .[]
-      | select(.draft == true)
-      | (try (.body | fromjson) catch {}) as $state
-      | select($state.marker == $marker)
-      | select($state.tag != $requested)
-      | select($state.stage != "failed" and $state.stage != "superseded")
-      | $state.tag
-    ' |
-    head -n 1
-}
-
 state_from_release() {
   local release_json="$1"
   jq -er --arg marker "$STATE_MARKER" '
@@ -588,7 +573,7 @@ continue_release() {
 
 submit_release() {
   local tag="$1"
-  local version commit_sha build_number release_json release_id app_asset app_path app_sha now state_json active_tag latest_tag
+  local version commit_sha build_number release_json release_id app_asset app_path app_sha now state_json latest_tag
 
   if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     echo "Release tag must look like v0.1.6." >&2
@@ -611,11 +596,6 @@ submit_release() {
     fi
   fi
 
-  active_tag="$(other_active_release_tag "$tag")"
-  if [[ -n "$active_tag" ]]; then
-    echo "Refusing to submit $tag while $active_tag is still active." >&2
-    return 1
-  fi
   latest_tag="$(latest_stable_tag)"
   if [[ -n "$latest_tag" ]] && ! version_is_greater "$tag" "$latest_tag"; then
     echo "Refusing to submit $tag because it is not newer than $latest_tag." >&2
