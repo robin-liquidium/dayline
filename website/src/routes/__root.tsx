@@ -18,7 +18,24 @@ export const Route = createRootRoute({
       { property: "og:title", content: `Dayline — ${site.tagline}` },
       { property: "og:description", content: site.description },
       { property: "og:type", content: "website" },
-      { property: "og:image", content: "/images/og.png" },
+      {
+        property: "og:image",
+        content: "https://dayline.robin.build/images/og.png?v=2",
+      },
+      { property: "og:image:width", content: "1200" },
+      { property: "og:image:height", content: "630" },
+      {
+        property: "og:image:alt",
+        content: `Dayline. ${site.tagline}`,
+      },
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: `Dayline — ${site.tagline}` },
+      { name: "twitter:description", content: site.description },
+      {
+        name: "twitter:image",
+        content: "https://dayline.robin.build/images/og.png?v=2",
+      },
+      { name: "twitter:image:alt", content: `Dayline. ${site.tagline}` },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
