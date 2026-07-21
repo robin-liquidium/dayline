@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsView: View {
   @EnvironmentObject private var store: StatusStore
   @EnvironmentObject private var updateService: UpdateService
+  @State private var isShowingFeedback = false
 
   /// Supported refresh cadence choices in minutes.
   private let cadenceOptions = [5, 10, 15, 30, 60]
@@ -120,6 +121,25 @@ struct SettingsView: View {
             Text(order.label).tag(order)
           }
         }
+
+        Divider()
+          .padding(.vertical, 2)
+
+        HStack(alignment: .top, spacing: 16) {
+          settingLabel("Feedback")
+
+          VStack(alignment: .leading, spacing: 6) {
+            Button("Submit Feedback...") {
+              isShowingFeedback = true
+            }
+            .accessibilityIdentifier("settings.submitFeedback")
+
+            Text("Feedback is submitted anonymously as a public GitHub issue.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+          .frame(width: controlColumnWidth, alignment: .leading)
+        }
       }
       .padding(.horizontal, 34)
       .padding(.vertical, 28)
@@ -133,6 +153,9 @@ struct SettingsView: View {
       maxHeight: .infinity
     )
     .accessibilityIdentifier("settings.form")
+    .sheet(isPresented: $isShowingFeedback) {
+      FeedbackView()
+    }
     .onAppear {
       store.refreshLaunchAtLoginStatus()
     }

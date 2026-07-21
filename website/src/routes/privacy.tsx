@@ -18,8 +18,8 @@ function PrivacyPolicy() {
   return (
     <LegalPage
       title="Privacy Policy"
-      summary="Dayline is local-first software. It has no Dayline backend, user account system, advertising, analytics, or tracking."
-      updated="July 19, 2026"
+      summary="Dayline is local-first software. It has no Dayline account system, advertising, analytics, or tracking. Only feedback you deliberately submit is sent through a Dayline service."
+      updated="July 21, 2026"
     >
       <LegalSection title="What Dayline accesses">
         <p>
@@ -43,7 +43,16 @@ function PrivacyPolicy() {
         </p>
         <p>
           Dayline talks directly from your Mac to Google and Linear over HTTPS.
-          It does not copy your account data to a Dayline-operated server.
+          It does not copy your account data to a Dayline-operated server. If
+          you submit feedback, the feedback is sent through Dayline&apos;s
+          Cloudflare Worker and posted as a public issue in Dayline&apos;s GitHub
+          repository. The Worker does not retain the feedback.
+        </p>
+        <p>
+          Cloudflare necessarily processes the connection&apos;s IP address. To
+          prevent spam, the Worker uses it transiently and keeps only a
+          short-lived, secret-keyed hash for rate limiting; Dayline does not
+          store the raw address.
         </p>
       </LegalSection>
 
@@ -66,6 +75,14 @@ function PrivacyPolicy() {
             Google API Services User Data Policy
           </a>, including its Limited Use requirements.
         </p>
+        <p>
+          Feedback may optionally include only the Dayline version and build,
+          macOS version, and chip type. It never automatically includes your
+          name, device name, IP address, accounts, calendar or Linear data,
+          notes, OAuth tokens, or logs. Feedback and included system information
+          are public on GitHub, so you should not enter personal or sensitive
+          information.
+        </p>
       </LegalSection>
 
       <LegalSection title="Your control and retention">
@@ -79,6 +96,11 @@ function PrivacyPolicy() {
           Google and Linear may retain information under their own privacy
           policies. You can also revoke Dayline from your Google Account or
           Linear workspace security settings.
+        </p>
+        <p>
+          Submitted feedback is retained publicly in the Dayline GitHub
+          repository until a maintainer edits or removes it. You can use the
+          contact address below to request removal.
         </p>
       </LegalSection>
 

@@ -5,6 +5,22 @@
   "compatibility_flags": ["nodejs_compat"],
   "main": "@tanstack/react-start/server-entry",
   "preview_urls": true,
+  "kv_namespaces": [
+    {
+      "binding": "FEEDBACK_RATE_LIMITS",
+      "id": "0eff1b2be37543ae8f44c57b20f9e877",
+    },
+  ],
+  "ratelimits": [
+    {
+      "name": "FEEDBACK_RATE_LIMIT",
+      "namespace_id": "24072101",
+      "simple": {
+        "limit": 2,
+        "period": 60,
+      },
+    },
+  ],
   "routes": [
     {
       "pattern": "dayline.robin.build",
