@@ -18,6 +18,8 @@ APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 ICON_SOURCE="$ROOT_DIR/Resources/DaylineIcon.icns"
 ICON_FILE="DaylineIcon.icns"
+WORDMARK_SOURCE="$ROOT_DIR/Resources/DaylineWordmark.pdf"
+WORDMARK_FILE="DaylineWordmark.pdf"
 SPARKLE_FRAMEWORK_NAME="Sparkle.framework"
 SPARKLE_PUBLIC_KEY="b7IXyZXo7zqHoVUdwJeOTwxY6gbmJYP/e0NV4i3G/Hk="
 SPARKLE_FEED_URL="https://dayline.robin.build/appcast.xml"
@@ -206,6 +208,16 @@ copy_app_icon() {
   fi
 
   cp "$ICON_SOURCE" "$APP_RESOURCES/$ICON_FILE"
+}
+
+# copy_wordmark places the outlined display wordmark inside the bundle.
+copy_wordmark() {
+  if [[ ! -f "$WORDMARK_SOURCE" ]]; then
+    echo "Missing wordmark: $WORDMARK_SOURCE" >&2
+    exit 2
+  fi
+
+  cp "$WORDMARK_SOURCE" "$APP_RESOURCES/$WORDMARK_FILE"
 }
 
 # sign_path applies hardened runtime signing when a certificate is available.
@@ -418,6 +430,7 @@ chmod +x "$APP_BINARY"
 
 write_info_plist
 copy_app_icon
+copy_wordmark
 embed_and_sign_sparkle "$BUILD_PRODUCTS"
 sign_path "$APP_BUNDLE"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"

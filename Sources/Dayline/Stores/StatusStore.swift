@@ -70,17 +70,26 @@ final class StatusStore: ObservableObject {
   /// Identifier for the Linear issue whose URL was most recently copied.
   @Published private(set) var copiedIssueID: LinearIssueItem.ID?
 
+  /// Identifier for the calendar event whose link was most recently copied.
+  @Published private(set) var copiedEventID: CalendarEventItem.ID?
+
   /// Identifier for the Linear issue whose status picker is open.
   @Published private(set) var statusPickerIssueID: LinearIssueItem.ID?
 
   /// Identifier for the Linear issue whose priority picker is open.
   @Published private(set) var priorityPickerIssueID: LinearIssueItem.ID?
 
+  /// Identifier for the Linear issue whose due date picker is open.
+  @Published private(set) var dueDatePickerIssueID: LinearIssueItem.ID?
+
   /// Identifier for the Linear issue currently being updated.
   @Published private(set) var updatingStatusIssueID: LinearIssueItem.ID?
 
   /// Identifier for the Linear issue whose priority is currently being updated.
   @Published private(set) var updatingPriorityIssueID: LinearIssueItem.ID?
+
+  /// Identifier for the Linear issue whose due date is currently being updated.
+  @Published private(set) var updatingDueDateIssueID: LinearIssueItem.ID?
 
   /// Number of sorted Linear issues currently shown in the menu.
   @Published private(set) var visibleIssueCount = initialVisibleIssueCount
@@ -89,7 +98,7 @@ final class StatusStore: ObservableObject {
   @Published private(set) var visibleNoteCount: Int
 
   /// Keyboard character used to copy the hovered Linear issue link.
-  @Published var copyIssueHotkey: String {
+  @Published private(set) var copyIssueHotkey: String {
     didSet {
       let normalizedHotkey = Self.normalizedHotkey(copyIssueHotkey, defaultValue: "c")
       guard copyIssueHotkey == normalizedHotkey else {
@@ -101,7 +110,7 @@ final class StatusStore: ObservableObject {
   }
 
   /// Keyboard character used to open the hovered Linear issue status picker.
-  @Published var statusPickerHotkey: String {
+  @Published private(set) var statusPickerHotkey: String {
     didSet {
       let normalizedHotkey = Self.normalizedHotkey(statusPickerHotkey, defaultValue: "s")
       guard statusPickerHotkey == normalizedHotkey else {
@@ -113,7 +122,7 @@ final class StatusStore: ObservableObject {
   }
 
   /// Keyboard character used to open the hovered Linear issue priority picker.
-  @Published var priorityPickerHotkey: String {
+  @Published private(set) var priorityPickerHotkey: String {
     didSet {
       let normalizedHotkey = Self.normalizedHotkey(priorityPickerHotkey, defaultValue: "p")
       guard priorityPickerHotkey == normalizedHotkey else {
@@ -124,11 +133,72 @@ final class StatusStore: ObservableObject {
     }
   }
 
+  /// Keyboard character used to open the hovered Linear issue due date picker.
+  @Published private(set) var dueDatePickerHotkey: String {
+    didSet {
+      let normalizedHotkey = Self.normalizedHotkey(dueDatePickerHotkey, defaultValue: "d")
+      guard dueDatePickerHotkey == normalizedHotkey else {
+        dueDatePickerHotkey = normalizedHotkey
+        return
+      }
+      UserDefaults.standard.set(dueDatePickerHotkey, forKey: Self.dueDatePickerHotkeyKey)
+    }
+  }
+
+  /// Whether calendar event rows show their source calendar names.
+  @Published var showsCalendarSourceNames: Bool {
+    didSet {
+      UserDefaults.standard.set(showsCalendarSourceNames, forKey: Self.showsCalendarSourceNamesKey)
+    }
+  }
+
+  /// What the copy shortcut places on the clipboard.
+  @Published var linearCopyStyle: LinearCopyStyle {
+    didSet {
+      UserDefaults.standard.set(linearCopyStyle.rawValue, forKey: Self.linearCopyStyleKey)
+    }
+  }
+
   /// User-selected ordering for Linear issues.
   @Published var linearIssueOrder: LinearIssueOrder {
     didSet {
       UserDefaults.standard.set(linearIssueOrder.rawValue, forKey: Self.linearIssueOrderKey)
       applyLinearIssueOrder()
+    }
+  }
+
+  /// Team preselected when opening the Linear issue creator.
+  @Published var linearIssueCreateDefaultTeamID: String {
+    didSet {
+      UserDefaults.standard.set(linearIssueCreateDefaultTeamID, forKey: Self.linearIssueCreateDefaultTeamIDKey)
+    }
+  }
+
+  /// Workflow state preselected when opening the Linear issue creator.
+  @Published var linearIssueCreateDefaultStateID: String {
+    didSet {
+      UserDefaults.standard.set(linearIssueCreateDefaultStateID, forKey: Self.linearIssueCreateDefaultStateIDKey)
+    }
+  }
+
+  /// Priority preselected when opening the Linear issue creator.
+  @Published var linearIssueCreateDefaultPriority: Int {
+    didSet {
+      UserDefaults.standard.set(linearIssueCreateDefaultPriority, forKey: Self.linearIssueCreateDefaultPriorityKey)
+    }
+  }
+
+  /// Project preselected when opening the Linear issue creator.
+  @Published var linearIssueCreateDefaultProjectID: String {
+    didSet {
+      UserDefaults.standard.set(linearIssueCreateDefaultProjectID, forKey: Self.linearIssueCreateDefaultProjectIDKey)
+    }
+  }
+
+  /// Label preselected when opening the Linear issue creator.
+  @Published var linearIssueCreateDefaultLabelID: String {
+    didSet {
+      UserDefaults.standard.set(linearIssueCreateDefaultLabelID, forKey: Self.linearIssueCreateDefaultLabelIDKey)
     }
   }
 
@@ -196,8 +266,23 @@ final class StatusStore: ObservableObject {
   /// Compact error text from the last launch-at-login update attempt.
   @Published private(set) var launchAtLoginError: String?
 
+  /// Registration error for the most recently rejected global shortcut.
+  @Published private(set) var globalShortcutError: String?
+
   /// Changes when an app-level flow needs to present the Settings window.
   @Published private(set) var settingsPresentationRequestID = UUID()
+
+  /// Global shortcut that creates a new note from anywhere.
+  @Published private(set) var newNoteShortcut: GlobalShortcut
+
+  /// Global shortcut that opens the Linear issue creator from anywhere.
+  @Published private(set) var newLinearIssueShortcut: GlobalShortcut
+
+  /// Changes when a global hotkey needs to present a new note editor.
+  @Published private(set) var noteCreationRequestID = UUID()
+
+  /// Changes when a global hotkey needs to present the Linear issue creator.
+  @Published private(set) var linearIssueCreationRequestID = UUID()
 
   /// Stable system image for the menu bar item.
   var menuBarSystemImage: String {
@@ -230,15 +315,25 @@ final class StatusStore: ObservableObject {
   private static let copyIssueHotkeyKey = "copyIssueHotkey"
   private static let statusPickerHotkeyKey = "statusPickerHotkey"
   private static let priorityPickerHotkeyKey = "priorityPickerHotkey"
+  private static let dueDatePickerHotkeyKey = "dueDatePickerHotkey"
+  private static let showsCalendarSourceNamesKey = "showsCalendarSourceNames"
   private static let linearIssueOrderKey = "linearIssueOrder"
+  private static let linearCopyStyleKey = "linearCopyStyle"
+  private static let linearIssueCreateDefaultTeamIDKey = "linearIssueCreateDefaultTeamID"
+  private static let linearIssueCreateDefaultStateIDKey = "linearIssueCreateDefaultStateID"
+  private static let linearIssueCreateDefaultPriorityKey = "linearIssueCreateDefaultPriority"
+  private static let linearIssueCreateDefaultProjectIDKey = "linearIssueCreateDefaultProjectID"
+  private static let linearIssueCreateDefaultLabelIDKey = "linearIssueCreateDefaultLabelID"
   private static let localNoteSortOrderKey = "localNoteSortOrder"
   private static let defaultVisibleNoteCountKey = "defaultVisibleNoteCount"
   private static let menuBarEventLeadTimeKey = "menuBarEventLeadTimeMinutes"
   private static let menuBarEventPostStartGraceKey = "menuBarEventPostStartGraceMinutes"
   private static let launchAtLoginDefaultConfiguredKey = "launchAtLoginDefaultConfigured"
   private static let launchAtLoginDefaultPendingKey = "launchAtLoginDefaultPending"
+  private static let newNoteShortcutKey = "newNoteGlobalShortcut"
+  private static let newLinearIssueShortcutKey = "newLinearIssueGlobalShortcut"
   private static let defaultMenuBarEventLeadTimeMinutes = 30
-  private static let defaultMenuBarEventPostStartGraceMinutes = 5
+  private static let defaultMenuBarEventPostStartGraceMinutes = 0
   private static let fallbackDefaultVisibleNoteCount = 3
   private static let menuBarClockRefreshSeconds: TimeInterval = 15
   private static let todayEventLimit = 6
@@ -249,6 +344,7 @@ final class StatusStore: ObservableObject {
   private let authSessions: [AuthProvider: OAuthSession]
   private let googleAccountRepository: GoogleAccountRepository
   private let launchAtLoginService: LaunchAtLoginService
+  private let globalHotkeyService = GlobalHotkeyService()
   private let mockData: MockData?
   private var googleSessions: [UUID: OAuthSession] = [:]
   private var allIssues: [LinearIssueItem] = []
@@ -281,10 +377,33 @@ final class StatusStore: ObservableObject {
     self.launchAtLoginService = launchAtLoginService
     self.mockData = mockData
     self.refreshIntervalMinutes = defaults.integer(forKey: Self.refreshIntervalKey)
-    self.copyIssueHotkey = Self.normalizedHotkey(UserDefaults.standard.string(forKey: Self.copyIssueHotkeyKey), defaultValue: "c")
-    self.statusPickerHotkey = Self.normalizedHotkey(UserDefaults.standard.string(forKey: Self.statusPickerHotkeyKey), defaultValue: "s")
-    self.priorityPickerHotkey = Self.normalizedHotkey(UserDefaults.standard.string(forKey: Self.priorityPickerHotkeyKey), defaultValue: "p")
+    let repairedHotkeys = Self.repairedHoverHotkeys(
+      copy: defaults.string(forKey: Self.copyIssueHotkeyKey),
+      status: defaults.string(forKey: Self.statusPickerHotkeyKey),
+      priority: defaults.string(forKey: Self.priorityPickerHotkeyKey),
+      dueDate: defaults.string(forKey: Self.dueDatePickerHotkeyKey)
+    )
+    self.copyIssueHotkey = repairedHotkeys[0]
+    self.statusPickerHotkey = repairedHotkeys[1]
+    self.priorityPickerHotkey = repairedHotkeys[2]
+    self.dueDatePickerHotkey = repairedHotkeys[3]
+    defaults.set(repairedHotkeys[0], forKey: Self.copyIssueHotkeyKey)
+    defaults.set(repairedHotkeys[1], forKey: Self.statusPickerHotkeyKey)
+    defaults.set(repairedHotkeys[2], forKey: Self.priorityPickerHotkeyKey)
+    defaults.set(repairedHotkeys[3], forKey: Self.dueDatePickerHotkeyKey)
+    self.newNoteShortcut = Self.loadShortcut(forKey: Self.newNoteShortcutKey, defaultValue: .newNoteDefault)
+    self.newLinearIssueShortcut = Self.loadShortcut(forKey: Self.newLinearIssueShortcutKey, defaultValue: .newLinearIssueDefault)
+    self.showsCalendarSourceNames = defaults.object(forKey: Self.showsCalendarSourceNamesKey) as? Bool ?? true
     self.linearIssueOrder = LinearIssueOrder(rawValue: UserDefaults.standard.string(forKey: Self.linearIssueOrderKey) ?? "") ?? .priority
+    self.linearCopyStyle = LinearCopyStyle(rawValue: UserDefaults.standard.string(forKey: Self.linearCopyStyleKey) ?? "") ?? .link
+    self.linearIssueCreateDefaultTeamID = defaults.string(forKey: Self.linearIssueCreateDefaultTeamIDKey) ?? ""
+    self.linearIssueCreateDefaultStateID = defaults.string(forKey: Self.linearIssueCreateDefaultStateIDKey) ?? ""
+    self.linearIssueCreateDefaultPriority = Self.storedInteger(
+      forKey: Self.linearIssueCreateDefaultPriorityKey,
+      defaultValue: 0
+    )
+    self.linearIssueCreateDefaultProjectID = defaults.string(forKey: Self.linearIssueCreateDefaultProjectIDKey) ?? ""
+    self.linearIssueCreateDefaultLabelID = defaults.string(forKey: Self.linearIssueCreateDefaultLabelIDKey) ?? ""
     self.localNoteSortOrder = LocalNoteSortOrder(rawValue: UserDefaults.standard.string(forKey: Self.localNoteSortOrderKey) ?? "") ?? .updatedAt
     let storedVisibleNoteCount = Self.clampedDefaultVisibleNoteCount(Self.storedInteger(
       forKey: Self.defaultVisibleNoteCountKey,
@@ -338,6 +457,7 @@ final class StatusStore: ObservableObject {
       }
       loadPersistedNotes()
       scheduleRefreshTimer()
+      startGlobalHotkeys()
       Task { await refresh() }
     }
     scheduleMenuBarClockTimer()
@@ -662,22 +782,88 @@ final class StatusStore: ObservableObject {
 
   /// Persists a new copy hotkey selected from Settings.
   func setCopyIssueHotkey(_ hotkey: String) {
-    copyIssueHotkey = hotkey
+    let normalized = Self.normalizedHotkey(hotkey, defaultValue: "c")
+    guard ![statusPickerHotkey, priorityPickerHotkey, dueDatePickerHotkey].contains(normalized) else { return }
+    copyIssueHotkey = normalized
   }
 
   /// Persists a new status picker hotkey selected from Settings.
   func setStatusPickerHotkey(_ hotkey: String) {
-    statusPickerHotkey = hotkey
+    let normalized = Self.normalizedHotkey(hotkey, defaultValue: "s")
+    guard ![copyIssueHotkey, priorityPickerHotkey, dueDatePickerHotkey].contains(normalized) else { return }
+    statusPickerHotkey = normalized
   }
 
   /// Persists a new priority picker hotkey selected from Settings.
   func setPriorityPickerHotkey(_ hotkey: String) {
-    priorityPickerHotkey = hotkey
+    let normalized = Self.normalizedHotkey(hotkey, defaultValue: "p")
+    guard ![copyIssueHotkey, statusPickerHotkey, dueDatePickerHotkey].contains(normalized) else { return }
+    priorityPickerHotkey = normalized
+  }
+
+  /// Persists a new due date picker hotkey selected from Settings.
+  func setDueDatePickerHotkey(_ hotkey: String) {
+    let normalized = Self.normalizedHotkey(hotkey, defaultValue: "d")
+    guard ![copyIssueHotkey, statusPickerHotkey, priorityPickerHotkey].contains(normalized) else { return }
+    dueDatePickerHotkey = normalized
+  }
+
+  /// Persists a new global shortcut for creating notes selected from Settings.
+  @discardableResult
+  func setNewNoteShortcut(_ shortcut: GlobalShortcut) -> Bool {
+    guard registerGlobalShortcut(shortcut, for: .newNote) else { return false }
+    newNoteShortcut = shortcut
+    Self.persistShortcut(shortcut, forKey: Self.newNoteShortcutKey)
+    return true
+  }
+
+  /// Persists a new global shortcut for creating Linear issues selected from Settings.
+  @discardableResult
+  func setNewLinearIssueShortcut(_ shortcut: GlobalShortcut) -> Bool {
+    guard registerGlobalShortcut(shortcut, for: .newLinearIssue) else { return false }
+    newLinearIssueShortcut = shortcut
+    Self.persistShortcut(shortcut, forKey: Self.newLinearIssueShortcutKey)
+    return true
+  }
+
+  /// Persists whether calendar event rows show their source calendar names.
+  func setShowsCalendarSourceNames(_ shows: Bool) {
+    showsCalendarSourceNames = shows
   }
 
   /// Persists a new Linear issue ordering and reapplies it immediately.
   func setLinearIssueOrder(_ order: LinearIssueOrder) {
     linearIssueOrder = order
+  }
+
+  /// Persists what the copy shortcut places on the clipboard.
+  func setLinearCopyStyle(_ style: LinearCopyStyle) {
+    linearCopyStyle = style
+  }
+
+  /// Persists the team preselected by the Linear issue creator.
+  func setLinearIssueCreateDefaultTeamID(_ teamID: String) {
+    linearIssueCreateDefaultTeamID = teamID
+  }
+
+  /// Persists the workflow state preselected by the Linear issue creator.
+  func setLinearIssueCreateDefaultStateID(_ stateID: String) {
+    linearIssueCreateDefaultStateID = stateID
+  }
+
+  /// Persists the priority preselected by the Linear issue creator.
+  func setLinearIssueCreateDefaultPriority(_ priority: Int) {
+    linearIssueCreateDefaultPriority = priority
+  }
+
+  /// Persists the project preselected by the Linear issue creator.
+  func setLinearIssueCreateDefaultProjectID(_ projectID: String) {
+    linearIssueCreateDefaultProjectID = projectID
+  }
+
+  /// Persists the label preselected by the Linear issue creator.
+  func setLinearIssueCreateDefaultLabelID(_ labelID: String) {
+    linearIssueCreateDefaultLabelID = labelID
   }
 
   /// Persists a new local note ordering and reapplies it immediately.
@@ -791,6 +977,11 @@ final class StatusStore: ObservableObject {
     Self.normalizedHotkey(characters, defaultValue: "p") == priorityPickerHotkey
   }
 
+  /// Returns whether a keypress should open the due date picker.
+  func matchesDueDatePickerHotkey(_ characters: String) -> Bool {
+    Self.normalizedHotkey(characters, defaultValue: "d") == dueDatePickerHotkey
+  }
+
   /// Tracks which Linear issue is currently hovered for keyboard actions.
   func setHoveredIssue(_ issueID: LinearIssueItem.ID?) {
     hoveredIssueID = issueID
@@ -831,6 +1022,7 @@ final class StatusStore: ObservableObject {
     }
     statusPickerIssueID = hoveredIssueID
     priorityPickerIssueID = nil
+    dueDatePickerIssueID = nil
     return true
   }
 
@@ -843,6 +1035,20 @@ final class StatusStore: ObservableObject {
     }
     priorityPickerIssueID = hoveredIssueID
     statusPickerIssueID = nil
+    dueDatePickerIssueID = nil
+    return true
+  }
+
+  /// Opens the due date picker for the hovered Linear issue.
+  @discardableResult
+  func presentDueDatePickerForHoveredIssue() -> Bool {
+    guard let hoveredIssueID,
+          allIssues.contains(where: { $0.id == hoveredIssueID }) else {
+      return false
+    }
+    dueDatePickerIssueID = hoveredIssueID
+    statusPickerIssueID = nil
+    priorityPickerIssueID = nil
     return true
   }
 
@@ -856,28 +1062,67 @@ final class StatusStore: ObservableObject {
     priorityPickerIssueID = nil
   }
 
+  /// Dismisses the due date picker without changing Linear.
+  func dismissDueDatePicker() {
+    dueDatePickerIssueID = nil
+  }
+
   /// Tracks which calendar event is currently hovered for row highlighting.
   func setHoveredEvent(_ eventID: CalendarEventItem.ID?) {
     hoveredEventID = eventID
   }
 
-  /// Copies the hovered Linear issue URL and briefly marks the row as copied.
+  /// Copies the hovered Linear issue link or branch name and briefly marks the row as copied.
   @discardableResult
   func copyHoveredIssueLink() -> Bool {
     guard let hoveredIssueID,
-          let issue = issues.first(where: { $0.id == hoveredIssueID }),
-          let url = issue.url else {
+          let issue = issues.first(where: { $0.id == hoveredIssueID }) else {
+      return false
+    }
+
+    let clipboardText: String?
+    switch linearCopyStyle {
+    case .link:
+      clipboardText = issue.url?.absoluteString
+    case .branchName:
+      clipboardText = issue.branchName ?? issue.url?.absoluteString
+    }
+
+    guard let clipboardText else {
       return false
     }
 
     NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(url.absoluteString, forType: .string)
+    NSPasteboard.general.setString(clipboardText, forType: .string)
     copiedIssueID = issue.id
 
     Task { @MainActor in
       try? await Task.sleep(for: .seconds(1.4))
       if copiedIssueID == issue.id {
         copiedIssueID = nil
+      }
+    }
+
+    return true
+  }
+
+  /// Copies the hovered calendar event's meeting or event link and briefly marks the row.
+  @discardableResult
+  func copyHoveredEventLink() -> Bool {
+    guard let hoveredEventID,
+          let event = (events + tomorrowEvents).first(where: { $0.id == hoveredEventID }),
+          let url = event.openURL ?? event.calendarURL else {
+      return false
+    }
+
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(url.absoluteString, forType: .string)
+    copiedEventID = event.id
+
+    Task { @MainActor in
+      try? await Task.sleep(for: .seconds(1.4))
+      if copiedEventID == event.id {
+        copiedEventID = nil
       }
     }
 
@@ -905,6 +1150,7 @@ final class StatusStore: ObservableObject {
           stateType: state.type,
           workflowStates: issue.workflowStates,
           dueDate: issue.dueDate,
+          branchName: issue.branchName,
           url: issue.url
         ))
       }
@@ -944,6 +1190,7 @@ final class StatusStore: ObservableObject {
           stateType: issue.stateType,
           workflowStates: issue.workflowStates,
           dueDate: issue.dueDate,
+          branchName: issue.branchName,
           url: issue.url
         ))
       }
@@ -960,6 +1207,50 @@ final class StatusStore: ObservableObject {
     }
 
     updatingPriorityIssueID = nil
+  }
+
+  /// Changes or clears a Linear issue due date and updates the visible list.
+  func changeIssueDueDate(issueID: LinearIssueItem.ID, dueDate: Date?) async {
+    guard updatingDueDateIssueID == nil else {
+      return
+    }
+
+    updatingDueDateIssueID = issueID
+    dueDatePickerIssueID = nil
+
+    let formattedDueDate = dueDate.flatMap { date in
+      LinearIssueCreateDraft(dueDate: date).formattedDueDate
+    }
+
+    if mockData != nil {
+      if let issue = allIssues.first(where: { $0.id == issueID }) {
+        replaceFetchedIssue(LinearIssueItem(
+          id: issue.id,
+          title: issue.title,
+          priority: issue.priority,
+          priorityLabel: issue.priorityLabel,
+          stateName: issue.stateName,
+          stateID: issue.stateID,
+          stateType: issue.stateType,
+          workflowStates: issue.workflowStates,
+          dueDate: formattedDueDate,
+          branchName: issue.branchName,
+          url: issue.url
+        ))
+      }
+      updatingDueDateIssueID = nil
+      return
+    }
+
+    do {
+      let updatedIssue = try await linearService.updateIssueDueDate(issueID: issueID, dueDate: formattedDueDate)
+      replaceFetchedIssue(updatedIssue)
+      linearError = nil
+    } catch {
+      linearError = error.localizedDescription
+    }
+
+    updatingDueDateIssueID = nil
   }
 
   /// Moves a Linear issue to its team's canceled workflow state.
@@ -989,6 +1280,30 @@ final class StatusStore: ObservableObject {
     return try await linearService.fetchUserOptions()
   }
 
+  /// Loads Linear projects for the issue creator project picker.
+  func linearIssueCreateProjectOptions() async throws -> [LinearProjectOption] {
+    if let mockData { return mockData.projects }
+    return try await linearService.fetchProjectOptions()
+  }
+
+  /// Loads a team's cycles for the issue creator cycle picker.
+  func linearIssueCreateCycleOptions(teamID: String) async throws -> [LinearCycleOption] {
+    if let mockData { return mockData.cycles }
+    return try await linearService.fetchCycleOptions(teamID: teamID)
+  }
+
+  /// Loads a team's labels for the issue creator label picker.
+  func linearIssueCreateLabelOptions(teamID: String) async throws -> [LinearLabelOption] {
+    if let mockData { return mockData.labels }
+    return try await linearService.fetchLabelOptions(teamID: teamID)
+  }
+
+  /// Loads a project's milestones for the issue creator milestone picker.
+  func linearIssueCreateMilestoneOptions(projectID: String) async throws -> [LinearMilestoneOption] {
+    if let mockData { return mockData.milestones }
+    return try await linearService.fetchMilestoneOptions(projectID: projectID)
+  }
+
   /// Creates a Linear issue from a draft and refreshes assigned issues.
   func createLinearIssue(draft: LinearIssueCreateDraft) async throws {
     if let mockData {
@@ -1006,7 +1321,8 @@ final class StatusStore: ObservableObject {
         stateID: state?.id ?? "mock-todo",
         stateType: state?.type ?? "unstarted",
         workflowStates: team?.states ?? [],
-        dueDate: draft.dueDate.isEmpty ? nil : draft.dueDate,
+        dueDate: draft.formattedDueDate,
+        branchName: nil,
         url: URL(string: "https://linear.app/dayline")
       ))
       applyLinearIssueOrder()
@@ -1348,6 +1664,71 @@ final class StatusStore: ObservableObject {
     settingsPresentationRequestID = UUID()
   }
 
+  /// Starts the global hotkey handler and registers the configured shortcuts.
+  private func startGlobalHotkeys() {
+    globalHotkeyService.start { [weak self] hotkey in
+      guard let self else {
+        return
+      }
+      switch hotkey {
+      case .newNote:
+        self.noteCreationRequestID = UUID()
+      case .newLinearIssue:
+        self.linearIssueCreationRequestID = UUID()
+      }
+    }
+    registerPersistedGlobalShortcuts()
+  }
+
+  /// Registers both persisted global shortcuts at launch.
+  private func registerPersistedGlobalShortcuts() {
+    guard mockData == nil else { return }
+    let noteStatus = globalHotkeyService.update(shortcut: newNoteShortcut, for: .newNote)
+    let linearStatus = globalHotkeyService.update(shortcut: newLinearIssueShortcut, for: .newLinearIssue)
+    if noteStatus != noErr {
+      globalShortcutError = Self.globalShortcutRegistrationError(newNoteShortcut, status: noteStatus)
+    } else if linearStatus != noErr {
+      globalShortcutError = Self.globalShortcutRegistrationError(newLinearIssueShortcut, status: linearStatus)
+    }
+  }
+
+  /// Attempts one global shortcut replacement without discarding the previous registration.
+  private func registerGlobalShortcut(_ shortcut: GlobalShortcut, for hotkey: GlobalHotkeyService.Hotkey) -> Bool {
+    guard mockData == nil else {
+      globalShortcutError = nil
+      return true
+    }
+    let status = globalHotkeyService.update(shortcut: shortcut, for: hotkey)
+    guard status == noErr else {
+      globalShortcutError = Self.globalShortcutRegistrationError(shortcut, status: status)
+      return false
+    }
+    globalShortcutError = nil
+    return true
+  }
+
+  /// User-facing registration failure that identifies the rejected shortcut.
+  private static func globalShortcutRegistrationError(_ shortcut: GlobalShortcut, status: OSStatus) -> String {
+    "Could not register \(shortcut.displayString). macOS or another app may already be using it. (\(status))"
+  }
+
+  /// Loads a persisted global shortcut, falling back to the default when absent or invalid.
+  private static func loadShortcut(forKey key: String, defaultValue: GlobalShortcut) -> GlobalShortcut {
+    guard let data = UserDefaults.standard.data(forKey: key),
+          let shortcut = try? JSONDecoder().decode(GlobalShortcut.self, from: data) else {
+      return defaultValue
+    }
+    return shortcut
+  }
+
+  /// Persists a global shortcut as JSON data.
+  private static func persistShortcut(_ shortcut: GlobalShortcut, forKey key: String) {
+    guard let data = try? JSONEncoder().encode(shortcut) else {
+      return
+    }
+    UserDefaults.standard.set(data, forKey: key)
+  }
+
   /// Returns the event that should currently replace the menu bar icon.
   private func menuBarEvent(at now: Date) -> CalendarEventItem? {
     let leadTime = TimeInterval(menuBarEventLeadTimeMinutes * 60)
@@ -1522,6 +1903,35 @@ final class StatusStore: ObservableObject {
       .lowercased()
       .first
       .map(String.init) ?? defaultValue
+  }
+
+  /// Repairs persisted hover shortcuts in precedence order so every action remains reachable.
+  static func repairedHoverHotkeys(
+    copy: String?,
+    status: String?,
+    priority: String?,
+    dueDate: String?
+  ) -> [String] {
+    let preferred = [
+      normalizedHotkey(copy, defaultValue: "c"),
+      normalizedHotkey(status, defaultValue: "s"),
+      normalizedHotkey(priority, defaultValue: "p"),
+      normalizedHotkey(dueDate, defaultValue: "d")
+    ]
+    let fallbacks = [
+      ["c", "l", "k", "y"],
+      ["s", "w", "u", "d"],
+      ["p", "r", "i", "o"],
+      ["d", "e", "t", "x"]
+    ]
+    var used = Set<String>()
+    return preferred.enumerated().map { index, candidate in
+      let repaired = used.contains(candidate)
+        ? fallbacks[index].first(where: { !used.contains($0) }) ?? candidate
+        : candidate
+      used.insert(repaired)
+      return repaired
+    }
   }
 
   /// Returns a persisted integer or the supplied default when the key is unset.

@@ -1,4 +1,4 @@
 interface:
   display_name: "Dayline Publish Latest"
-  short_description: "Ship the latest Dayline build safely to GitHub"
-  default_prompt: "Use $dayline-publish-latest to commit, validate, install, push, and publish the latest Dayline release safely."
+  short_description: "Review and ship Dayline through every release channel"
+  default_prompt: "Use $dayline-publish-latest to review all current Dayline changes, fix legitimate findings, merge the PR, and complete the notarized GitHub, website, Sparkle, Homebrew, and local release."

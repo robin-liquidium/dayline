@@ -3,8 +3,24 @@
   "name": "dayline-website",
   "compatibility_date": "2026-07-18",
   "compatibility_flags": ["nodejs_compat"],
-  "main": "@tanstack/react-start/server-entry",
+  "main": "src/server.ts",
   "preview_urls": true,
+  "exports": {
+    "FeedbackRateLimiter": {
+      "type": "durable-object",
+      "storage": "sqlite",
+    },
+  },
+  "ratelimits": [
+    {
+      "name": "FEEDBACK_RATE_LIMIT",
+      "namespace_id": "24072101",
+      "simple": {
+        "limit": 2,
+        "period": 60,
+      },
+    },
+  ],
   "routes": [
     {
       "pattern": "dayline.robin.build",

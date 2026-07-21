@@ -1,42 +1,55 @@
 ---
 name: dayline-publish-latest
-description: Safely publish the latest Dayline source through commit, validation, main-branch landing, push, signed packaging, local installation, GitHub test release, and optionally one official Apple-notarized release. Use when Robin asks to publish, ship, or release the latest Dayline build, update GitHub and /Applications together, or invokes $dayline-publish-latest. The workflow must live-check Apple submissions and skip notarization while any submission is still In Progress.
+description: "Review and ship the latest Dayline work end to end: inspect all local and unpushed changes, run independent subagents plus Codex and CodeRabbit reviews, investigate and fix legitimate findings, validate the app, create and clean up a PR, merge to main, build and install the signed app, publish the Apple-notarized GitHub release, update the website and Sparkle feed, update Homebrew, and verify every distribution path. Use when Robin invokes $dayline-publish-latest or asks to publish, ship, or release the latest Dayline build."
 ---
 
 # Dayline Publish Latest
 
-Ship one exact commit through source, local installation, GitHub assets, and—only when safe—the official notarized release. Never rebuild or resubmit merely because Apple is slow.
+Ship one exact reviewed commit through PR, local installation, GitHub, Apple notarization, the website, Sparkle, and Homebrew. Continue automatically through the full production release unless the user explicitly narrows or stops the workflow.
 
 ## Authority boundary
 
-- Treat explicit invocation as authorization to commit the intended changes, land them on `main`, push `origin/main`, package and install the app, and create the described GitHub release assets.
-- Preserve unrelated dirty and untracked files. Never force-push, rewrite a published tag, or discard user changes.
-- Do not submit to Apple when any Dayline notarization is `In Progress`. An explicit user override must name that risk; a generic “ship it” is not an override.
-- Use GitHub Actions as the sole notarization submitter. Never run local `package_release.sh --notarize` in parallel with CI.
+- Treat invocation as authorization to create a release branch, review and fix the intended work, commit it, create and merge its PR after all gates pass, push and tag `main`, package and install Dayline, publish the release, and update `robin-liquidium/homebrew-tap`.
+- Treat every tracked, staged, unstaged, untracked, committed-but-unpushed, and pushed-but-unmerged change relative to `origin/main` as a release candidate. Inspect all of it. Exclude generated, accidental, or unrelated files only after verifying that classification; ask only when ambiguity would materially change the release.
+- Preserve unrelated user work. Never force-push, rewrite a published tag, print secrets, or discard changes.
+- Start official notarization unless the user explicitly says otherwise, but never while another Dayline submission is `In Progress`. A generic ship request is not an override for parallel Apple submissions.
+- Use GitHub Actions as the sole notarization submitter. Never run local `package_release.sh --notarize` in parallel with CI, and never resubmit merely because Apple is slow.
 
 ## Workflow
 
-1. Audit current state before mutation.
-   - Inspect `git status --short --branch`, focused diffs, `origin/main`, stable tags, open PRs, GitHub releases, and recent CI/release runs.
-   - Query `xcrun notarytool history` with the configured App Store Connect credentials when available. Print IDs, names, dates, and statuses only; never print key contents.
-   - If an older submission is `Accepted`, decide whether that exact artifact is still the intended release. Staple and publish it only when it is current; if it is obsolete, stop its continuation safely and do not promote an outdated build.
+1. Audit and establish the complete release diff before mutation.
+   - Fetch `origin/main` and tags, then inspect `git status --short --branch`, `git diff`, `git diff --cached`, untracked file contents, `git diff --stat origin/main...HEAD`, `git diff --numstat origin/main...HEAD`, and the full `origin/main...HEAD` diff.
+   - Inspect stable and test tags, open PRs, GitHub releases, and recent CI/release runs. Detect any existing release draft for the same tag and exact commit so it can be resumed instead of duplicated.
+   - Create or switch to a topic/release branch before cleanup or commits. Default to a PR even when work began on `main`; push directly to `main` only when the user explicitly requests that.
 
-2. Review and validate the intended changes.
+2. Minimize and review the entire intended change.
+   - Remove dead code, duplication, debug scaffolding, accidental generated files, unused helpers, unnecessary abstractions or renames, and unrelated style churn when behavior and clarity are preserved. Do not sacrifice meaningful tests, accessibility, security, edge cases, or clarity merely to shrink the diff.
+   - Run multiple independent review subagents for broad or risky work, using distinct lenses such as correctness/state, SwiftUI/macOS behavior, tests, security, and release integrity. Give them the raw diff and relevant files, not prior conclusions.
+   - Review dirty changes with `codex review --uncommitted` and committed branch changes with `codex review --base origin/main`.
+   - When CodeRabbit CLI is installed and authenticated, review the union of local changes with `coderabbit review --agent -t all --base origin/main`. Run another Codex and CodeRabbit pass when the change is broad or risky, or when an earlier pass found issues.
+   - If a reviewer cannot run because of tooling, authentication, or private-code export restrictions, do not bypass the restriction, treat the failure as a clean review, or skip it by default. Use the remaining local subagents and reviewers, then require hosted PR review. Skip a reviewer only when it is demonstrably non-applicable or a human explicitly overrides the requirement.
+   - Treat every finding as a hypothesis. Reproduce or trace the issue, inspect related code and tests, and consult primary documentation for version-sensitive or external behavior. Fix only confirmed, in-scope findings; keep a concise rationale for false positives.
+   - After each fix batch, run targeted validation and repeat affected reviewers. Remove exploratory instrumentation and superseded fixes. Continue until no legitimate local finding remains.
+
+3. Validate the finished candidate.
    - Use `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer` for Swift commands.
-   - Run `swift test`, `git diff --check`, a focused code review, and behavior-level UI validation when relevant.
-   - Keep screenshots and generated review artifacts out of git.
+   - Run `swift build`, `swift test`, `git diff --check`, shell syntax checks for touched scripts, and any additional checks required by `AGENTS.md`, package scripts, or CI configuration.
+   - For user-visible changes, build and run the real app or isolated mock app and exercise every materially changed flow. Do not accept compilation or unit tests alone as proof that a SwiftUI interaction works.
+   - Capture useful before/after screenshots for UI PRs when practical. Keep screenshots and generated review artifacts out of git; attach verified temporary links to the PR only when upload succeeds.
 
-3. Land one clean commit on `main`.
-   - Stage only intended paths and commit descriptively.
-   - When already on `main` and explicitly told to push there, push after validation.
-   - From a topic branch, create a PR, wait for current-head checks/review, merge it, then update local `main`. Invocation of this skill authorizes merging the intended release change after those gates pass.
-   - Require clean local `main` to equal `origin/main` before packaging or tagging.
+4. Create, review, and merge the PR.
+   - Stage only intended paths, inspect the staged diff, commit descriptively, push the topic branch, and create a PR with a concise summary, validation evidence, and UI screenshots when available.
+   - Monitor the latest PR head SHA, mergeability, required checks, reviews, comments, and review threads. Allow CI and review bots enough time to review each new head.
+   - Investigate every new finding. Fix legitimate issues, resolve fixed, outdated, and verified-false-positive threads, rerun targeted checks and affected local reviewers, commit, push, and restart the loop from the new head SHA.
+   - Merge only when the latest head is mergeable, required checks are green, required reviewers finished successfully or were skipped under the explicit exception above, unresolved actionable threads equal zero, and the worktree has no unintended tracked changes.
+   - Update local `main` after merge. Require clean local `main` to equal `origin/main` before packaging or tagging.
 
-4. Choose the release version.
-   - Use a version Robin supplied; otherwise increment the patch component of the highest tag matching exactly `vMAJOR.MINOR.PATCH`.
-   - Ignore test-release tags. Never reuse or move an existing stable tag.
+5. Choose a safe release version.
+   - Use a version supplied by the user; otherwise fetch remote state and increment the patch component of the highest published stable tag matching exactly `vMAJOR.MINOR.PATCH`.
+   - Ignore test-release tags. Never reuse or move an existing stable tag, collide with an existing draft for another commit, or release a version older than the latest stable release.
+   - Ensure the resolved `CFBundleVersion` is greater than every previously published build number so Sparkle recognizes the release as an update.
 
-5. Build, sign, install, and verify before publication.
+6. Build, sign, install, and verify before publication.
 
    ```bash
    DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
@@ -47,22 +60,33 @@ Ship one exact commit through source, local installation, GitHub assets, and—o
    - Do not add `--notarize` here.
    - Verify Developer ID signing, hardened runtime, DMG integrity, app and DMG versions, installed process liveness, and matching packaged/installed executable hashes.
 
-6. Publish an immediate signed test release.
+7. Publish an immediate signed test release.
    - Use a tag shaped `test-vMAJOR.MINOR.PATCH.N`, targeting the exact clean `main` commit. Do not use a tag beginning with `v`; `.github/workflows/release.yml` treats every `v*` tag as an official release trigger.
    - Upload only the versioned DMG and versioned app ZIP. The stable `Dayline.dmg` asset is reserved for notarized production releases.
    - Title and notes must say `signed test build (not notarized)`, briefly describe the tester-visible changes and requirements, and explain the Gatekeeper right-click **Open** / **Open Anyway** path. Keep source commits, hashes, certificate identities, and other internal verification metadata out of public release notes.
-   - Mark it as a prerelease and never mark it latest. The website and Sparkle feed must continue pointing at the latest notarized stable release.
-   - Download the uploaded assets into a temporary directory and verify their hashes. Confirm GitHub's latest-release API and stable download redirect still point at the notarized stable release.
+   - Mark it as a prerelease and never mark it latest. Download the uploaded assets into a temporary directory and verify their hashes. Confirm GitHub's latest-release API and stable download redirect still point at the notarized stable release.
 
-7. Gate the official Apple release.
-   - If any Dayline submission is `In Progress`, stop here. Do not create `v$VERSION`, because pushing it automatically submits another artifact to Apple. Report that the signed test release is live and reserve the same version for a later official attempt.
-   - If Apple leaves submissions stuck for more than 24 hours, collect their IDs and timestamps and escalate to Apple Developer Support. Do not probe the service by uploading more copies.
-   - If no submission is `In Progress`, run `./script/tag_release.sh "$VERSION"` exactly once. This stable tag is the only action that should start notarization.
-   - The tag workflow must preserve the exact signed app in a private draft release before submitting it once, then exit without holding a runner open.
-   - `.github/workflows/notarization-continuation.yml` polls pending drafts every ten minutes and can also be dispatched manually for one tag. It resumes the stored submission ID; never restart the submit job merely because processing is slow.
-   - On app acceptance, continuation staples the preserved app, creates and submits the DMG once, and persists that second submission ID. On DMG acceptance, it staples and validates the final artifacts, runs Gatekeeper verification, publishes `v$VERSION`, and promotes it as latest.
-   - On `Invalid` or `Rejected`, retrieve the notarization log, fix the exact failure, and submit one replacement artifact only after the fix is committed.
+8. Start and safely continue the official release unless the user opted out.
+   - If any other Dayline submission is `In Progress`, stop before creating `v$VERSION`. Keep the signed test release live and reserve the version for the later official attempt; never upload another copy to probe Apple.
+   - When no other Dayline submission is `In Progress`, run `./script/tag_release.sh "$VERSION"` exactly once. The stable tag is the only action that starts official notarization. If this or any later exactly-once action returns an uncertain result, reconcile remote tags, workflow runs, draft releases, and persisted Apple submission IDs before retrying. Resume the existing release when they identify one exact attempt; abort safely when the state remains ambiguous.
+   - Monitor the initial workflow until it has preserved the exact signed app in a private draft release and recorded its Apple submission ID. Confirm the scheduled continuation workflow is enabled.
+   - `.github/workflows/notarization-continuation.yml` resumes persisted submission IDs every ten minutes. Never restart the submission workflow or upload another copy merely because processing takes 24 hours or longer.
+   - On app acceptance, continuation staples the preserved app, creates and submits the DMG once, and persists that submission ID. Apply the same remote-state reconciliation before any uncertain DMG submission retry. On DMG acceptance, it staples and validates the artifacts, runs Gatekeeper verification, publishes `v$VERSION` as latest, and publishes the signed appcast.
+   - On `Invalid` or `Rejected`, retrieve the notarization log, diagnose and fix the exact failure, send the fix through the review/PR gates, and submit one replacement artifact only after that fix lands.
+   - If Apple is still processing, establish a durable, persisted continuation for every remaining distribution check before exiting; live monitoring is supplemental only. Report the exact persisted stage and IDs, but do not call the production release complete.
 
-8. Close out with evidence.
-   - Report the main commit, CI checks, installed version/build, signature and hashes, prerelease URL, official workflow/submission status, GitHub stable-download target, and clean or intentionally dirty worktree state.
-   - Clearly distinguish `signed`, `notarized`, and `stapled`; never call a signed-only test build generally installable.
+9. Verify the production distribution chain after notarization.
+   - Confirm the stable GitHub release is public, non-prerelease, latest, and contains the versioned DMG, versioned app ZIP, stable `Dayline.dmg`, and signed `appcast.xml`.
+   - Download the published assets and verify hashes, versions, Developer ID signatures, hardened runtime, staples, Gatekeeper acceptance, and DMG integrity.
+   - Confirm the website download resolves to the new notarized `Dayline.dmg` and the live `https://dayline.robin.build/appcast.xml` matches the signed release asset with the new version and monotonically increasing build.
+   - Starting from an isolated installation of the previous stable version, verify that Dayline detects the production Sparkle update, shows the update action, downloads and installs it, relaunches, and reports the new version.
+   - Install the final notarized GitHub artifact into `/Applications`, replacing the earlier signed-only build, and recheck its version, signature, staple, Gatekeeper result, process liveness, and executable hash.
+
+10. Update and verify Homebrew.
+   - In `robin-liquidium/homebrew-tap`, update `Casks/dayline.rb` to the new version and the SHA-256 of the final notarized versioned DMG.
+   - Create a focused tap PR, wait for its complete test matrix and review state, fix legitimate findings, merge it, and synchronize the tap's `main`.
+   - Run `brew update`, then verify a clean install or `brew upgrade --cask robin-liquidium/tap/dayline`. Confirm the installed version, signature, staple, and Gatekeeper result.
+
+11. Close out with evidence.
+    - Report the Dayline PR and merge commit, latest-head CI and review state, stable tag and release URL, Apple submission IDs/stages, installed version/build, signatures and hashes, website download target, live Sparkle feed and previous-version upgrade result, Homebrew PR and install/upgrade result, and clean or intentionally dirty worktree state.
+    - Clearly distinguish `signed`, `notarized`, `stapled`, `submitted`, and `published`. If Apple or another durable continuation is pending, say exactly what remains instead of claiming the release is complete.

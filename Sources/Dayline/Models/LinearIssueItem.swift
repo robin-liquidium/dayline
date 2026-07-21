@@ -29,6 +29,9 @@ struct LinearIssueItem: Identifiable, Equatable {
   /// Optional Linear due date in `YYYY-MM-DD` form.
   let dueDate: String?
 
+  /// Suggested git branch name supplied by Linear.
+  let branchName: String?
+
   /// Browser URL for opening the issue in Linear.
   let url: URL?
 
