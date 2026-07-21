@@ -39,9 +39,11 @@ jobs:
 
       - name: Validate release secrets
         env:
+          APPCAST_DEPLOY_KEY: ${{ secrets.APPCAST_DEPLOY_KEY }}
           DAYLINE_SPARKLE_PRIVATE_KEY: ${{ secrets.DAYLINE_SPARKLE_PRIVATE_KEY }}
         run: |
           for name in \
+            APPCAST_DEPLOY_KEY \
             MACOS_CERTIFICATE_P12_BASE64 \
             MACOS_CERTIFICATE_PASSWORD \
             APP_STORE_CONNECT_KEY_P8_BASE64 \
@@ -53,6 +55,20 @@ jobs:
               exit 2
             fi
           done
+
+      - name: Configure appcast publisher
+        env:
+          APPCAST_DEPLOY_KEY: ${{ secrets.APPCAST_DEPLOY_KEY }}
+        run: |
+          key_path="$RUNNER_TEMP/appcast-deploy-key"
+          known_hosts_path="$RUNNER_TEMP/github-known-hosts"
+          printf '%s\n' "$APPCAST_DEPLOY_KEY" > "$key_path"
+          chmod 600 "$key_path"
+          printf '%s\n' \
+            'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
+            > "$known_hosts_path"
+          echo "APPCAST_GIT_SSH_COMMAND=ssh -i $key_path -o IdentitiesOnly=yes -o UserKnownHostsFile=$known_hosts_path" >> "$GITHUB_ENV"
+          echo "APPCAST_DEPLOY_KEY_PATH=$key_path" >> "$GITHUB_ENV"
 
       - name: Resolve Sparkle publishing tools
         run: swift build
@@ -112,5 +128,6 @@ jobs:
             security delete-keychain "$SIGNING_KEYCHAIN_PATH" || true
           fi
           rm -f \
+            "${APPCAST_DEPLOY_KEY_PATH:-}" \
             "${SIGNING_CERTIFICATE_PATH:-}" \
             "${NOTARY_KEY_PATH:-}"

@@ -10,6 +10,9 @@ APPCAST_WORK_DIR=""
 
 cleanup() {
   if [[ -n "$APPCAST_WORK_DIR" && -d "$APPCAST_WORK_DIR" ]]; then
+    if [[ -e "$APPCAST_WORK_DIR/repository/.git" ]]; then
+      git -C "$ROOT_DIR" worktree remove --force "$APPCAST_WORK_DIR/repository" || true
+    fi
     /bin/rm -rf "$APPCAST_WORK_DIR"
   fi
 }
@@ -94,7 +97,7 @@ generate_appcast() {
 
 publish_appcast() {
   local signed_appcast="${3:-}"
-  local file_json latest_tag remote_sha remote_content_sha local_content_sha encoded_content
+  local latest_tag publisher_checkout remote_content_sha local_content_sha
 
   [[ -n "$signed_appcast" && -f "$signed_appcast" ]] || { echo "Missing signed appcast: $signed_appcast" >&2; exit 2; }
   [[ -n "$REPOSITORY" ]] || REPOSITORY="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
@@ -104,9 +107,17 @@ publish_appcast() {
     exit 2
   fi
 
-  file_json="$(gh api "repos/$REPOSITORY/contents/website/public/appcast.xml?ref=main")"
-  remote_sha="$(jq -r '.sha' <<< "$file_json")"
-  remote_content_sha="$(jq -r '.content' <<< "$file_json" | tr -d '\n' | /usr/bin/base64 -D | /usr/bin/shasum -a 256 | awk '{print $1}')"
+  [[ -n "${APPCAST_GIT_SSH_COMMAND:-}" ]] || {
+    echo "Missing APPCAST_GIT_SSH_COMMAND for protected appcast publication." >&2
+    exit 2
+  }
+
+  APPCAST_WORK_DIR="$(mktemp -d "${RUNNER_TEMP:-/tmp}/dayline-appcast-publish.XXXXXX")"
+  publisher_checkout="$APPCAST_WORK_DIR/repository"
+  git fetch origin main
+  git worktree add --detach "$publisher_checkout" origin/main
+
+  remote_content_sha="$(/usr/bin/shasum -a 256 "$publisher_checkout/website/public/appcast.xml" | awk '{print $1}')"
   local_content_sha="$(/usr/bin/shasum -a 256 "$signed_appcast" | awk '{print $1}')"
 
   if [[ "$remote_content_sha" == "$local_content_sha" ]]; then
@@ -114,12 +125,13 @@ publish_appcast() {
     return
   fi
 
-  encoded_content="$(/usr/bin/base64 < "$signed_appcast" | tr -d '\n')"
-  gh api --method PUT "repos/$REPOSITORY/contents/website/public/appcast.xml" \
-    -f message="Publish $TAG update feed" \
-    -f content="$encoded_content" \
-    -f sha="$remote_sha" \
-    -f branch=main >/dev/null
+  /usr/bin/ditto "$signed_appcast" "$publisher_checkout/website/public/appcast.xml"
+  git -C "$publisher_checkout" config user.name "Dayline Release Bot"
+  git -C "$publisher_checkout" config user.email "dayline-release@users.noreply.github.com"
+  git -C "$publisher_checkout" add website/public/appcast.xml
+  git -C "$publisher_checkout" commit -m "Publish $TAG update feed"
+  GIT_SSH_COMMAND="$APPCAST_GIT_SSH_COMMAND" \
+    git -C "$publisher_checkout" push git@github.com:"$REPOSITORY".git HEAD:main
   echo "Published $TAG appcast to website/public/appcast.xml"
 }
 
