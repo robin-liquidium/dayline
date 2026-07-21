@@ -106,7 +106,11 @@ Download the notarized DMG from the
 [latest GitHub release](https://github.com/robin-liquidium/dayline/releases/latest/download/Dayline.dmg),
 open it, and drag Dayline into Applications.
 
-Homebrew installation is planned but not available yet.
+Install the latest notarized release with Homebrew:
+
+```bash
+brew install --cask robin-liquidium/tap/dayline
+```
 
 To create and install a local development build instead:
 

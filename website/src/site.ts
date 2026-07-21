@@ -7,6 +7,6 @@ export const site = {
   downloadUrl:
     "https://github.com/robin-liquidium/dayline/releases/latest/download/Dayline.dmg",
   releasesUrl: "https://github.com/robin-liquidium/dayline/releases/latest",
-  brewCommand: "brew install --cask dayline",
+  brewCommand: "brew install --cask robin-liquidium/tap/dayline",
   systemNote: "Requires macOS 26 or newer.",
 };

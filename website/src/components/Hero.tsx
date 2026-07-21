@@ -28,7 +28,7 @@ export function Hero() {
         </a>
         <CodeBox command={site.brewCommand} />
         <p className="text-xs text-mute">
-          {site.systemNote} · Homebrew cask coming soon
+          {site.systemNote}
         </p>
       </div>
 
