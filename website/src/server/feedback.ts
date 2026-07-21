@@ -27,13 +27,17 @@ interface FeedbackRateLimiterStub {
   reserve(hour: number, limit: number): Promise<boolean>;
 }
 
-interface FeedbackRateLimiterNamespace {
+export interface FeedbackRateLimiterNamespace {
   getByName(name: string): FeedbackRateLimiterStub;
+}
+
+export interface FeedbackRequestContext {
+  feedbackRateLimiter: FeedbackRateLimiterNamespace;
 }
 
 export interface FeedbackEnvironment {
   FEEDBACK_RATE_LIMIT: RateLimitBinding;
-  FEEDBACK_RATE_LIMITER: FeedbackRateLimiterNamespace;
+  FEEDBACK_RATE_LIMITER?: FeedbackRateLimiterNamespace;
   FEEDBACK_RATE_LIMIT_SECRET: string;
   GITHUB_APP_ID: string;
   GITHUB_INSTALLATION_ID: string;
@@ -62,6 +66,7 @@ export async function handleFeedbackRequest(
   request: Request,
   environment: FeedbackEnvironment,
   createIssue: IssueCreator = createGitHubIssue,
+  rateLimiter: FeedbackRateLimiterNamespace | undefined = environment.FEEDBACK_RATE_LIMITER,
 ): Promise<Response> {
   if (request.method !== "POST") {
     return jsonResponse({ error: "Method not allowed." }, 405, {
@@ -113,8 +118,11 @@ export async function handleFeedbackRequest(
   }
 
   try {
+    if (!rateLimiter) {
+      throw new Error("Feedback rate limiter is unavailable.");
+    }
     const hour = Math.floor(Date.now() / 3_600_000);
-    const reserved = await environment.FEEDBACK_RATE_LIMITER
+    const reserved = await rateLimiter
       .getByName(clientKey)
       .reserve(hour, hourlySubmissionLimit);
     if (!reserved) {
