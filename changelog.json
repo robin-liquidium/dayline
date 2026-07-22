@@ -1,0 +1,95 @@
+{
+  "releases": [
+    {
+      "version": "0.1.10",
+      "date": "2026-07-21",
+      "new": [
+        { "text": "Check for updates and manage automatic updates right from Settings", "pr": 19 }
+      ],
+      "fixed": [
+        { "text": "Hardened the release pipeline and protected automatic update publishing", "pr": 18 }
+      ]
+    },
+    {
+      "version": "0.1.9",
+      "date": "2026-07-21",
+      "new": [
+        { "text": "Submit anonymous feedback directly from the app", "pr": 16 },
+        { "text": "Global keyboard shortcuts for your favorite actions", "pr": 16 },
+        { "text": "A much richer Linear issue editor with per-team options", "pr": 16 }
+      ],
+      "fixed": [
+        { "text": "Refreshed menu header branding and website social preview", "pr": 16 }
+      ]
+    },
+    {
+      "version": "0.1.8",
+      "date": "2026-07-21",
+      "fixed": [
+        { "text": "Made releases more reliable with resumable uploads and recovery" }
+      ]
+    },
+    {
+      "version": "0.1.7",
+      "date": "2026-07-21",
+      "new": [
+        { "text": "Automatic updates — Dayline now keeps itself up to date" }
+      ]
+    },
+    {
+      "version": "0.1.6",
+      "date": "2026-07-20",
+      "fixed": [
+        { "text": "A cleaner status menu without the scroll indicator" }
+      ]
+    },
+    {
+      "version": "0.1.5",
+      "date": "2026-07-20",
+      "new": [
+        { "text": "Connect multiple Google Calendar accounts at once", "pr": 11 },
+        { "text": "Launched the Dayline website at dayline.robin.build", "pr": 5 }
+      ],
+      "fixed": [
+        { "text": "Polished status menu spacing", "pr": 13 },
+        { "text": "More resilient release notarization", "pr": 8 }
+      ]
+    },
+    {
+      "version": "0.1.4",
+      "date": "2026-07-19",
+      "new": [
+        { "text": "Sign in to Google and Linear directly — no CLI tools required", "pr": 4 }
+      ]
+    },
+    {
+      "version": "0.1.3",
+      "date": "2026-07-13",
+      "new": [
+        { "text": "See your current meeting right in the menu bar", "pr": 3 }
+      ]
+    },
+    {
+      "version": "0.1.2",
+      "date": "2026-07-08",
+      "new": [
+        { "text": "Quick notes, stored locally on your Mac", "pr": 2 },
+        { "text": "Richer Linear actions, including creating issues from the menu", "pr": 2 }
+      ]
+    },
+    {
+      "version": "0.1.1",
+      "date": "2026-07-05",
+      "fixed": [
+        { "text": "Fixed sign-in checks and added a login setting", "pr": 1 }
+      ]
+    },
+    {
+      "version": "0.1.0",
+      "date": "2026-07-02",
+      "new": [
+        { "text": "First public release — your Google Calendar agenda and Linear issues, one glance away in the menu bar" }
+      ]
+    }
+  ]
+}

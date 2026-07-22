@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsView: View {
   @EnvironmentObject private var store: StatusStore
   @EnvironmentObject private var updateService: UpdateService
+  @Environment(\.openURL) private var openURL
   @State private var isShowingFeedback = false
   @State private var linearCreateTeams: [LinearTeamOption] = []
   @State private var linearCreateProjects: [LinearProjectOption] = []
@@ -284,6 +285,11 @@ struct SettingsView: View {
         }
         .disabled(!updateService.canCheckForUpdates)
         .accessibilityIdentifier("settings.checkForUpdates")
+
+        Button("View Changelog...") {
+          openURL(URL(string: "https://dayline.robin.build/changelog")!)
+        }
+        .accessibilityIdentifier("settings.viewChangelog")
       } header: {
         Label("About", systemImage: "info.circle")
       }

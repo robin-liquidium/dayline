@@ -106,6 +106,9 @@ export function Footer({ showSupport = true }: { showSupport?: boolean }) {
             <Link to="/terms" className="transition-colors hover:text-ink">
               Terms
             </Link>
+            <Link to="/changelog" className="transition-colors hover:text-ink">
+              Changelog
+            </Link>
             <a
               href={site.githubUrl}
               target="_blank"

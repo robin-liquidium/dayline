@@ -117,6 +117,33 @@ create_draft_release() {
     -F prerelease=false
 }
 
+# release_notes_for_version renders the GitHub release body for a version from
+# the repository's changelog.json, listing each change with its pull request.
+release_notes_for_version() {
+  local version="$1"
+  local changelog_file="$ROOT_DIR/changelog.json"
+
+  if [[ ! -f "$changelog_file" ]]; then
+    return 1
+  fi
+
+  jq -er --arg version "$version" '
+    def render(items):
+      items
+      | map("- " + .text + (if .pr then " (#\(.pr))" else "" end))
+      | join("\n");
+    (.releases[] | select(.version == $version)) as $r
+    | ($r.new // []) as $new
+    | ($r.fixed // []) as $fixed
+    | [
+        if ($new | length) > 0 then "### New features\n" + render($new) else empty end,
+        if ($fixed | length) > 0 then "### Improvements and bug fixes\n" + render($fixed) else empty end
+      ]
+    | join("\n\n")
+    | select(length > 0)
+  ' "$changelog_file"
+}
+
 delete_asset_if_present() {
   local release_json="$1"
   local asset_name="$2"
@@ -338,7 +365,7 @@ finalize_accepted_dmg() {
   local release_id="$1"
   local release_json="$2"
   local state_json="$3"
-  local version app_zip_asset app_zip_sha dmg_asset dmg_sha final_dmg stable_dmg app_zip extracted_app appcast latest_tag now
+  local version app_zip_asset app_zip_sha dmg_asset dmg_sha final_dmg stable_dmg app_zip extracted_app appcast latest_tag now release_body release_notes
 
   version="$(jq -r '.version' <<< "$state_json")"
   latest_tag="$(latest_stable_tag)"
@@ -392,10 +419,17 @@ finalize_accepted_dmg() {
     return 1
   fi
 
+  release_body="Requires macOS 26 or newer. Connect Google Calendar and Linear directly from Dayline after installation."
+  if release_notes="$(release_notes_for_version "$version")"; then
+    release_body="$release_notes
+
+Requires macOS 26 or newer."
+  fi
+
   gh api --method PATCH "repos/$REPOSITORY/releases/$release_id" \
     -f tag_name="v$version" \
     -f name="$APP_NAME $version" \
-    -f body="Requires macOS 26 or newer. Connect Google Calendar and Linear directly from Dayline after installation." \
+    -f body="$release_body" \
     -F draft=false \
     -F prerelease=false \
     -f make_latest=true >/dev/null

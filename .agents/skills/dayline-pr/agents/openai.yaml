@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dayline PR"
+  short_description: "Review and land Dayline work on main without releasing"
+  default_prompt: "Use $dayline-pr to review all current Dayline changes, fix legitimate findings, and land them on main through a clean PR. Do not release."
