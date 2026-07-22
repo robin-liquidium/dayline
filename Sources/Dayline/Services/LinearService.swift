@@ -175,6 +175,15 @@ struct LinearService {
           id
           key
           name
+          issueEstimationType
+          issueEstimationAllowZero
+          issueEstimationExtended
+          inheritIssueEstimation
+          parent {
+            issueEstimationType
+            issueEstimationAllowZero
+            issueEstimationExtended
+          }
           states(first: 50) {
             nodes { id name type position }
           }
@@ -212,18 +221,21 @@ struct LinearService {
   /// Loads visible Linear projects for the issue creator project picker.
   func fetchProjectOptions() async throws -> [LinearProjectOption] {
     let query = """
-    query LinearProjects($first: Int!, $after: String) {
-      projects(first: $first, after: $after) {
-        nodes { id name }
+    query LinearProjects($first: Int!, $after: String, $filter: ProjectFilter) {
+      projects(first: $first, after: $after, filter: $filter) {
+        nodes { id name teams { nodes { id } } }
         pageInfo { hasNextPage endCursor }
       }
     }
     """
 
-    var projects: [LinearNamedNode] = []
+    var projects: [LinearProjectNode] = []
     var after: String?
     repeat {
-      var variables: [String: Any] = ["first": 50]
+      var variables: [String: Any] = [
+        "first": 50,
+        "filter": ["state": ["nin": ["completed", "canceled"]]]
+      ]
       if let after { variables["after"] = after }
       let response = try await graphQL(query, variables: variables, as: LinearProjectsResponse.self)
       projects.append(contentsOf: response.data.projects.nodes)
@@ -231,16 +243,16 @@ struct LinearService {
     } while after != nil
 
     return projects
-      .map { LinearProjectOption(id: $0.id, name: $0.name) }
+      .map { LinearProjectOption(id: $0.id, name: $0.name, teamIDs: $0.teams.nodes.map(\.id)) }
       .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
   }
 
-  /// Loads a team's cycles for the issue creator cycle picker, most recent first.
+  /// Loads a team's active and upcoming cycles for the issue creator cycle picker, most recent first.
   func fetchCycleOptions(teamID: String) async throws -> [LinearCycleOption] {
     let query = """
-    query TeamCycles($id: String!, $first: Int!, $after: String) {
+    query TeamCycles($id: String!, $first: Int!, $after: String, $filter: CycleFilter) {
       team(id: $id) {
-        cycles(first: $first, after: $after) {
+        cycles(first: $first, after: $after, filter: $filter) {
           nodes { id number name }
           pageInfo { hasNextPage endCursor }
         }
@@ -251,7 +263,11 @@ struct LinearService {
     var cycles: [LinearCycleNode] = []
     var after: String?
     repeat {
-      var variables: [String: Any] = ["id": teamID, "first": 50]
+      var variables: [String: Any] = [
+        "id": teamID,
+        "first": 50,
+        "filter": ["or": [["isActive": ["eq": true]], ["isFuture": ["eq": true]]]]
+      ]
       if let after { variables["after"] = after }
       let response = try await graphQL(query, variables: variables, as: LinearCyclesResponse.self)
       guard let connection = response.data.team?.cycles else { break }
@@ -624,10 +640,28 @@ private struct LinearProjectsData: Decodable {
 /// Project connection payload.
 private struct LinearProjectConnection: Decodable {
   /// Matching project nodes.
-  let nodes: [LinearNamedNode]
+  let nodes: [LinearProjectNode]
 
   /// Cursor metadata for the next page.
   let pageInfo: LinearPageInfo
+}
+
+/// Raw Linear project node with team associations.
+private struct LinearProjectNode: Decodable {
+  /// Project identifier.
+  let id: String
+
+  /// Project name.
+  let name: String
+
+  /// Teams the project belongs to.
+  let teams: LinearProjectTeamConnection
+}
+
+/// Team connection payload for project lookups.
+private struct LinearProjectTeamConnection: Decodable {
+  /// Associated team nodes.
+  let nodes: [LinearIDNode]
 }
 
 /// Milestone lookup data payload.
@@ -787,17 +821,52 @@ private struct LinearTeamNode: Decodable {
   /// Workflow states for the team.
   let states: LinearWorkflowStateConnection
 
+  /// Team estimation scale.
+  let issueEstimationType: String
+
+  /// Whether the team allows an explicit zero estimate.
+  let issueEstimationAllowZero: Bool
+
+  /// Whether the team extends its estimation scale.
+  let issueEstimationExtended: Bool
+
+  /// Whether the team inherits estimation settings from its parent team.
+  let inheritIssueEstimation: Bool
+
+  /// Parent team estimation settings, present for sub-teams.
+  let parent: LinearTeamEstimation?
+
   /// Converts the raw node into a picker option.
   var displayItem: LinearTeamOption {
-    LinearTeamOption(
+    let estimation = (inheritIssueEstimation ? parent : nil) ?? LinearTeamEstimation(
+      issueEstimationType: issueEstimationType,
+      issueEstimationAllowZero: issueEstimationAllowZero,
+      issueEstimationExtended: issueEstimationExtended
+    )
+    return LinearTeamOption(
       id: id,
       key: key,
       name: name,
       states: states.nodes
         .map(\.displayItem)
-        .sorted { $0.position < $1.position }
+        .sorted { $0.position < $1.position },
+      issueEstimationType: estimation.issueEstimationType,
+      issueEstimationAllowZero: estimation.issueEstimationAllowZero,
+      issueEstimationExtended: estimation.issueEstimationExtended
     )
   }
+}
+
+/// Estimation settings payload shared by teams and their parents.
+private struct LinearTeamEstimation: Decodable {
+  /// Team estimation scale.
+  let issueEstimationType: String
+
+  /// Whether an explicit zero estimate is allowed.
+  let issueEstimationAllowZero: Bool
+
+  /// Whether the estimation scale adds two larger values.
+  let issueEstimationExtended: Bool
 }
 
 /// Raw Linear user node returned by GraphQL.

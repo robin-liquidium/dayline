@@ -92,15 +92,16 @@ struct LinearIssueEditorView: View {
         Section {
           Picker("Estimate", selection: estimateBinding) {
             Text("None").tag(-1)
-            ForEach(1...8, id: \.self) { estimate in
-              Text("\(estimate)").tag(estimate)
+            ForEach(estimateOptions) { option in
+              Text(option.label).tag(option.value)
             }
           }
+          .disabled(estimateOptions.isEmpty)
           .accessibilityIdentifier("linearEditor.estimate")
 
           Picker("Project", selection: projectBinding) {
             Text("None").tag("")
-            ForEach(draft.projects) { project in
+            ForEach(projectOptions) { project in
               Text(defaultAnnotatedLabel(
                 project.label,
                 isDefault: project.id == store.linearIssueCreateDefaultProjectID
@@ -198,6 +199,8 @@ struct LinearIssueEditorView: View {
     }
     .onChange(of: draft.issue.team) { _, _ in
       pruneStateSelection()
+      pruneProjectSelection()
+      pruneEstimateSelection()
       Task { await loadTeamExtras() }
     }
     .onChange(of: draft.issue.project) { _, _ in
@@ -269,6 +272,16 @@ struct LinearIssueEditorView: View {
     draft.teams.first { $0.id == draft.issue.team }
   }
 
+  /// Projects available for the selected team.
+  private var projectOptions: [LinearProjectOption] {
+    draft.projects.filter { $0.teamIDs.isEmpty || $0.teamIDs.contains(draft.issue.team) }
+  }
+
+  /// Estimate options for the selected team's estimation scale.
+  private var estimateOptions: [LinearEstimateOption] {
+    selectedTeam?.estimateOptions ?? []
+  }
+
   /// Priority choices accepted by `linear issue create`.
   private var createPriorityOptions: [LinearPriorityOption] {
     LinearPriorityOption.allCases
@@ -337,7 +350,7 @@ struct LinearIssueEditorView: View {
 
     do {
       draft.projects = try await store.linearIssueCreateProjectOptions()
-      if draft.projects.contains(where: { $0.id == store.linearIssueCreateDefaultProjectID }) {
+      if projectOptions.contains(where: { $0.id == store.linearIssueCreateDefaultProjectID }) {
         draft.issue.project = store.linearIssueCreateDefaultProjectID
       }
     } catch {
@@ -415,6 +428,22 @@ struct LinearIssueEditorView: View {
   private func pruneStateSelection() {
     if !statusOptions.contains(where: { $0.id == draft.issue.state }) {
       draft.issue.state = defaultState(for: selectedTeam)?.id ?? ""
+    }
+  }
+
+  /// Clears the selected project when it is unavailable for the selected team.
+  private func pruneProjectSelection() {
+    if !draft.issue.project.isEmpty,
+       !projectOptions.contains(where: { $0.id == draft.issue.project }) {
+      draft.issue.project = ""
+    }
+  }
+
+  /// Clears the selected estimate when it is unavailable for the selected team.
+  private func pruneEstimateSelection() {
+    if let estimate = draft.issue.estimate,
+       !estimateOptions.contains(where: { $0.value == estimate }) {
+      draft.issue.estimate = nil
     }
   }
 
