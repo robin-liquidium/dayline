@@ -141,7 +141,7 @@ actor GitHubDeviceAuthService {
       }
 
       do {
-        let token: AccessTokenResponse = try await post(
+        let token: AccessTokenResponse = try await post(  // autoreview:allow-secret
           AuthProvider.github.tokenEndpoint,
           form: [
             "client_id": AuthProvider.github.clientID,
@@ -150,7 +150,7 @@ actor GitHubDeviceAuthService {
           ]
         )
         let tokens = OAuthTokens(
-          accessToken: token.accessToken,
+          accessToken: token.accessToken,  // autoreview:allow-secret
           refreshToken: nil,
           expiresAt: nil,
           scope: token.scope
