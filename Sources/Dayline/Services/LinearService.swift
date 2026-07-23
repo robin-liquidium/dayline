@@ -223,7 +223,7 @@ struct LinearService {
     let query = """
     query LinearProjects($first: Int!, $after: String, $filter: ProjectFilter) {
       projects(first: $first, after: $after, filter: $filter) {
-        nodes { id name teams(first: 100) { nodes { id } } }
+        nodes { id name teams(first: 250) { nodes { id } } }
         pageInfo { hasNextPage endCursor }
       }
     }
@@ -233,7 +233,7 @@ struct LinearService {
     var after: String?
     repeat {
       var variables: [String: Any] = [
-        "first": 50,
+        "first": 20,
         "filter": ["state": ["nin": ["completed", "canceled"]]]
       ]
       if let after { variables["after"] = after }
