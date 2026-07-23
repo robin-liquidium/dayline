@@ -1,6 +1,7 @@
 import data from "../../changelog.json";
 
 export type ChangelogItem = {
+  title?: string;
   text: string;
   pr?: number;
 };

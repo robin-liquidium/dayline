@@ -33,12 +33,13 @@ function ChangelogPage() {
           </p>
         </header>
 
-        <ol className="mt-12 space-y-8">
+        <ol className="mt-12 space-y-12">
           {changelog.releases.map((release, index) => (
-            <ReleaseCard
+            <ReleaseEntry
               key={release.version}
               release={release}
               isLatest={index === 0}
+              isFirst={index === 0}
             />
           ))}
         </ol>
@@ -48,75 +49,47 @@ function ChangelogPage() {
   );
 }
 
-function ReleaseCard({
+function ReleaseEntry({
   release,
   isLatest,
+  isFirst,
 }: {
   release: ChangelogRelease;
   isLatest: boolean;
+  isFirst: boolean;
 }) {
+  const items = [...(release.new ?? []), ...(release.fixed ?? [])];
+
   return (
-    <li className="rounded-3xl border border-line bg-card p-7 shadow-sm shadow-amber-900/5 sm:p-8">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="rounded-full bg-ink px-3 py-1 font-mono text-xs font-medium text-cream">
-          v{release.version}
-        </span>
+    <li className={isFirst ? "" : "border-t border-line pt-12"}>
+      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+        <h2 className="font-display text-3xl tracking-tight text-ink">
+          {release.version}
+        </h2>
         {isLatest ? (
-          <span className="rounded-full border border-glow/40 bg-glow/10 px-3 py-1 text-xs font-medium text-ember">
-            Latest
-          </span>
+          <span className="font-display text-lg italic text-ember">Latest</span>
         ) : null}
         <time className="text-sm text-mute">
           {formatChangelogDate(release.date)}
         </time>
       </div>
 
-      <div className="mt-6 space-y-6">
-        {release.new?.length ? (
-          <ReleaseSection title="New features" items={release.new} accent />
-        ) : null}
-        {release.fixed?.length ? (
-          <ReleaseSection title="Improvements & bug fixes" items={release.fixed} />
-        ) : null}
+      <div className="mt-4 space-y-3 text-[15px] leading-7 text-mute">
+        {items.map((item) => (
+          <ItemParagraph key={item.text} item={item} />
+        ))}
       </div>
     </li>
   );
 }
 
-function ReleaseSection({
-  title,
-  items,
-  accent = false,
-}: {
-  title: string;
-  items: ChangelogItem[];
-  accent?: boolean;
-}) {
+function ItemParagraph({ item }: { item: ChangelogItem }) {
   return (
-    <section>
-      <h2
-        className={`text-xs font-semibold uppercase tracking-[0.14em] ${
-          accent ? "text-ember" : "text-mute"
-        }`}
-      >
-        {title}
-      </h2>
-      <ul className="mt-3 space-y-2.5">
-        {items.map((item) => (
-          <li
-            key={item.text}
-            className="flex gap-3 text-[15px] leading-7 text-ink"
-          >
-            <span
-              aria-hidden="true"
-              className={`mt-3 h-1.5 w-1.5 shrink-0 rounded-full ${
-                accent ? "bg-glow" : "bg-line"
-              }`}
-            />
-            {item.text}
-          </li>
-        ))}
-      </ul>
-    </section>
+    <p>
+      {item.title ? (
+        <span className="text-ink">{item.title} — </span>
+      ) : null}
+      {item.text}
+    </p>
   );
 }

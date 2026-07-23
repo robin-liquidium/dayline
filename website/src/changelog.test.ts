@@ -23,6 +23,9 @@ describe("changelog data", () => {
       expect(items.length).toBeGreaterThan(0);
       for (const item of items) {
         expect(item.text.trim().length).toBeGreaterThan(0);
+        if (item.title !== undefined) {
+          expect(item.title.trim().length).toBeGreaterThan(0);
+        }
         if (item.pr !== undefined) {
           expect(Number.isInteger(item.pr)).toBe(true);
           expect(item.pr).toBeGreaterThan(0);

@@ -130,7 +130,7 @@ release_notes_for_version() {
   jq -er --arg version "$version" '
     def render(items):
       items
-      | map("- " + .text + (if .pr then " (#\(.pr))" else "" end))
+      | map("- " + (if .title then "**" + .title + "** — " else "" end) + .text + (if .pr then " (#\(.pr))" else "" end))
       | join("\n");
     (.releases[] | select(.version == $version)) as $r
     | ($r.new // []) as $new
