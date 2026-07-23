@@ -91,6 +91,50 @@ struct LinearService {
     return issues
   }
 
+  /// Loads every active issue visible to the signed-in user, not only assigned ones.
+  func fetchOpenIssues(enabledTeamIDs: Set<String>?) async throws -> [LinearIssueItem] {
+    if let enabledTeamIDs, enabledTeamIDs.isEmpty { return [] }
+    let query = """
+    query OpenIssues($first: Int!, $after: String) {
+      issues(first: $first, after: $after, filter: { state: { type: { nin: ["completed", "canceled"] } } }) {
+        nodes {
+          identifier
+          title
+          priority
+          priorityLabel
+          dueDate
+          branchName
+          url
+          state { id name type }
+          assignee { id name displayName active }
+          labels(first: 250) { nodes { id name color } }
+          team {
+            id
+            states(first: 50) {
+              nodes { id name type position }
+            }
+          }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+    """
+
+    var issues: [LinearIssueItem] = []
+    var after: String?
+    repeat {
+      var variables: [String: Any] = ["first": 50]
+      if let after { variables["after"] = after }
+      let response = try await graphQL(query, variables: variables, as: LinearIssuesResponse.self)
+      let connection = response.data.issues
+      issues.append(contentsOf: connection.nodes.map(\.displayItem).filter { issue in
+        enabledTeamIDs?.contains(issue.teamID) ?? true
+      })
+      after = connection.pageInfo.nextCursor
+    } while after != nil
+    return issues
+  }
+
   /// Updates a Linear issue to the selected workflow state.
   func updateIssueStatus(issueID: String, stateID: String) async throws -> LinearIssueItem {
     let mutation = """
@@ -651,6 +695,18 @@ private struct GraphQLErrorItem: Decodable {
 private struct LinearAPIResponse: Decodable {
   /// GraphQL data payload.
   let data: LinearData
+}
+
+/// Root GraphQL response shape for the open issue query.
+private struct LinearIssuesResponse: Decodable {
+  /// GraphQL data payload.
+  let data: LinearIssuesData
+}
+
+/// Linear GraphQL data payload for the open issue query.
+private struct LinearIssuesData: Decodable {
+  /// Open issue connection.
+  let issues: LinearAssignedIssues
 }
 
 /// Root GraphQL response shape for an issue status mutation.

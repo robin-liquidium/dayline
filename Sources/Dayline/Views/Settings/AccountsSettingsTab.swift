@@ -315,11 +315,11 @@ private struct GitHubAccountSettingsRow: View {
           ProgressView().controlSize(.small)
         } else if status.state == .connecting {
           HStack(spacing: 6) {
+            ProgressView().controlSize(.small)
             if let code = store.githubDeviceUserCode {
               CopyCodeButton(code: code, accessibilityIdentifier: "settings.account.github.copyCode")
                 .controlSize(.small)
             }
-            ProgressView().controlSize(.small)
             Button("Cancel") {
               store.cancelConnect(.github)
             }

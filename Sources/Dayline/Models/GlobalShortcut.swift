@@ -27,6 +27,19 @@ struct GlobalShortcut: Codable, Equatable {
     carbonModifiers: UInt32(controlKey | optionKey | cmdKey)
   )
 
+  /// Default global shortcut for creating a new GitHub issue: Control+Option+Command+G.
+  static let newGitHubIssueDefault = GlobalShortcut(
+    keyCode: UInt32(kVK_ANSI_G),
+    carbonModifiers: UInt32(controlKey | optionKey | cmdKey)
+  )
+
+  /// GitHub issue shortcut fallbacks used when another saved shortcut already uses G.
+  static let newGitHubIssueFallbacks = [
+    newGitHubIssueDefault,
+    GlobalShortcut(keyCode: UInt32(kVK_ANSI_J), carbonModifiers: UInt32(controlKey | optionKey | cmdKey)),
+    GlobalShortcut(keyCode: UInt32(kVK_ANSI_B), carbonModifiers: UInt32(controlKey | optionKey | cmdKey))
+  ]
+
   /// Calendar shortcut fallbacks used only when an existing saved shortcut already uses C.
   static let openGoogleCalendarFallbacks = [
     openGoogleCalendarDefault,

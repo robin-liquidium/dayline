@@ -28,6 +28,23 @@ struct IssuesSettingsTab: View {
       }
 
       Section {
+        if isGitHubConnected {
+          Picker("Default repository", selection: githubDefaultRepoBinding) {
+            Text("None").tag("")
+            ForEach(store.githubAccount.repositories.filter(\.isEnabled)) { repository in
+              Text(repository.fullName).tag(repository.fullName)
+            }
+          }
+          .accessibilityIdentifier("settings.githubCreateDefaultRepo")
+        } else {
+          Text("Connect GitHub in Accounts to configure new GitHub issue defaults.")
+            .foregroundStyle(.secondary)
+        }
+      } header: {
+        Label("New GitHub Issue Defaults", systemImage: "square.and.pencil")
+      }
+
+      Section {
         Toggle("Show issues in menu", isOn: showsLinearSectionBinding)
           .accessibilityIdentifier("settings.showsLinearSection")
 
@@ -39,6 +56,33 @@ struct IssuesSettingsTab: View {
         .accessibilityIdentifier("settings.linearIssueOrder")
       } header: {
         Label("Menu", systemImage: "list.bullet")
+      }
+
+      Section {
+        if isLinearConnected {
+          Picker("Linear issues", selection: linearIssueFilterBinding) {
+            ForEach(IssueAssigneeFilter.allCases) { filter in
+              Text(filter.label).tag(filter)
+            }
+          }
+          .accessibilityIdentifier("settings.linearIssueFilter")
+        }
+
+        if isGitHubConnected {
+          Picker("GitHub issues", selection: githubIssueFilterBinding) {
+            ForEach(IssueAssigneeFilter.allCases) { filter in
+              Text(filter.label).tag(filter)
+            }
+          }
+          .accessibilityIdentifier("settings.githubIssueFilter")
+        }
+
+        if !isLinearConnected && !isGitHubConnected {
+          Text("Connect Linear or GitHub in Accounts to choose which issues appear.")
+            .foregroundStyle(.secondary)
+        }
+      } header: {
+        Label("Shown Issues", systemImage: "line.3.horizontal.decrease.circle")
       }
     }
     .formStyle(.grouped)
@@ -58,6 +102,35 @@ struct IssuesSettingsTab: View {
   /// Whether Linear is ready for authenticated settings requests.
   private var isLinearConnected: Bool {
     store.connectionStatuses.first(where: { $0.provider == .linear })?.isConnected == true
+  }
+
+  /// Whether GitHub is connected for issue fetching.
+  private var isGitHubConnected: Bool {
+    store.connectionStatuses.first(where: { $0.provider == .github })?.isConnected == true
+  }
+
+  /// Binding that forwards the Linear issue filter to the store.
+  private var linearIssueFilterBinding: Binding<IssueAssigneeFilter> {
+    Binding(
+      get: { store.linearIssueFilter },
+      set: { store.setLinearIssueFilter($0) }
+    )
+  }
+
+  /// Binding that forwards the GitHub issue filter to the store.
+  private var githubIssueFilterBinding: Binding<IssueAssigneeFilter> {
+    Binding(
+      get: { store.githubIssueFilter },
+      set: { store.setGitHubIssueFilter($0) }
+    )
+  }
+
+  /// Binding that persists the default repository for new GitHub issues.
+  private var githubDefaultRepoBinding: Binding<String> {
+    Binding(
+      get: { store.githubIssueCreateDefaultRepo },
+      set: { store.githubIssueCreateDefaultRepo = $0 }
+    )
   }
 
   /// Linear-specific defaults shown when Linear is connected.

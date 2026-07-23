@@ -22,9 +22,12 @@ struct CopyCodeButton: View {
         didCopy = false
       }
     } label: {
-      Label(code, systemImage: didCopy ? "checkmark" : "doc.on.doc")
-        .font(.caption.monospaced())
-        .contentTransition(.symbolEffect(.replace))
+      HStack(spacing: 4) {
+        Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+        Text(code)
+      }
+      .font(.caption.monospaced())
+      .contentTransition(.symbolEffect(.replace))
     }
     .help("Copy code")
     .accessibilityLabel("Copy code \(code)")

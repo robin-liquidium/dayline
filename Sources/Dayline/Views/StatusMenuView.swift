@@ -47,9 +47,11 @@ struct StatusMenuView: View {
             )
           }
           if store.isIssuesSectionVisible, let activeSource = store.activeIssueSource {
-            IssuesSection(activeSource: activeSource) {
-              openLinearIssueCreator()
-            }
+            IssuesSection(
+              activeSource: activeSource,
+              openNewIssue: { openLinearIssueCreator() },
+              openNewGitHubIssue: { openGitHubIssueCreator() }
+            )
           }
 
           if store.showsNotesSection {
@@ -266,6 +268,12 @@ struct StatusMenuView: View {
     openWindow(id: "linearIssueCreator")
     LinearIssueEditorWindowPresenter.bringIssueWindowToFront()
   }
+
+  /// Opens the GitHub issue creator window and brings the accessory app forward.
+  private func openGitHubIssueCreator() {
+    openWindow(id: "githubIssueCreator")
+    GitHubIssueEditorWindowPresenter.bringIssueWindowToFront()
+  }
 }
 
 /// Small icon button that hides one provider's setup prompt and menu content.
@@ -306,6 +314,9 @@ private struct IssuesSection: View {
   /// Action run when the user creates a new Linear issue.
   let openNewIssue: () -> Void
 
+  /// Action run when the user creates a new GitHub issue.
+  let openNewGitHubIssue: () -> Void
+
   /// Builds the issues section.
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -319,20 +330,19 @@ private struct IssuesSection: View {
         Spacer(minLength: 0)
 
         if activeSource == .linear {
-          Button(action: openNewIssue) {
-            Image(systemName: "plus")
-              .padding(5)
-              .contentShape(Rectangle())
-              .hoverHighlight(isHovered: store.hoveredControlID == .newLinearIssue)
-          }
-          .buttonStyle(.plain)
-          .help("New Linear issue")
-          .accessibilityLabel("New Linear issue")
-          .accessibilityHint("Create a Linear issue")
-          .accessibilityIdentifier("linear.new")
-          .onHover { isHovered in
-            store.setHoveredControl(isHovered ? .newLinearIssue : nil)
-          }
+          newIssueButton(
+            action: openNewIssue,
+            controlID: .newLinearIssue,
+            help: "New Linear issue",
+            identifier: "linear.new"
+          )
+        } else {
+          newIssueButton(
+            action: openNewGitHubIssue,
+            controlID: .newGitHubIssue,
+            help: "New GitHub issue",
+            identifier: "github.new"
+          )
         }
       }
 
@@ -360,6 +370,47 @@ private struct IssuesSection: View {
       }
     }
     .animation(.smooth(duration: 0.2), value: activeSource)
+  }
+
+  /// Plus button that opens the issue creator for the active source.
+  private func newIssueButton(
+    action: @escaping () -> Void,
+    controlID: MenuControlID,
+    help: String,
+    identifier: String
+  ) -> some View {
+    Button(action: action) {
+      Image(systemName: "plus")
+        .padding(5)
+        .contentShape(Rectangle())
+        .hoverHighlight(isHovered: store.hoveredControlID == controlID)
+    }
+    .buttonStyle(.plain)
+    .help(help)
+    .accessibilityLabel(help)
+    .accessibilityHint("Create an issue")
+    .accessibilityIdentifier(identifier)
+    .onHover { isHovered in
+      store.setHoveredControl(isHovered ? controlID : nil)
+    }
+  }
+}
+
+/// Spinner row shown in an issue section while a refresh is in flight.
+private struct LoadingIssuesRow: View {
+  var body: some View {
+    HStack(spacing: 8) {
+      ProgressView()
+        .controlSize(.small)
+      Text("Loading issues...")
+        .font(.callout)
+        .foregroundStyle(.secondary)
+    }
+    .frame(maxWidth: .infinity, alignment: .center)
+    .padding(.vertical, 8)
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel("Loading issues")
+    .accessibilityIdentifier("issues.loading")
   }
 }
 
@@ -575,7 +626,8 @@ private struct ConnectionSetupRow: View {
 
       actionButton
     }
-    .padding(.horizontal, 16)
+    .padding(.leading, 16)
+    .padding(.trailing, 11)
     .padding(.vertical, 7)
     .background {
       RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -1210,8 +1262,15 @@ private struct LinearSection: View {
     VStack(alignment: .leading, spacing: 10) {
       if let error {
         MessageRow(title: "Linear unavailable", detail: error)
+          .transition(.opacity)
       } else if issues.isEmpty {
-        MessageRow(title: "No active issues", detail: nil)
+        if store.isRefreshing {
+          LoadingIssuesRow()
+            .transition(.opacity)
+        } else {
+          MessageRow(title: "No active issues", detail: nil)
+            .transition(.opacity)
+        }
       } else {
         VStack(alignment: .leading, spacing: 0) {
           ForEach(issues) { issue in
@@ -1272,6 +1331,8 @@ private struct LinearSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
       }
     }
+    .animation(.smooth(duration: 0.2), value: issues.isEmpty)
+    .animation(.smooth(duration: 0.2), value: store.isRefreshing)
   }
 
   /// Binding that anchors the status chooser to its selected issue row.
@@ -1340,8 +1401,15 @@ private struct GitHubSection: View {
     VStack(alignment: .leading, spacing: 10) {
       if let error {
         MessageRow(title: "GitHub unavailable", detail: error)
+          .transition(.opacity)
       } else if issues.isEmpty {
-        MessageRow(title: "No open issues", detail: nil)
+        if store.isRefreshing {
+          LoadingIssuesRow()
+            .transition(.opacity)
+        } else {
+          MessageRow(title: "No open issues", detail: nil)
+            .transition(.opacity)
+        }
       } else {
         VStack(alignment: .leading, spacing: 0) {
           ForEach(issues) { issue in
@@ -1369,6 +1437,8 @@ private struct GitHubSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
       }
     }
+    .animation(.smooth(duration: 0.2), value: issues.isEmpty)
+    .animation(.smooth(duration: 0.2), value: store.isRefreshing)
   }
 
   private func statusPickerBinding(for issueID: String) -> Binding<Bool> {
@@ -1419,7 +1489,7 @@ private struct GitHubIssueRow: View {
 
           if let updatedAt = issue.updatedAt {
             MetadataPill(
-              title: "Updated \(DisplayFormatters.relative.localizedString(fromTimeInterval: -updatedAt.timeIntervalSinceNow))",
+              title: "Updated \(DisplayFormatters.relative.localizedString(fromTimeInterval: updatedAt.timeIntervalSinceNow))",
               systemImage: "clock",
               color: .secondary
             )

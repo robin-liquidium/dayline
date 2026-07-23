@@ -24,6 +24,15 @@ enum AuthConfig {
       ?? bundledGitHubClientID
   }
 
+  /// URL scheme Linear redirects back to after authorization. Dev builds use a
+  /// distinct scheme so LaunchServices delivers the callback to the dev app
+  /// instead of an installed production build.
+  static var linearCallbackScheme: String {
+    ProcessInfo.processInfo.environment["DAYLINE_LINEAR_CALLBACK_SCHEME"]
+      ?? Bundle.main.object(forInfoDictionaryKey: "DaylineLinearCallbackScheme") as? String
+      ?? "dayline"
+  }
+
   /// Bundled Google OAuth client ID, empty until configured for distribution.
   private static let bundledGoogleClientID = "551177930544-9sl0govp6ok205csb939j4p2dhckrgbk.apps.googleusercontent.com"
 

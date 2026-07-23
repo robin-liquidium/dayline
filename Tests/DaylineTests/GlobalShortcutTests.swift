@@ -6,9 +6,16 @@ import Testing
 
 struct GlobalShortcutTests {
   @Test func defaultsDoNotConflictWithEachOther() {
-    #expect(GlobalShortcut.newNoteDefault != GlobalShortcut.newLinearIssueDefault)
-    #expect(GlobalShortcut.newNoteDefault != GlobalShortcut.openGoogleCalendarDefault)
-    #expect(GlobalShortcut.newLinearIssueDefault != GlobalShortcut.openGoogleCalendarDefault)
+    let defaults = [
+      GlobalShortcut.newNoteDefault,
+      GlobalShortcut.newLinearIssueDefault,
+      GlobalShortcut.openGoogleCalendarDefault,
+      GlobalShortcut.newGitHubIssueDefault
+    ]
+    #expect(Set(defaults.map { "\($0.keyCode)-\($0.carbonModifiers)" }).count == defaults.count)
+    #expect(GlobalShortcut.newGitHubIssueFallbacks.allSatisfy { $0 != GlobalShortcut.newNoteDefault })
+    #expect(GlobalShortcut.newGitHubIssueFallbacks.allSatisfy { $0 != GlobalShortcut.newLinearIssueDefault })
+    #expect(GlobalShortcut.newGitHubIssueFallbacks.allSatisfy { $0 != GlobalShortcut.openGoogleCalendarDefault })
   }
 
   @Test func defaultsUseControlOptionCommand() {
@@ -16,6 +23,7 @@ struct GlobalShortcutTests {
     #expect(GlobalShortcut.newNoteDefault.carbonModifiers == expectedModifiers)
     #expect(GlobalShortcut.newLinearIssueDefault.carbonModifiers == expectedModifiers)
     #expect(GlobalShortcut.openGoogleCalendarDefault.carbonModifiers == expectedModifiers)
+    #expect(GlobalShortcut.newGitHubIssueDefault.carbonModifiers == expectedModifiers)
   }
 
   @Test func codableRoundTrip() throws {
@@ -29,6 +37,7 @@ struct GlobalShortcutTests {
     #expect(GlobalShortcut.newNoteDefault.displayString.hasSuffix("N"))
     #expect(GlobalShortcut.newLinearIssueDefault.displayString.hasSuffix("L"))
     #expect(GlobalShortcut.openGoogleCalendarDefault.displayString.hasSuffix("C"))
+    #expect(GlobalShortcut.newGitHubIssueDefault.displayString.hasSuffix("G"))
   }
 
   @Test func eventWithoutCommandControlOrOptionIsRejected() {

@@ -63,6 +63,13 @@ struct DaylineApp: App {
     .defaultSize(width: 620, height: 600)
     .handlesExternalEvents(matching: [])
 
+    Window("New GitHub Issue", id: "githubIssueCreator") {
+      GitHubIssueEditorView()
+        .environmentObject(store)
+    }
+    .defaultSize(width: 620, height: 520)
+    .handlesExternalEvents(matching: [])
+
     Window("\(appDisplayName) Settings", id: "settings") {
       SettingsView()
         .environmentObject(store)
@@ -101,6 +108,10 @@ private struct MenuBarLabelView: View {
     .onChange(of: store.linearIssueCreationRequestID) {
       openWindow(id: "linearIssueCreator")
       LinearIssueEditorWindowPresenter.bringIssueWindowToFront()
+    }
+    .onChange(of: store.githubIssueCreationRequestID) {
+      openWindow(id: "githubIssueCreator")
+      GitHubIssueEditorWindowPresenter.bringIssueWindowToFront()
     }
     .onChange(of: store.meetingAlertEvent, initial: true) {
       if let event = store.meetingAlertEvent {

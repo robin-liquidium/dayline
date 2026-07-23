@@ -99,6 +99,17 @@ struct ShortcutsSettingsTab: View {
         }
         .accessibilityIdentifier("settings.newLinearIssueShortcut")
 
+        LabeledContent("New GitHub issue") {
+          ShortcutRecorderView(
+            shortcut: store.newGitHubIssueShortcut,
+            defaultShortcut: .newGitHubIssueDefault,
+            accessibilityLabel: "New GitHub issue shortcut"
+          ) { candidate in
+            recordNewGitHubIssueShortcut(candidate)
+          }
+        }
+        .accessibilityIdentifier("settings.newGitHubIssueShortcut")
+
         LabeledContent("Open Google Calendar") {
           ShortcutRecorderView(
             shortcut: store.openGoogleCalendarShortcut,
@@ -173,37 +184,44 @@ struct ShortcutsSettingsTab: View {
     Binding(get: { store.assigneePickerHotkey }, set: { store.setAssigneePickerHotkey($0) })
   }
 
-  /// Persists a recorded new-note shortcut unless it collides with the issue shortcut.
+  /// Persists a recorded new-note shortcut unless it collides with another global shortcut.
   private func recordNewNoteShortcut(_ candidate: GlobalShortcut) {
-    guard candidate != store.newLinearIssueShortcut,
-          candidate != store.openGoogleCalendarShortcut else {
-      globalShortcutError = "\(candidate.displayString) is already used by another global shortcut."
-      return
-    }
-    globalShortcutError = nil
-    _ = store.setNewNoteShortcut(candidate)
+    recordShortcut(candidate, excluding: store.newNoteShortcut) { store.setNewNoteShortcut($0) }
   }
 
-  /// Persists a recorded new-issue shortcut unless it collides with the note shortcut.
+  /// Persists a recorded new-issue shortcut unless it collides with another global shortcut.
   private func recordNewLinearIssueShortcut(_ candidate: GlobalShortcut) {
-    guard candidate != store.newNoteShortcut,
-          candidate != store.openGoogleCalendarShortcut else {
-      globalShortcutError = "\(candidate.displayString) is already used by another global shortcut."
-      return
-    }
-    globalShortcutError = nil
-    _ = store.setNewLinearIssueShortcut(candidate)
+    recordShortcut(candidate, excluding: store.newLinearIssueShortcut) { store.setNewLinearIssueShortcut($0) }
   }
 
   /// Persists the Google Calendar shortcut unless it collides with another global shortcut.
   private func recordOpenGoogleCalendarShortcut(_ candidate: GlobalShortcut) {
-    guard candidate != store.newNoteShortcut,
-          candidate != store.newLinearIssueShortcut else {
+    recordShortcut(candidate, excluding: store.openGoogleCalendarShortcut) { store.setOpenGoogleCalendarShortcut($0) }
+  }
+
+  /// Persists the GitHub issue shortcut unless it collides with another global shortcut.
+  private func recordNewGitHubIssueShortcut(_ candidate: GlobalShortcut) {
+    recordShortcut(candidate, excluding: store.newGitHubIssueShortcut) { store.setNewGitHubIssueShortcut($0) }
+  }
+
+  /// Rejects candidates already bound to another global shortcut, otherwise persists via `apply`.
+  private func recordShortcut(
+    _ candidate: GlobalShortcut,
+    excluding current: GlobalShortcut,
+    apply: (GlobalShortcut) -> Bool
+  ) {
+    let others = [
+      store.newNoteShortcut,
+      store.newLinearIssueShortcut,
+      store.openGoogleCalendarShortcut,
+      store.newGitHubIssueShortcut
+    ].filter { $0 != current }
+    guard !others.contains(candidate) else {
       globalShortcutError = "\(candidate.displayString) is already used by another global shortcut."
       return
     }
     globalShortcutError = nil
-    _ = store.setOpenGoogleCalendarShortcut(candidate)
+    _ = apply(candidate)
   }
 
   /// Status picker choices plus any existing custom stored value.

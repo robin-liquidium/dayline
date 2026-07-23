@@ -92,6 +92,43 @@ struct GitHubService: Sendable {
     return Array(issues.prefix(25))
   }
 
+  /// Returns up to 25 open issues from enabled repositories, not only assigned ones.
+  func fetchOpenIssues(enabledRepositories: Set<String>) async throws -> [GitHubIssueItem] {
+    let issues = try await withThrowingTaskGroup(of: [GitHubIssueItem].self) { group in
+      for repo in enabledRepositories {
+        group.addTask {
+          try await self.fetchRepoIssues(repoFullName: repo)
+        }
+      }
+      var collected: [GitHubIssueItem] = []
+      for try await batch in group {
+        collected.append(contentsOf: batch)
+      }
+      return collected
+    }
+    return Array(
+      issues
+        .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
+        .prefix(25)
+    )
+  }
+
+  /// Returns open issues (excluding pull requests) from one repository.
+  private func fetchRepoIssues(repoFullName repo: String) async throws -> [GitHubIssueItem] {
+    var components = URLComponents(string: "https://api.github.com/repos/\(repo)/issues")!
+    components.queryItems = [
+      URLQueryItem(name: "state", value: "open"),
+      URLQueryItem(name: "sort", value: "updated"),
+      URLQueryItem(name: "direction", value: "desc"),
+      URLQueryItem(name: "per_page", value: "100")
+    ]
+    let batch: [SearchItem] = try await request(components.url!)
+    return batch.compactMap { item in
+      guard item.pullRequest == nil else { return nil }
+      return item.displayItem(repoFullName: repo)
+    }
+  }
+
   func fetchLabels(repoFullName: String) async throws -> [GitHubLabelOption] {
     try await fetchPaged(repoFullName: repoFullName, suffix: "labels", as: LabelResponse.self)
       .map(\.displayItem)
@@ -102,6 +139,30 @@ struct GitHubService: Sendable {
     try await fetchPaged(repoFullName: repoFullName, suffix: "assignees", as: UserResponse.self)
       .map { GitHubAssigneeOption(login: $0.login) }
       .sorted { $0.login.localizedStandardCompare($1.login) == .orderedAscending }
+  }
+
+  /// Creates an issue and returns it for optimistic display before indexes catch up.
+  @discardableResult
+  func createIssue(repoFullName: String, title: String, body: String, labels: [String], assignees: [String]) async throws -> GitHubIssueItem {
+    var payload: [String: Any] = ["title": title]
+    if !body.isEmpty { payload["body"] = body }
+    if !labels.isEmpty { payload["labels"] = labels }
+    if !assignees.isEmpty { payload["assignees"] = assignees }
+    let created: CreatedIssueResponse = try await request(
+      try endpoint(repoFullName: repoFullName, suffix: "issues"),
+      method: "POST",
+      body: payload
+    )
+    return GitHubIssueItem(
+      id: created.nodeID,
+      title: created.title,
+      repoFullName: repoFullName,
+      number: created.number,
+      url: URL(string: created.htmlURL),
+      updatedAt: created.updatedAt,
+      labels: created.labels.map(\.displayItem),
+      assignees: created.assignees.map { GitHubAssigneeOption(login: $0.login) }
+    )
   }
 
   func updateIssueState(repoFullName: String, number: Int, isOpen: Bool) async throws {
@@ -243,6 +304,21 @@ struct GitHubService: Sendable {
     var displayItem: GitHubLabelOption { GitHubLabelOption(name: name, color: color) }
   }
   private struct IssueMutationResponse: Decodable, Sendable { let id: Int }
+
+  /// Response of the create-issue endpoint; lacks `repositoryUrl`, so the repo is filled in by the caller.
+  private struct CreatedIssueResponse: Decodable, Sendable {
+    let nodeID: String
+    let title: String
+    let number: Int
+    let htmlURL: String
+    let updatedAt: Date?
+    let labels: [LabelResponse]
+    let assignees: [UserResponse]
+
+    enum CodingKeys: String, CodingKey {
+      case nodeID = "nodeId", title, number, htmlURL = "htmlUrl", updatedAt, labels, assignees
+    }
+  }
   private struct AssigneesResponse: Decodable, Sendable { let assignees: [UserResponse] }
   private struct MessageEnvelope: Decodable, Sendable { let message: String? }
 }

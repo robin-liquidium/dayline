@@ -14,6 +14,9 @@ enum MenuControlID {
   /// Linear issue creation button.
   case newLinearIssue
 
+  /// GitHub issue creation button.
+  case newGitHubIssue
+
   /// Linear issue reveal-more row.
   case moreIssues
 

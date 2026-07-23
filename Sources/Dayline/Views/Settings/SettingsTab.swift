@@ -80,7 +80,10 @@ enum SettingsSearchCatalog {
     SettingsSearchItem(id: "linearCreateDefaultPriority", title: "Default priority", section: "New Linear Issue Defaults", tab: .issues, keywords: ["linear defaults", "new issue", "urgent"]),
     SettingsSearchItem(id: "linearCreateDefaultProject", title: "Default project", section: "New Linear Issue Defaults", tab: .issues, keywords: ["linear defaults", "new issue"]),
     SettingsSearchItem(id: "linearCreateDefaultLabel", title: "Default label", section: "New Linear Issue Defaults", tab: .issues, keywords: ["linear defaults", "new issue", "tag"]),
+    SettingsSearchItem(id: "githubCreateDefaultRepo", title: "Default repository", section: "New GitHub Issue Defaults", tab: .issues, keywords: ["github defaults", "new issue", "repo"]),
     SettingsSearchItem(id: "linearIssueOrder", title: "Linear issue order", section: "Menu", tab: .issues, keywords: ["sort issues", "issue sorting", "linear order"]),
+    SettingsSearchItem(id: "linearIssueFilter", title: "Linear issues", section: "Shown Issues", tab: .issues, keywords: ["assigned to me", "all open issues", "filter", "issue filter"]),
+    SettingsSearchItem(id: "githubIssueFilter", title: "GitHub issues", section: "Shown Issues", tab: .issues, keywords: ["assigned to me", "all open issues", "filter", "issue filter"]),
 
     SettingsSearchItem(id: "defaultNoteCount", title: "Notes shown", section: "Menu", tab: .notes, keywords: ["note count", "number of notes"]),
     SettingsSearchItem(id: "localNoteSortOrder", title: "Notes sort", section: "Menu", tab: .notes, keywords: ["note order", "sort notes"]),
@@ -94,6 +97,7 @@ enum SettingsSearchCatalog {
     SettingsSearchItem(id: "assigneePickerHotkey", title: "Change assignees", section: "Hover Shortcuts", tab: .shortcuts, keywords: ["hotkey", "hover", "assign"]),
     SettingsSearchItem(id: "newNoteShortcut", title: "New note", section: "Global Shortcuts", tab: .shortcuts, keywords: ["hotkey", "keyboard shortcut", "global", "note"]),
     SettingsSearchItem(id: "newLinearIssueShortcut", title: "New Linear issue", section: "Global Shortcuts", tab: .shortcuts, keywords: ["hotkey", "keyboard shortcut", "global", "issue"]),
+    SettingsSearchItem(id: "newGitHubIssueShortcut", title: "New GitHub issue", section: "Global Shortcuts", tab: .shortcuts, keywords: ["hotkey", "keyboard shortcut", "global", "issue", "github"]),
     SettingsSearchItem(id: "openGoogleCalendarShortcut", title: "Open Google Calendar", section: "Global Shortcuts", tab: .shortcuts, keywords: ["hotkey", "keyboard shortcut", "global", "calendar"]),
   ]
 }

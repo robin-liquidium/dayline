@@ -68,10 +68,10 @@ enum AuthProvider: String, CaseIterable, Identifiable, Sendable {
     case .google:
       Self.googleReversedClientIDScheme(from: clientID)
     case .linear:
-      "dayline"
+      AuthConfig.linearCallbackScheme
     case .github:
       // GitHub uses the device authorization grant, which has no redirect.
-      "dayline"
+      AuthConfig.linearCallbackScheme
     }
   }
 
@@ -81,9 +81,9 @@ enum AuthProvider: String, CaseIterable, Identifiable, Sendable {
     case .google:
       "\(callbackScheme):/oauth/callback"
     case .linear:
-      "dayline://oauth/callback"
+      "\(callbackScheme)://oauth/callback"
     case .github:
-      "dayline://oauth/github/callback"
+      "\(callbackScheme)://oauth/github/callback"
     }
   }
 

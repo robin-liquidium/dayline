@@ -274,6 +274,19 @@ final class StatusStore: ObservableObject {
     }
   }
 
+  /// Which Linear issues appear in the menu.
+  @Published private(set) var linearIssueFilter: IssueAssigneeFilter
+
+  /// Which GitHub issues appear in the menu.
+  @Published private(set) var githubIssueFilter: IssueAssigneeFilter
+
+  /// Repository preselected when opening the GitHub issue creator.
+  @Published var githubIssueCreateDefaultRepo: String {
+    didSet {
+      UserDefaults.standard.set(githubIssueCreateDefaultRepo, forKey: Self.githubIssueCreateDefaultRepoKey)
+    }
+  }
+
   /// Team preselected when opening the Linear issue creator.
   @Published var linearIssueCreateDefaultTeamID: String {
     didSet {
@@ -388,11 +401,17 @@ final class StatusStore: ObservableObject {
   /// Global shortcut that opens Google Calendar from anywhere.
   @Published private(set) var openGoogleCalendarShortcut: GlobalShortcut
 
+  /// Global shortcut that opens the GitHub issue creator from anywhere.
+  @Published private(set) var newGitHubIssueShortcut: GlobalShortcut
+
   /// Changes when a global hotkey needs to present a new note editor.
   @Published private(set) var noteCreationRequestID = UUID()
 
   /// Changes when a global hotkey needs to present the Linear issue creator.
   @Published private(set) var linearIssueCreationRequestID = UUID()
+
+  /// Changes when a global hotkey needs to present the GitHub issue creator.
+  @Published private(set) var githubIssueCreationRequestID = UUID()
 
   /// Stable system image for the menu bar item.
   var menuBarSystemImage: String {
@@ -438,6 +457,9 @@ final class StatusStore: ObservableObject {
   private static let dismissedProvidersKey = "dismissedProviders"
   private static let linearIssueOrderKey = "linearIssueOrder"
   private static let linearCopyStyleKey = "linearCopyStyle"
+  private static let linearIssueFilterKey = "linearIssueFilter"
+  private static let githubIssueFilterKey = "githubIssueFilter"
+  private static let githubIssueCreateDefaultRepoKey = "githubIssueCreateDefaultRepo"
   private static let linearIssueCreateDefaultTeamIDKey = "linearIssueCreateDefaultTeamID"
   private static let linearIssueCreateDefaultStateIDKey = "linearIssueCreateDefaultStateID"
   private static let linearIssueCreateDefaultPriorityKey = "linearIssueCreateDefaultPriority"
@@ -452,6 +474,7 @@ final class StatusStore: ObservableObject {
   private static let newNoteShortcutKey = "newNoteGlobalShortcut"
   private static let newLinearIssueShortcutKey = "newLinearIssueGlobalShortcut"
   private static let openGoogleCalendarShortcutKey = "openGoogleCalendarGlobalShortcut"
+  private static let newGitHubIssueShortcutKey = "newGitHubIssueGlobalShortcut"
   private static let defaultMenuBarEventLeadTimeMinutes = 30
   private static let defaultMenuBarEventPostStartGraceMinutes = 0
   private static let fallbackDefaultVisibleNoteCount = 3
@@ -473,6 +496,7 @@ final class StatusStore: ObservableObject {
   private var googleSessions: [UUID: OAuthSession] = [:]
   private var allIssues: [LinearIssueItem] = []
   private var allNotes: [LocalNoteItem] = []
+  private var optimisticGitHubIssues: [(issue: GitHubIssueItem, insertedAt: Date)] = []
   private var refreshTimer: Timer?
   private var menuBarClockTimer: Timer?
   private var refreshRequested = false
@@ -539,6 +563,17 @@ final class StatusStore: ObservableObject {
     self.newLinearIssueShortcut = linearShortcut
     self.openGoogleCalendarShortcut = calendarShortcut
     Self.persistShortcut(calendarShortcut, forKey: Self.openGoogleCalendarShortcutKey)
+    let requestedGitHubShortcut = Self.loadShortcut(
+      forKey: Self.newGitHubIssueShortcutKey,
+      defaultValue: .newGitHubIssueDefault
+    )
+    let otherShortcuts = [noteShortcut, linearShortcut, calendarShortcut]
+    let githubShortcut = otherShortcuts.contains(requestedGitHubShortcut)
+      ? GlobalShortcut.newGitHubIssueFallbacks.first { !otherShortcuts.contains($0) }
+        ?? .newGitHubIssueDefault
+      : requestedGitHubShortcut
+    self.newGitHubIssueShortcut = githubShortcut
+    Self.persistShortcut(githubShortcut, forKey: Self.newGitHubIssueShortcutKey)
     self.showsCalendarSourceNames = defaults.object(forKey: Self.showsCalendarSourceNamesKey) as? Bool ?? true
     self.showsCalendarSection = defaults.object(forKey: Self.showsCalendarSectionKey) as? Bool ?? true
     self.showsLinearSection = defaults.object(forKey: Self.showsLinearSectionKey) as? Bool ?? true
@@ -551,6 +586,9 @@ final class StatusStore: ObservableObject {
     )
     self.linearIssueOrder = LinearIssueOrder(rawValue: UserDefaults.standard.string(forKey: Self.linearIssueOrderKey) ?? "") ?? .priority
     self.linearCopyStyle = LinearCopyStyle(rawValue: UserDefaults.standard.string(forKey: Self.linearCopyStyleKey) ?? "") ?? .link
+    self.linearIssueFilter = IssueAssigneeFilter(rawValue: defaults.string(forKey: Self.linearIssueFilterKey) ?? "") ?? .assignedToMe
+    self.githubIssueFilter = IssueAssigneeFilter(rawValue: defaults.string(forKey: Self.githubIssueFilterKey) ?? "") ?? .assignedToMe
+    self.githubIssueCreateDefaultRepo = defaults.string(forKey: Self.githubIssueCreateDefaultRepoKey) ?? ""
     self.linearIssueCreateDefaultTeamID = defaults.string(forKey: Self.linearIssueCreateDefaultTeamIDKey) ?? ""
     self.linearIssueCreateDefaultStateID = defaults.string(forKey: Self.linearIssueCreateDefaultStateIDKey) ?? ""
     self.linearIssueCreateDefaultPriority = Self.storedInteger(
@@ -703,7 +741,8 @@ final class StatusStore: ObservableObject {
 
     switch await githubResult {
     case .success(let fetchedIssues)? where connectionRevisions[.github, default: 0] == githubRevision && isConnected(.github):
-      githubIssues = fetchedIssues.filter { enabledGitHubRepositories.contains($0.repoFullName.lowercased()) }
+      let visibleIssues = fetchedIssues.filter { enabledGitHubRepositories.contains($0.repoFullName.lowercased()) }
+      githubIssues = mergingOptimisticGitHubIssues(into: visibleIssues)
       githubError = nil
     case .failure(let error)? where connectionRevisions[.github, default: 0] == githubRevision && isConnected(.github):
       handleFetchFailure(error, for: .github)
@@ -712,6 +751,7 @@ final class StatusStore: ObservableObject {
       break
     case nil:
       githubIssues = []
+      optimisticGitHubIssues = []
       githubError = nil
     }
 
@@ -1049,6 +1089,7 @@ final class StatusStore: ObservableObject {
       await githubAuth.signOut()
       updateConnectionStatus(.github, state: .disconnected, detail: nil, accountLabel: nil)
       githubIssues = []
+      optimisticGitHubIssues = []
       githubError = nil
       return
     }
@@ -1142,6 +1183,22 @@ final class StatusStore: ObservableObject {
 
   private var enabledLinearTeamIDs: Set<String> {
     Set(linearAccount.teams.filter(\.isEnabled).map(\.id))
+  }
+
+  /// Persists which Linear issues appear in the menu and refreshes the list.
+  func setLinearIssueFilter(_ filter: IssueAssigneeFilter) {
+    guard filter != linearIssueFilter else { return }
+    linearIssueFilter = filter
+    UserDefaults.standard.set(filter.rawValue, forKey: Self.linearIssueFilterKey)
+    Task { await refresh() }
+  }
+
+  /// Persists which GitHub issues appear in the menu and refreshes the list.
+  func setGitHubIssueFilter(_ filter: IssueAssigneeFilter) {
+    guard filter != githubIssueFilter else { return }
+    githubIssueFilter = filter
+    UserDefaults.standard.set(filter.rawValue, forKey: Self.githubIssueFilterKey)
+    Task { await refresh() }
   }
 
   private var linearIssueTeamFilter: Set<String>? {
@@ -1252,6 +1309,15 @@ final class StatusStore: ObservableObject {
     guard registerGlobalShortcut(shortcut, for: .openGoogleCalendar) else { return false }
     openGoogleCalendarShortcut = shortcut
     Self.persistShortcut(shortcut, forKey: Self.openGoogleCalendarShortcutKey)
+    return true
+  }
+
+  /// Persists a new global shortcut for creating GitHub issues selected from Settings.
+  @discardableResult
+  func setNewGitHubIssueShortcut(_ shortcut: GlobalShortcut) -> Bool {
+    guard registerGlobalShortcut(shortcut, for: .newGitHubIssue) else { return false }
+    newGitHubIssueShortcut = shortcut
+    Self.persistShortcut(shortcut, forKey: Self.newGitHubIssueShortcutKey)
     return true
   }
 
@@ -2028,17 +2094,95 @@ final class StatusStore: ObservableObject {
     }
 
     try await linearService.createIssue(draft: draft)
+    lastUpdatedAt = Date()
+    Task { await refresh() }
+  }
 
-    do {
-      allIssues = try await linearService.fetchAssignedIssues(enabledTeamIDs: linearIssueTeamFilter)
-      visibleIssueCount = max(Self.initialVisibleIssueCount, min(visibleIssueCount, allIssues.count))
-      applyLinearIssueOrder()
-      linearError = nil
-    } catch {
-      linearError = "Issue created, but refresh failed: \(error.localizedDescription)"
+  /// Loads a repository's assignable collaborators for the GitHub issue creator.
+  func githubIssueCreateAssigneeOptions(repoFullName: String) async throws -> [GitHubAssigneeOption] {
+    if let mockData {
+      var logins = Set(mockData.githubIssues.flatMap { $0.assignees.map(\.login) })
+      if let own = connectionStatuses.first(where: { $0.provider == .github })?.accountLabel {
+        logins.insert(own)
+      }
+      return logins.sorted().map { GitHubAssigneeOption(login: $0) }
+    }
+    return try await githubService.fetchAssignees(repoFullName: repoFullName)
+  }
+
+  /// Loads a repository's labels for the GitHub issue creator.
+  func githubIssueCreateLabelOptions(repoFullName: String) async throws -> [GitHubLabelOption] {
+    if let mockData {
+      return mockData.githubIssues
+        .flatMap(\.labels)
+        .reduce(into: [String: GitHubLabelOption]()) { $0[$1.name] = $1 }
+        .values
+        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+    return try await githubService.fetchLabels(repoFullName: repoFullName)
+  }
+
+  /// Creates a GitHub issue in a repository, shows it optimistically, and refreshes assigned issues.
+  func createGitHubIssue(repoFullName: String, title: String, body: String, labels: [String], assignees: [String]) async throws {
+    if let mockData {
+      let knownLabels = mockData.githubIssues.flatMap(\.labels)
+      githubIssues.insert(GitHubIssueItem(
+        id: "mock-github-\(UUID().uuidString)",
+        title: title,
+        repoFullName: repoFullName,
+        number: (githubIssues.map(\.number).max() ?? 100) + 1,
+        url: URL(string: "https://github.com/\(repoFullName)"),
+        updatedAt: Date(),
+        labels: labels.map { name in
+          knownLabels.first(where: { $0.name == name }) ?? GitHubLabelOption(name: name, color: "cccccc")
+        },
+        assignees: assignees.map { GitHubAssigneeOption(login: $0) }
+      ), at: 0)
+      lastUpdatedAt = Date()
+      return
     }
 
+    let created = try await githubService.createIssue(
+      repoFullName: repoFullName,
+      title: title,
+      body: body,
+      labels: labels,
+      assignees: assignees
+    )
+    insertOptimisticGitHubIssue(created)
     lastUpdatedAt = Date()
+    Task { await refresh() }
+  }
+
+  /// Shows a freshly created issue until GitHub's search-backed feeds include it.
+  private func insertOptimisticGitHubIssue(_ issue: GitHubIssueItem) {
+    guard matchesCurrentGitHubFilter(issue) else { return }
+    optimisticGitHubIssues.removeAll { $0.issue.id == issue.id }
+    optimisticGitHubIssues.append((issue: issue, insertedAt: Date()))
+    githubIssues.removeAll { $0.id == issue.id }
+    githubIssues.insert(issue, at: 0)
+  }
+
+  /// Whether an issue belongs in the feed selected by the current GitHub filter.
+  private func matchesCurrentGitHubFilter(_ issue: GitHubIssueItem) -> Bool {
+    switch githubIssueFilter {
+    case .allOpen:
+      return true
+    case .assignedToMe:
+      let ownLogin = connectionStatuses.first(where: { $0.provider == .github })?.accountLabel?.lowercased()
+      return ownLogin != nil && issue.assignees.contains { $0.login.lowercased() == ownLogin }
+    }
+  }
+
+  /// Reconciles optimistic issues with a fetched feed, expiring entries GitHub still has not indexed.
+  private func mergingOptimisticGitHubIssues(into fetched: [GitHubIssueItem]) -> [GitHubIssueItem] {
+    let cutoff = Date().addingTimeInterval(-90)
+    optimisticGitHubIssues.removeAll { $0.insertedAt < cutoff }
+    let fetchedIDs = Set(fetched.map(\.id))
+    optimisticGitHubIssues.removeAll { fetchedIDs.contains($0.issue.id) }
+    let missing = optimisticGitHubIssues.map(\.issue)
+      .filter { !fetchedIDs.contains($0.id) && matchesCurrentGitHubFilter($0) }
+    return missing + fetched
   }
 
   /// Returns a local note by identifier.
@@ -2377,6 +2521,9 @@ final class StatusStore: ObservableObject {
       case .newLinearIssue:
         guard self.isIssuesSectionVisible, self.availableIssueSources.contains(.linear) else { return }
         self.linearIssueCreationRequestID = UUID()
+      case .newGitHubIssue:
+        guard self.isIssuesSectionVisible, self.availableIssueSources.contains(.github) else { return }
+        self.githubIssueCreationRequestID = UUID()
       case .openGoogleCalendar:
         self.openGoogleCalendar()
       }
@@ -2389,12 +2536,15 @@ final class StatusStore: ObservableObject {
     let noteStatus = globalHotkeyService.update(shortcut: newNoteShortcut, for: .newNote)
     let linearStatus = globalHotkeyService.update(shortcut: newLinearIssueShortcut, for: .newLinearIssue)
     let calendarStatus = globalHotkeyService.update(shortcut: openGoogleCalendarShortcut, for: .openGoogleCalendar)
+    let githubStatus = globalHotkeyService.update(shortcut: newGitHubIssueShortcut, for: .newGitHubIssue)
     if noteStatus != noErr {
       globalShortcutError = Self.globalShortcutRegistrationError(newNoteShortcut, status: noteStatus)
     } else if linearStatus != noErr {
       globalShortcutError = Self.globalShortcutRegistrationError(newLinearIssueShortcut, status: linearStatus)
     } else if calendarStatus != noErr {
       globalShortcutError = Self.globalShortcutRegistrationError(openGoogleCalendarShortcut, status: calendarStatus)
+    } else if githubStatus != noErr {
+      globalShortcutError = Self.globalShortcutRegistrationError(newGitHubIssueShortcut, status: githubStatus)
     }
   }
 
@@ -2855,18 +3005,38 @@ final class StatusStore: ObservableObject {
   /// Loads Linear issues and packages thrown errors as `Result`.
   private func loadLinearIssues() async -> Result<[LinearIssueItem], Error> {
     do {
-      return .success(try await linearService.fetchAssignedIssues(enabledTeamIDs: linearIssueTeamFilter))
+      return .success(try await fetchLinearIssues())
     } catch {
       return .failure(error)
     }
   }
 
-  /// Loads open GitHub issues assigned to the signed-in user.
+  /// Loads open GitHub issues matching the configured filter.
   private func loadGitHubIssues() async -> Result<[GitHubIssueItem], Error> {
     do {
-      return .success(try await githubService.fetchAssignedIssues(enabledRepositories: enabledGitHubRepositories))
+      return .success(try await fetchGitHubIssues())
     } catch {
       return .failure(error)
+    }
+  }
+
+  /// Fetches Linear issues matching the configured assignee filter.
+  private func fetchLinearIssues() async throws -> [LinearIssueItem] {
+    switch linearIssueFilter {
+    case .assignedToMe:
+      return try await linearService.fetchAssignedIssues(enabledTeamIDs: linearIssueTeamFilter)
+    case .allOpen:
+      return try await linearService.fetchOpenIssues(enabledTeamIDs: linearIssueTeamFilter)
+    }
+  }
+
+  /// Fetches GitHub issues matching the configured assignee filter.
+  private func fetchGitHubIssues() async throws -> [GitHubIssueItem] {
+    switch githubIssueFilter {
+    case .assignedToMe:
+      return try await githubService.fetchAssignedIssues(enabledRepositories: enabledGitHubRepositories)
+    case .allOpen:
+      return try await githubService.fetchOpenIssues(enabledRepositories: enabledGitHubRepositories)
     }
   }
 

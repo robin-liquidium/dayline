@@ -9,6 +9,7 @@ final class GlobalHotkeyService {
     case newNote = 1
     case newLinearIssue = 2
     case openGoogleCalendar = 3
+    case newGitHubIssue = 4
   }
 
   /// Four-character hotkey signature: 'DYLN'.
