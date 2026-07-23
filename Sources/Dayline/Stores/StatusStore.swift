@@ -522,6 +522,19 @@ final class StatusStore: ObservableObject {
     }
     if let mockData {
       applyMockData(mockData)
+      if ProcessInfo.processInfo.arguments.contains("--mock-meeting-alert") {
+        let now = Date()
+        meetingAlertEvent = CalendarEventItem(
+          id: "mock-meeting-alert",
+          title: "Product stand-up",
+          startDate: now,
+          endDate: now.addingTimeInterval(30 * 60),
+          location: nil,
+          calendarURL: URL(string: "https://calendar.google.com"),
+          openURL: URL(string: "https://meet.google.com/mock-dayline-demo"),
+          sourceCalendarNames: ["Product Team"]
+        )
+      }
     } else {
       do {
         googleAccounts = try googleAccountRepository.loadAndMigrateLegacyAccount().map {
