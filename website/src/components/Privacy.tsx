@@ -7,8 +7,8 @@ type Row = {
 
 const rows: Array<Row> = [
   { label: "OAuth tokens in the macOS Keychain", on: true },
-  { label: "OAuth 2.0 with PKCE, no client secrets", on: true },
-  { label: "Talks directly to Google & Linear APIs", on: true },
+  { label: "Secure provider sign-in, no client secrets", on: true },
+  { label: "Direct Google, Linear & GitHub API connections", on: true },
   { label: "Notes stored locally on your Mac", on: true },
   { label: "Analytics and tracking", on: false },
   { label: "Third-party Dayline servers", on: false },
@@ -41,9 +41,9 @@ export function Privacy() {
           </h2>
           <p className="mt-5 leading-relaxed text-mute">
             Dayline has no backend and no account system. Your Mac talks
-            straight to Google and Linear over HTTPS, tokens live in the
-            Keychain, and notes never leave your disk. Disconnect either account
-            from Settings at any time — the token is revoked and deleted.
+            straight to Google, Linear, and GitHub over HTTPS, tokens live in the
+            Keychain, and notes never leave your disk. Disconnect accounts from
+            Settings at any time to remove their local credentials.
           </p>
           <a
             href={`${site.githubUrl}#readme`}

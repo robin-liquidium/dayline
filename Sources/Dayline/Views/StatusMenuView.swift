@@ -36,7 +36,7 @@ struct StatusMenuView: View {
             )
           }
 
-          if store.showsCalendarSection {
+          if store.isCalendarSectionVisible {
             CalendarSection(
               events: store.events,
               tomorrowEvents: store.tomorrowEvents,
@@ -46,27 +46,9 @@ struct StatusMenuView: View {
               now: store.calendarHighlightDate
             )
           }
-          if store.showsLinearSection {
-            if store.issueSource == .github {
-              GitHubSection(
-                issues: store.githubIssues,
-                error: store.githubError,
-                hoveredIssueTarget: store.hoveredIssueTarget,
-                copiedIssueTarget: store.copiedIssueTarget
-              )
-            } else {
-              LinearSection(
-                issues: store.issues,
-                error: store.linearError,
-                hoveredIssueTarget: store.hoveredIssueTarget,
-                copiedIssueTarget: store.copiedIssueTarget,
-                updatingIssueTarget: store.updatingIssueTarget,
-                updatingPriorityIssueID: store.updatingPriorityIssueID,
-                updatingDueDateIssueID: store.updatingDueDateIssueID,
-                openNewIssue: {
-                  openLinearIssueCreator()
-                }
-              )
+          if store.isIssuesSectionVisible, let activeSource = store.activeIssueSource {
+            IssuesSection(activeSource: activeSource) {
+              openLinearIssueCreator()
             }
           }
 
@@ -230,12 +212,15 @@ struct StatusMenuView: View {
     let setupItemCount = store.connectionSetupItems.count + store.googleAccountsNeedingAttention.count
     let setupRows = store.hasConnectionSetupItems ? CGFloat(max(setupItemCount, 1)) * 64 + 44 : 0
     let eventRowEstimate: CGFloat = store.showsCalendarSourceNames ? 48 : compactEventRowHeight
-    let eventRows = store.showsCalendarSection ? CGFloat(max(store.events.count, 1)) * eventRowEstimate : 0
-    let tomorrowRows = store.showsCalendarSection && store.isTomorrowExpanded
+    let eventRows = store.isCalendarSectionVisible ? CGFloat(max(store.events.count, 1)) * eventRowEstimate : 0
+    let tomorrowRows = store.isCalendarSectionVisible && store.isTomorrowExpanded
       ? CGFloat(max(store.tomorrowEvents.count, 1)) * eventRowEstimate + 34 : 0
-    let visibleIssueCount = store.issueSource == .github ? store.githubIssues.count : store.issues.count
-    let issueRows = store.showsLinearSection ? CGFloat(max(visibleIssueCount, 1)) * workItemRowHeight : 0
-    let issueMoreRow: CGFloat = store.showsLinearSection && store.issueSource == .linear && (store.hasMoreIssues || store.hasExpandedIssues) ? 34 : 0
+    let bothIssueSourcesAvailable = store.availableIssueSources.count > 1
+    let visibleIssueCount = bothIssueSourcesAvailable
+      ? max(store.issues.count, store.githubIssues.count)
+      : (store.activeIssueSource == .github ? store.githubIssues.count : store.issues.count)
+    let issueRows = store.isIssuesSectionVisible ? CGFloat(max(visibleIssueCount, 1)) * workItemRowHeight : 0
+    let issueMoreRow: CGFloat = store.isIssuesSectionVisible && store.availableIssueSources.contains(.linear) && (store.hasMoreIssues || store.hasExpandedIssues) ? 34 : 0
     let noteRows = store.showsNotesSection ? CGFloat(max(store.notes.count, 1)) * workItemRowHeight : 0
     let noteMoreRow: CGFloat = store.showsNotesSection && (store.hasMoreNotes || store.hasExpandedNotes) ? 34 : 0
     return 108 + setupRows + eventRows + tomorrowRows + issueRows + issueMoreRow + noteRows + noteMoreRow
@@ -280,6 +265,172 @@ struct StatusMenuView: View {
   private func openLinearIssueCreator() {
     openWindow(id: "linearIssueCreator")
     LinearIssueEditorWindowPresenter.bringIssueWindowToFront()
+  }
+}
+
+/// Small icon button that hides one provider's setup prompt and menu content.
+private struct DismissProviderButton: View {
+  @EnvironmentObject private var store: StatusStore
+  @State private var isHovered = false
+
+  /// Provider dismissed when the button is pressed.
+  let provider: AuthProvider
+
+  var body: some View {
+    Button {
+      store.dismissProvider(provider)
+    } label: {
+      Image(systemName: "xmark")
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(5)
+        .contentShape(Rectangle())
+        .hoverHighlight(isHovered: isHovered)
+    }
+    .buttonStyle(.plain)
+    .help("Hide \(provider.title) from the menu")
+    .accessibilityLabel("Dismiss \(provider.title)")
+    .accessibilityHint("Hides \(provider.title) from the menu until you connect it from Settings")
+    .accessibilityIdentifier("setup.\(provider.id).dismiss")
+    .onHover { isHovered = $0 }
+  }
+}
+
+/// Issues section with a tab switcher when both providers are connected.
+private struct IssuesSection: View {
+  @EnvironmentObject private var store: StatusStore
+
+  /// Issue source currently displayed.
+  let activeSource: IssueSource
+
+  /// Action run when the user creates a new Linear issue.
+  let openNewIssue: () -> Void
+
+  /// Builds the issues section.
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(spacing: 10) {
+        if store.availableIssueSources.count > 1 {
+          IssueSourceTabSwitcher(activeSource: activeSource)
+        } else {
+          SectionTitle(title: activeSource.label)
+        }
+
+        Spacer(minLength: 0)
+
+        if activeSource == .linear {
+          Button(action: openNewIssue) {
+            Image(systemName: "plus")
+              .padding(5)
+              .contentShape(Rectangle())
+              .hoverHighlight(isHovered: store.hoveredControlID == .newLinearIssue)
+          }
+          .buttonStyle(.plain)
+          .help("New Linear issue")
+          .accessibilityLabel("New Linear issue")
+          .accessibilityHint("Create a Linear issue")
+          .accessibilityIdentifier("linear.new")
+          .onHover { isHovered in
+            store.setHoveredControl(isHovered ? .newLinearIssue : nil)
+          }
+        }
+      }
+
+      ZStack(alignment: .topLeading) {
+        if activeSource == .github {
+          GitHubSection(
+            issues: store.githubIssues,
+            error: store.githubError,
+            hoveredIssueTarget: store.hoveredIssueTarget,
+            copiedIssueTarget: store.copiedIssueTarget
+          )
+          .transition(.opacity)
+        } else {
+          LinearSection(
+            issues: store.issues,
+            error: store.linearError,
+            hoveredIssueTarget: store.hoveredIssueTarget,
+            copiedIssueTarget: store.copiedIssueTarget,
+            updatingIssueTarget: store.updatingIssueTarget,
+            updatingPriorityIssueID: store.updatingPriorityIssueID,
+            updatingDueDateIssueID: store.updatingDueDateIssueID
+          )
+          .transition(.opacity)
+        }
+      }
+    }
+    .animation(.smooth(duration: 0.2), value: activeSource)
+  }
+}
+
+/// Liquid Glass switcher between connected issue providers.
+private struct IssueSourceTabSwitcher: View {
+  @EnvironmentObject private var store: StatusStore
+  @Namespace private var selectionGlass
+
+  /// Issue source currently displayed.
+  let activeSource: IssueSource
+
+  var body: some View {
+    ZStack {
+      pillLayer
+      segmentButtons
+    }
+    .padding(2)
+    .background {
+      Capsule(style: .continuous)
+        .fill(Color.primary.opacity(0.05))
+    }
+  }
+
+  /// Hidden layout replicas that carry the glass selection pill as it slides between segments.
+  private var pillLayer: some View {
+    GlassEffectContainer(spacing: 2) {
+      HStack(spacing: 2) {
+        ForEach(store.availableIssueSources) { source in
+          segmentLabel(for: source)
+            .hidden()
+            .background {
+              if source == activeSource {
+                Color.clear
+                  .glassEffect(.regular.interactive(), in: .capsule)
+                  .matchedGeometryEffect(id: "selection", in: selectionGlass)
+              }
+            }
+        }
+      }
+    }
+    .accessibilityHidden(true)
+    .allowsHitTesting(false)
+  }
+
+  /// Visible, static segment labels that handle taps above the sliding pill.
+  private var segmentButtons: some View {
+    HStack(spacing: 2) {
+      ForEach(store.availableIssueSources) { source in
+        Button {
+          withAnimation(.smooth(duration: 0.25)) {
+            store.setIssueSource(source)
+          }
+        } label: {
+          segmentLabel(for: source)
+            .foregroundStyle(source == activeSource ? .primary : .secondary)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Show \(source.label) issues")
+        .accessibilityAddTraits(source == activeSource ? [.isSelected] : [])
+        .accessibilityIdentifier("issues.source.\(source.id)")
+      }
+    }
+  }
+
+  /// Shared label metrics so the pill layer and the button layer stay aligned.
+  private func segmentLabel(for source: IssueSource) -> some View {
+    Text(source.label)
+      .font(.caption.weight(.medium))
+      .padding(.horizontal, 12)
+      .padding(.vertical, 4)
   }
 }
 
@@ -356,16 +507,29 @@ private struct GoogleAccountSetupRow: View {
       Spacer(minLength: 8)
 
       if status.state == .connecting {
-        ProgressView()
+        HStack(spacing: 6) {
+          ProgressView()
+            .controlSize(.small)
+
+          Button("Cancel") {
+            store.cancelConnect(.google)
+          }
+          .buttonStyle(.bordered)
           .controlSize(.small)
-      } else {
-        Button("Reconnect") {
-          Task { await store.reconnectGoogleAccount(status.id) }
+          .accessibilityIdentifier("setup.google.\(status.id.uuidString).cancel")
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .disabled(store.isGoogleAuthorizationInProgress)
-        .accessibilityIdentifier("setup.google.\(status.id.uuidString).reconnect")
+      } else {
+        HStack(spacing: 2) {
+          Button("Reconnect") {
+            Task { await store.reconnectGoogleAccount(status.id) }
+          }
+          .buttonStyle(.bordered)
+          .controlSize(.small)
+          .disabled(store.isGoogleAuthorizationInProgress)
+          .accessibilityIdentifier("setup.google.\(status.id.uuidString).reconnect")
+
+          DismissProviderButton(provider: .google)
+        }
       }
     }
     .padding(.horizontal, 16)
@@ -425,18 +589,41 @@ private struct ConnectionSetupRow: View {
   @ViewBuilder
   private var actionButton: some View {
     switch status.state {
-    case .checking, .connecting:
+    case .checking:
       ProgressView()
         .controlSize(.small)
-        .accessibilityLabel(status.state == .connecting ? "Connecting" : "Checking")
-    case .disconnected:
-      Button("Connect") {
-        Task { await store.connect(status.provider) }
+        .accessibilityLabel("Checking")
+    case .connecting:
+      HStack(spacing: 6) {
+        if status.provider == .github, let code = store.githubDeviceUserCode {
+          CopyCodeButton(code: code, accessibilityIdentifier: "setup.\(status.provider.id).copyCode")
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+
+        ProgressView()
+          .controlSize(.small)
+          .accessibilityLabel("Connecting")
+
+        Button("Cancel") {
+          store.cancelConnect(status.provider)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .accessibilityIdentifier("setup.\(status.provider.id).cancel")
       }
-      .buttonStyle(.bordered)
-      .controlSize(.small)
-      .disabled(!status.provider.isConfigured)
-      .accessibilityIdentifier("setup.\(status.provider.id).connect")
+    case .disconnected:
+      HStack(spacing: 2) {
+        Button("Connect") {
+          Task { await store.connect(status.provider) }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(!status.provider.isConfigured)
+        .accessibilityIdentifier("setup.\(status.provider.id).connect")
+
+        DismissProviderButton(provider: status.provider)
+      }
     case .connected:
       EmptyView()
     }
@@ -868,7 +1055,28 @@ private struct CalendarSection: View {
   /// Builds the calendar section.
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
-      SectionTitle(title: "Up Next")
+      HStack {
+        SectionTitle(title: "Up Next")
+
+        Spacer(minLength: 0)
+
+        Button {
+          store.openGoogleCalendar()
+        } label: {
+          Image(systemName: "plus")
+            .padding(5)
+            .contentShape(Rectangle())
+            .hoverHighlight(isHovered: store.hoveredControlID == .openGoogleCalendar)
+        }
+        .buttonStyle(.plain)
+        .help("Open Google Calendar")
+        .accessibilityLabel("Open Google Calendar")
+        .accessibilityHint("Open Google Calendar's week view to create an event")
+        .accessibilityIdentifier("calendar.new")
+        .onHover { isHovered in
+          store.setHoveredControl(isHovered ? .openGoogleCalendar : nil)
+        }
+      }
 
       ForEach(Array(warnings.prefix(2).enumerated()), id: \.offset) { _, warning in
         MessageRow(title: "Calendar issue", detail: warning)
@@ -997,33 +1205,9 @@ private struct LinearSection: View {
   /// Identifier for the issue whose due date is being updated.
   let updatingDueDateIssueID: LinearIssueItem.ID?
 
-  /// Action run when the user creates a new Linear issue.
-  let openNewIssue: () -> Void
-
   /// Builds the Linear section.
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
-      HStack {
-        SectionTitle(title: "Linear")
-
-        Spacer(minLength: 0)
-
-        Button(action: openNewIssue) {
-          Image(systemName: "plus")
-            .padding(5)
-            .contentShape(Rectangle())
-            .hoverHighlight(isHovered: store.hoveredControlID == .newLinearIssue)
-        }
-        .buttonStyle(.plain)
-        .help("New Linear issue")
-        .accessibilityLabel("New Linear issue")
-        .accessibilityHint("Create a Linear issue")
-        .accessibilityIdentifier("linear.new")
-        .onHover { isHovered in
-          store.setHoveredControl(isHovered ? .newLinearIssue : nil)
-        }
-      }
-
       if let error {
         MessageRow(title: "Linear unavailable", detail: error)
       } else if issues.isEmpty {
@@ -1154,10 +1338,6 @@ private struct GitHubSection: View {
   /// Builds the GitHub section.
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
-      HStack {
-        SectionTitle(title: "GitHub")
-      }
-
       if let error {
         MessageRow(title: "GitHub unavailable", detail: error)
       } else if issues.isEmpty {

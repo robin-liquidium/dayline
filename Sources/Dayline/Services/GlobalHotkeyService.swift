@@ -8,6 +8,7 @@ final class GlobalHotkeyService {
   enum Hotkey: UInt32 {
     case newNote = 1
     case newLinearIssue = 2
+    case openGoogleCalendar = 3
   }
 
   /// Four-character hotkey signature: 'DYLN'.

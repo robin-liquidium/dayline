@@ -21,6 +21,19 @@ struct GlobalShortcut: Codable, Equatable {
     carbonModifiers: UInt32(controlKey | optionKey | cmdKey)
   )
 
+  /// Default global shortcut for opening Google Calendar: Control+Option+Command+C.
+  static let openGoogleCalendarDefault = GlobalShortcut(
+    keyCode: UInt32(kVK_ANSI_C),
+    carbonModifiers: UInt32(controlKey | optionKey | cmdKey)
+  )
+
+  /// Calendar shortcut fallbacks used only when an existing saved shortcut already uses C.
+  static let openGoogleCalendarFallbacks = [
+    openGoogleCalendarDefault,
+    GlobalShortcut(keyCode: UInt32(kVK_ANSI_G), carbonModifiers: UInt32(controlKey | optionKey | cmdKey)),
+    GlobalShortcut(keyCode: UInt32(kVK_ANSI_K), carbonModifiers: UInt32(controlKey | optionKey | cmdKey))
+  ]
+
   /// Captures a shortcut from a key event, requiring at least one of Control/Option/Command.
   init?(event: NSEvent) {
     let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)

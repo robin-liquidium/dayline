@@ -68,7 +68,7 @@ struct DaylineApp: App {
         .environmentObject(store)
         .environmentObject(updateService)
     }
-    .defaultSize(width: 640, height: 800)
+    .defaultSize(width: 800, height: 720)
     .windowResizability(.contentMinSize)
     .handlesExternalEvents(matching: [])
   }

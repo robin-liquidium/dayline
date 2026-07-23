@@ -32,6 +32,9 @@ enum GitHubDeviceAuthError: LocalizedError {
   /// The user denied the authorization request.
   case denied
 
+  /// The user cancelled the pending authorization from the app.
+  case cancelled
+
   /// GitHub rejected a request with an HTTP error.
   case httpError(Int, String?)
 
@@ -46,6 +49,8 @@ enum GitHubDeviceAuthError: LocalizedError {
       "The sign-in code expired. Try again."
     case .denied:
       "Authorization was denied on GitHub."
+    case .cancelled:
+      "Sign-in was cancelled."
     case .httpError(let status, let detail):
       detail.map { "GitHub error \(status): \($0)" } ?? "GitHub error \(status)."
     }
@@ -59,6 +64,9 @@ actor GitHubDeviceAuthService {
 
   private let store: any CredentialStore
   private let session: URLSession
+
+  /// Bumped to invalidate any in-flight device authorization poll.
+  private var signInGeneration = 0
 
   init(store: any CredentialStore = KeychainStore(service: "build.local.Dayline.oauth")) {
     self.store = store
@@ -87,6 +95,8 @@ actor GitHubDeviceAuthService {
 
   /// Starts the device flow and returns the code the user must enter on GitHub.
   func beginSignIn() async throws -> GitHubDeviceCode {
+    signInGeneration += 1
+
     guard AuthProvider.github.isConfigured else {
       throw GitHubDeviceAuthError.notConfigured
     }
@@ -112,14 +122,23 @@ actor GitHubDeviceAuthService {
     )
   }
 
+  /// Cancels any in-flight device authorization poll.
+  func cancelSignIn() {
+    signInGeneration += 1
+  }
+
   /// Polls until the user authorizes the device code, then persists the token.
   func pollForAuthorization(_ code: GitHubDeviceCode) async throws {
+    let generation = signInGeneration
     var interval = code.interval
     let deadline = Date().addingTimeInterval(TimeInterval(code.expiresIn))
 
     while Date() < deadline {
       try await Task.sleep(for: .seconds(interval))
       try Task.checkCancellation()
+      guard generation == signInGeneration else {
+        throw GitHubDeviceAuthError.cancelled
+      }
 
       do {
         let token: AccessTokenResponse = try await post(

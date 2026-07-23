@@ -48,15 +48,25 @@ final class StatusStore: ObservableObject {
   /// Accessible GitHub repositories and their local issue-list selections.
   @Published private(set) var githubAccount = GitHubAccount(repositories: [])
 
-  /// Which provider supplies the issues section of the menu.
+  /// Issues tab currently selected in the menu.
   @Published var issueSource: IssueSource {
     didSet {
       UserDefaults.standard.set(issueSource.rawValue, forKey: Self.issueSourceKey)
     }
   }
 
+  /// Providers the user dismissed from the menu's setup section.
+  @Published private(set) var dismissedProviders: Set<AuthProvider> {
+    didSet {
+      UserDefaults.standard.set(dismissedProviders.map(\.rawValue).sorted(), forKey: Self.dismissedProvidersKey)
+    }
+  }
+
   /// Connection state for Google and Linear accounts.
   @Published private(set) var connectionStatuses = ConnectionStatus.checkingAll
+
+  /// Confirmation code shown while GitHub device authorization is pending.
+  @Published private(set) var githubDeviceUserCode: String?
 
   /// Persisted Google accounts with their current runtime connection state.
   @Published private(set) var googleAccounts: [GoogleAccountStatus] = []
@@ -375,6 +385,9 @@ final class StatusStore: ObservableObject {
   /// Global shortcut that opens the Linear issue creator from anywhere.
   @Published private(set) var newLinearIssueShortcut: GlobalShortcut
 
+  /// Global shortcut that opens Google Calendar from anywhere.
+  @Published private(set) var openGoogleCalendarShortcut: GlobalShortcut
+
   /// Changes when a global hotkey needs to present a new note editor.
   @Published private(set) var noteCreationRequestID = UUID()
 
@@ -388,7 +401,7 @@ final class StatusStore: ObservableObject {
 
   /// Optional text that replaces the menu bar icon near a meeting start.
   var menuBarEventText: String? {
-    guard showsCalendarSection, let event = menuBarEvent(at: menuBarClockDate) else {
+    guard isCalendarSectionVisible, let event = menuBarEvent(at: menuBarClockDate) else {
       return nil
     }
 
@@ -422,6 +435,7 @@ final class StatusStore: ObservableObject {
   private static let meetingAlertEnabledKey = "meetingAlertEnabled"
   private static let meetingAlertLeadMinutesKey = "meetingAlertLeadMinutes"
   private static let issueSourceKey = "issueSource"
+  private static let dismissedProvidersKey = "dismissedProviders"
   private static let linearIssueOrderKey = "linearIssueOrder"
   private static let linearCopyStyleKey = "linearCopyStyle"
   private static let linearIssueCreateDefaultTeamIDKey = "linearIssueCreateDefaultTeamID"
@@ -437,6 +451,7 @@ final class StatusStore: ObservableObject {
   private static let launchAtLoginDefaultPendingKey = "launchAtLoginDefaultPending"
   private static let newNoteShortcutKey = "newNoteGlobalShortcut"
   private static let newLinearIssueShortcutKey = "newLinearIssueGlobalShortcut"
+  private static let openGoogleCalendarShortcutKey = "openGoogleCalendarGlobalShortcut"
   private static let defaultMenuBarEventLeadTimeMinutes = 30
   private static let defaultMenuBarEventPostStartGraceMinutes = 0
   private static let fallbackDefaultVisibleNoteCount = 3
@@ -510,8 +525,20 @@ final class StatusStore: ObservableObject {
     defaults.set(repairedHotkeys[3], forKey: Self.dueDatePickerHotkeyKey)
     defaults.set(repairedHotkeys[4], forKey: Self.labelPickerHotkeyKey)
     defaults.set(repairedHotkeys[5], forKey: Self.assigneePickerHotkeyKey)
-    self.newNoteShortcut = Self.loadShortcut(forKey: Self.newNoteShortcutKey, defaultValue: .newNoteDefault)
-    self.newLinearIssueShortcut = Self.loadShortcut(forKey: Self.newLinearIssueShortcutKey, defaultValue: .newLinearIssueDefault)
+    let noteShortcut = Self.loadShortcut(forKey: Self.newNoteShortcutKey, defaultValue: .newNoteDefault)
+    let linearShortcut = Self.loadShortcut(forKey: Self.newLinearIssueShortcutKey, defaultValue: .newLinearIssueDefault)
+    let requestedCalendarShortcut = Self.loadShortcut(
+      forKey: Self.openGoogleCalendarShortcutKey,
+      defaultValue: .openGoogleCalendarDefault
+    )
+    let calendarShortcut = [noteShortcut, linearShortcut].contains(requestedCalendarShortcut)
+      ? GlobalShortcut.openGoogleCalendarFallbacks.first { ![noteShortcut, linearShortcut].contains($0) }
+        ?? .openGoogleCalendarDefault
+      : requestedCalendarShortcut
+    self.newNoteShortcut = noteShortcut
+    self.newLinearIssueShortcut = linearShortcut
+    self.openGoogleCalendarShortcut = calendarShortcut
+    Self.persistShortcut(calendarShortcut, forKey: Self.openGoogleCalendarShortcutKey)
     self.showsCalendarSourceNames = defaults.object(forKey: Self.showsCalendarSourceNamesKey) as? Bool ?? true
     self.showsCalendarSection = defaults.object(forKey: Self.showsCalendarSectionKey) as? Bool ?? true
     self.showsLinearSection = defaults.object(forKey: Self.showsLinearSectionKey) as? Bool ?? true
@@ -519,6 +546,9 @@ final class StatusStore: ObservableObject {
     self.meetingAlertEnabled = defaults.object(forKey: Self.meetingAlertEnabledKey) as? Bool ?? true
     self.meetingAlertLeadMinutes = Self.storedInteger(forKey: Self.meetingAlertLeadMinutesKey, defaultValue: 0)
     self.issueSource = IssueSource(rawValue: defaults.string(forKey: Self.issueSourceKey) ?? "") ?? .linear
+    self.dismissedProviders = Set(
+      (defaults.stringArray(forKey: Self.dismissedProvidersKey) ?? []).compactMap(AuthProvider.init(rawValue:))
+    )
     self.linearIssueOrder = LinearIssueOrder(rawValue: UserDefaults.standard.string(forKey: Self.linearIssueOrderKey) ?? "") ?? .priority
     self.linearCopyStyle = LinearCopyStyle(rawValue: UserDefaults.standard.string(forKey: Self.linearCopyStyleKey) ?? "") ?? .link
     self.linearIssueCreateDefaultTeamID = defaults.string(forKey: Self.linearIssueCreateDefaultTeamIDKey) ?? ""
@@ -592,9 +622,9 @@ final class StatusStore: ObservableObject {
       }
       loadPersistedNotes()
       scheduleRefreshTimer()
-      startGlobalHotkeys()
       Task { await refresh() }
     }
+    startGlobalHotkeys()
     scheduleMenuBarClockTimer()
   }
 
@@ -621,8 +651,8 @@ final class StatusStore: ObservableObject {
     let linearRevision = connectionRevisions[.linear, default: 0]
     let githubRevision = connectionRevisions[.github, default: 0]
 
-    let shouldLoadLinear = issueSource == .linear && isConnected(.linear)
-    let shouldLoadGitHub = issueSource == .github && isConnected(.github)
+    let shouldLoadLinear = isConnected(.linear) && !dismissedProviders.contains(.linear)
+    let shouldLoadGitHub = isConnected(.github) && !dismissedProviders.contains(.github)
 
     async let calendarResult: CalendarAgendaLoadResult? = hasConnectedGoogleAccount ? loadGoogleAgenda() : nil
     async let linearResult: Result<[LinearIssueItem], Error>? = shouldLoadLinear ? loadLinearIssues() : nil
@@ -807,21 +837,51 @@ final class StatusStore: ObservableObject {
   var connectionSetupItems: [ConnectionStatus] {
     connectionStatuses.filter { status in
       guard isSectionEnabled(for: status.provider) else { return false }
-      guard isActiveIssueProvider(status.provider) else { return false }
+      guard !dismissedProviders.contains(status.provider) else { return false }
       return status.state != .connected && (status.provider != .google || googleAccounts.isEmpty)
     }
   }
 
-  /// Whether an issue provider matches the selected issue source.
-  private func isActiveIssueProvider(_ provider: AuthProvider) -> Bool {
-    switch provider {
-    case .google:
-      true
-    case .linear:
-      issueSource == .linear
-    case .github:
-      issueSource == .github
+  /// Issue providers that are connected and have not been dismissed by the user.
+  var availableIssueSources: [IssueSource] {
+    IssueSource.allCases.filter { source in
+      let provider: AuthProvider = source == .linear ? .linear : .github
+      return isConnected(provider) && !dismissedProviders.contains(provider)
     }
+  }
+
+  /// Issue source currently shown in the menu, repaired when its provider is unavailable.
+  var activeIssueSource: IssueSource? {
+    let sources = availableIssueSources
+    if sources.contains(issueSource) {
+      return issueSource
+    }
+    return sources.first
+  }
+
+  /// Whether the calendar section should appear in the menu bar popover.
+  var isCalendarSectionVisible: Bool {
+    showsCalendarSection && !dismissedProviders.contains(.google)
+  }
+
+  /// Whether the issues section should appear in the menu bar popover.
+  var isIssuesSectionVisible: Bool {
+    showsLinearSection && activeIssueSource != nil
+  }
+
+  /// Whether one provider was dismissed from the menu's setup section.
+  func isProviderDismissed(_ provider: AuthProvider) -> Bool {
+    dismissedProviders.contains(provider)
+  }
+
+  /// Dismisses one provider's setup prompt and hides its menu content until it connects.
+  func dismissProvider(_ provider: AuthProvider) {
+    dismissedProviders.insert(provider)
+  }
+
+  /// Restores one provider's menu content after a successful connection.
+  private func undismissProvider(_ provider: AuthProvider) {
+    dismissedProviders.remove(provider)
   }
 
   /// Whether the menu section tied to a provider is enabled.
@@ -836,7 +896,7 @@ final class StatusStore: ObservableObject {
 
   /// Existing Google accounts that need account-specific reauthentication.
   var googleAccountsNeedingAttention: [GoogleAccountStatus] {
-    guard showsCalendarSection else { return [] }
+    guard isCalendarSectionVisible else { return [] }
     return googleAccounts.filter(\.needsAttention)
   }
 
@@ -885,6 +945,7 @@ final class StatusStore: ObservableObject {
       let accountLabel = try? await fetchAccountLabel(for: provider)
       guard connectionRevisions[provider, default: 0] == revision else { return }
       updateConnectionStatus(provider, state: .connected, detail: nil, accountLabel: accountLabel)
+      undismissProvider(provider)
       await refresh()
       guard connectionRevisions[provider, default: 0] == revision else { return }
       presentSettingsAfterAuth()
@@ -909,6 +970,7 @@ final class StatusStore: ObservableObject {
     }
     connectionRevisions[.github, default: 0] += 1
     let revision = connectionRevisions[.github, default: 0]
+    githubDeviceUserCode = nil
 
     updateConnectionStatus(.github, state: .connecting, detail: "Requesting device code...", accountLabel: nil)
 
@@ -916,6 +978,7 @@ final class StatusStore: ObservableObject {
       let code = try await githubAuth.beginSignIn()
       guard connectionRevisions[.github, default: 0] == revision else { return }
       NSWorkspace.shared.open(code.verificationURI)
+      githubDeviceUserCode = code.userCode
       updateConnectionStatus(
         .github,
         state: .connecting,
@@ -926,18 +989,45 @@ final class StatusStore: ObservableObject {
       guard connectionRevisions[.github, default: 0] == revision else { return }
       let accountLabel = try? await githubService.fetchAccountLabel()
       guard connectionRevisions[.github, default: 0] == revision else { return }
+      githubDeviceUserCode = nil
       updateConnectionStatus(.github, state: .connected, detail: nil, accountLabel: accountLabel)
+      undismissProvider(.github)
       await refresh()
       guard connectionRevisions[.github, default: 0] == revision else { return }
       presentSettingsAfterAuth()
     } catch {
       guard connectionRevisions[.github, default: 0] == revision else { return }
+      githubDeviceUserCode = nil
       updateConnectionStatus(
         .github,
         state: .disconnected,
         detail: error.localizedDescription.compactLine(limit: 96),
         accountLabel: nil
       )
+    }
+  }
+
+  /// Cancels an in-progress connection attempt for one provider.
+  func cancelConnect(_ provider: AuthProvider) {
+    guard mockData == nil else { return }
+
+    connectionRevisions[provider, default: 0] += 1
+    BrowserOAuthCoordinator.shared.cancel()
+
+    switch provider {
+    case .github:
+      githubDeviceUserCode = nil
+      Task { await githubAuth.cancelSignIn() }
+      updateConnectionStatus(.github, state: .disconnected, detail: nil, accountLabel: nil)
+    case .google:
+      isGoogleAuthorizationInProgress = false
+      googleAuthorizationError = nil
+      for accountID in googleAccounts.filter({ $0.state == .connecting }).map(\.id) {
+        updateGoogleAccountStatus(accountID, state: .disconnected, detail: "Reconnect required.")
+      }
+      updateGoogleAggregateStatus()
+    default:
+      updateConnectionStatus(provider, state: .disconnected, detail: nil, accountLabel: nil)
     }
   }
 
@@ -954,6 +1044,8 @@ final class StatusStore: ObservableObject {
 
     if provider == .github {
       connectionRevisions[.github, default: 0] += 1
+      githubDeviceUserCode = nil
+      await githubAuth.cancelSignIn()
       await githubAuth.signOut()
       updateConnectionStatus(.github, state: .disconnected, detail: nil, accountLabel: nil)
       githubIssues = []
@@ -1154,6 +1246,20 @@ final class StatusStore: ObservableObject {
     return true
   }
 
+  /// Persists a new global shortcut for opening Google Calendar.
+  @discardableResult
+  func setOpenGoogleCalendarShortcut(_ shortcut: GlobalShortcut) -> Bool {
+    guard registerGlobalShortcut(shortcut, for: .openGoogleCalendar) else { return false }
+    openGoogleCalendarShortcut = shortcut
+    Self.persistShortcut(shortcut, forKey: Self.openGoogleCalendarShortcutKey)
+    return true
+  }
+
+  /// Opens Google Calendar's current week view without requesting write access.
+  func openGoogleCalendar() {
+    NSWorkspace.shared.open(URL(string: "https://calendar.google.com/calendar/u/0/r/week")!)
+  }
+
   /// Persists whether calendar event rows show their source calendar names.
   func setShowsCalendarSourceNames(_ shows: Bool) {
     showsCalendarSourceNames = shows
@@ -1169,11 +1275,10 @@ final class StatusStore: ObservableObject {
     showsLinearSection = shows
   }
 
-  /// Persists the selected issue source and reloads the issues section.
+  /// Persists the issues tab selected in the menu.
   func setIssueSource(_ source: IssueSource) {
     guard issueSource != source else { return }
     issueSource = source
-    Task { await refresh() }
   }
 
   /// Persists whether the notes section appears in the menu bar popover.
@@ -2116,6 +2221,7 @@ final class StatusStore: ObservableObject {
       connectionRevisions[.google, default: 0] += 1
       persistGoogleAccounts()
       updateGoogleAggregateStatus()
+      undismissProvider(.google)
       isGoogleAuthorizationInProgress = false
       await refresh()
       presentSettingsAfterAuth()
@@ -2269,31 +2375,31 @@ final class StatusStore: ObservableObject {
         guard self.showsNotesSection else { return }
         self.noteCreationRequestID = UUID()
       case .newLinearIssue:
-        guard self.showsLinearSection, self.issueSource == .linear else { return }
+        guard self.isIssuesSectionVisible, self.availableIssueSources.contains(.linear) else { return }
         self.linearIssueCreationRequestID = UUID()
+      case .openGoogleCalendar:
+        self.openGoogleCalendar()
       }
     }
     registerPersistedGlobalShortcuts()
   }
 
-  /// Registers both persisted global shortcuts at launch.
+  /// Registers the persisted global shortcuts at launch.
   private func registerPersistedGlobalShortcuts() {
-    guard mockData == nil else { return }
     let noteStatus = globalHotkeyService.update(shortcut: newNoteShortcut, for: .newNote)
     let linearStatus = globalHotkeyService.update(shortcut: newLinearIssueShortcut, for: .newLinearIssue)
+    let calendarStatus = globalHotkeyService.update(shortcut: openGoogleCalendarShortcut, for: .openGoogleCalendar)
     if noteStatus != noErr {
       globalShortcutError = Self.globalShortcutRegistrationError(newNoteShortcut, status: noteStatus)
     } else if linearStatus != noErr {
       globalShortcutError = Self.globalShortcutRegistrationError(newLinearIssueShortcut, status: linearStatus)
+    } else if calendarStatus != noErr {
+      globalShortcutError = Self.globalShortcutRegistrationError(openGoogleCalendarShortcut, status: calendarStatus)
     }
   }
 
   /// Attempts one global shortcut replacement without discarding the previous registration.
   private func registerGlobalShortcut(_ shortcut: GlobalShortcut, for hotkey: GlobalHotkeyService.Hotkey) -> Bool {
-    guard mockData == nil else {
-      globalShortcutError = nil
-      return true
-    }
     let status = globalHotkeyService.update(shortcut: shortcut, for: hotkey)
     guard status == noErr else {
       globalShortcutError = Self.globalShortcutRegistrationError(shortcut, status: status)
@@ -2340,7 +2446,7 @@ final class StatusStore: ObservableObject {
 
   /// Recomputes which event, if any, the full-screen meeting alert should present.
   private func updateMeetingAlert() {
-    guard meetingAlertEnabled, showsCalendarSection else {
+    guard meetingAlertEnabled, isCalendarSectionVisible else {
       meetingAlertEvent = nil
       return
     }

@@ -7,12 +7,15 @@ import Testing
 struct GlobalShortcutTests {
   @Test func defaultsDoNotConflictWithEachOther() {
     #expect(GlobalShortcut.newNoteDefault != GlobalShortcut.newLinearIssueDefault)
+    #expect(GlobalShortcut.newNoteDefault != GlobalShortcut.openGoogleCalendarDefault)
+    #expect(GlobalShortcut.newLinearIssueDefault != GlobalShortcut.openGoogleCalendarDefault)
   }
 
   @Test func defaultsUseControlOptionCommand() {
     let expectedModifiers = UInt32(controlKey | optionKey | cmdKey)
     #expect(GlobalShortcut.newNoteDefault.carbonModifiers == expectedModifiers)
     #expect(GlobalShortcut.newLinearIssueDefault.carbonModifiers == expectedModifiers)
+    #expect(GlobalShortcut.openGoogleCalendarDefault.carbonModifiers == expectedModifiers)
   }
 
   @Test func codableRoundTrip() throws {
@@ -25,6 +28,7 @@ struct GlobalShortcutTests {
     #expect(GlobalShortcut.newNoteDefault.displayString.hasPrefix("⌃⌥⌘"))
     #expect(GlobalShortcut.newNoteDefault.displayString.hasSuffix("N"))
     #expect(GlobalShortcut.newLinearIssueDefault.displayString.hasSuffix("L"))
+    #expect(GlobalShortcut.openGoogleCalendarDefault.displayString.hasSuffix("C"))
   }
 
   @Test func eventWithoutCommandControlOrOptionIsRejected() {
