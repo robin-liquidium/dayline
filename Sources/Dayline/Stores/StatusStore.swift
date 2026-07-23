@@ -5,7 +5,9 @@ import Foundation
 @MainActor
 final class StatusStore: ObservableObject {
   /// Upcoming timed calendar events for today.
-  @Published private(set) var events: [CalendarEventItem] = []
+  @Published private(set) var events: [CalendarEventItem] = [] {
+    didSet { updateMeetingAlert() }
+  }
 
   /// Timed calendar events for tomorrow.
   @Published private(set) var tomorrowEvents: [CalendarEventItem] = []
@@ -50,7 +52,9 @@ final class StatusStore: ObservableObject {
   @Published private(set) var lastUpdatedAt: Date?
 
   /// Current clock tick used for menu bar countdown text.
-  @Published private var menuBarClockDate = Date()
+  @Published private var menuBarClockDate = Date() {
+    didSet { updateMeetingAlert() }
+  }
 
   /// Identifier for the Linear issue currently under the pointer.
   @Published private(set) var hoveredIssueID: LinearIssueItem.ID?
@@ -156,6 +160,7 @@ final class StatusStore: ObservableObject {
   @Published var showsCalendarSection: Bool {
     didSet {
       UserDefaults.standard.set(showsCalendarSection, forKey: Self.showsCalendarSectionKey)
+      updateMeetingAlert()
     }
   }
 
@@ -172,6 +177,28 @@ final class StatusStore: ObservableObject {
       UserDefaults.standard.set(showsNotesSection, forKey: Self.showsNotesSectionKey)
     }
   }
+
+  /// Whether a full-screen alert appears when a meeting starts.
+  @Published var meetingAlertEnabled: Bool {
+    didSet {
+      UserDefaults.standard.set(meetingAlertEnabled, forKey: Self.meetingAlertEnabledKey)
+      updateMeetingAlert()
+    }
+  }
+
+  /// Minutes before a meeting starts when the full-screen alert may appear.
+  @Published var meetingAlertLeadMinutes: Int {
+    didSet {
+      UserDefaults.standard.set(meetingAlertLeadMinutes, forKey: Self.meetingAlertLeadMinutesKey)
+      updateMeetingAlert()
+    }
+  }
+
+  /// Event currently presented by the full-screen meeting alert, if any.
+  @Published private(set) var meetingAlertEvent: CalendarEventItem?
+
+  /// Session-only set of events whose full-screen alert was dismissed.
+  private var dismissedMeetingAlertEventIDs = Set<String>()
 
   /// What the copy shortcut places on the clipboard.
   @Published var linearCopyStyle: LinearCopyStyle {
@@ -341,6 +368,8 @@ final class StatusStore: ObservableObject {
   private static let showsCalendarSectionKey = "showsCalendarSection"
   private static let showsLinearSectionKey = "showsLinearSection"
   private static let showsNotesSectionKey = "showsNotesSection"
+  private static let meetingAlertEnabledKey = "meetingAlertEnabled"
+  private static let meetingAlertLeadMinutesKey = "meetingAlertLeadMinutes"
   private static let linearIssueOrderKey = "linearIssueOrder"
   private static let linearCopyStyleKey = "linearCopyStyle"
   private static let linearIssueCreateDefaultTeamIDKey = "linearIssueCreateDefaultTeamID"
@@ -421,6 +450,8 @@ final class StatusStore: ObservableObject {
     self.showsCalendarSection = defaults.object(forKey: Self.showsCalendarSectionKey) as? Bool ?? true
     self.showsLinearSection = defaults.object(forKey: Self.showsLinearSectionKey) as? Bool ?? true
     self.showsNotesSection = defaults.object(forKey: Self.showsNotesSectionKey) as? Bool ?? true
+    self.meetingAlertEnabled = defaults.object(forKey: Self.meetingAlertEnabledKey) as? Bool ?? true
+    self.meetingAlertLeadMinutes = Self.storedInteger(forKey: Self.meetingAlertLeadMinutesKey, defaultValue: 0)
     self.linearIssueOrder = LinearIssueOrder(rawValue: UserDefaults.standard.string(forKey: Self.linearIssueOrderKey) ?? "") ?? .priority
     self.linearCopyStyle = LinearCopyStyle(rawValue: UserDefaults.standard.string(forKey: Self.linearCopyStyleKey) ?? "") ?? .link
     self.linearIssueCreateDefaultTeamID = defaults.string(forKey: Self.linearIssueCreateDefaultTeamIDKey) ?? ""
@@ -883,6 +914,33 @@ final class StatusStore: ObservableObject {
   /// Persists whether the notes section appears in the menu bar popover.
   func setShowsNotesSection(_ shows: Bool) {
     showsNotesSection = shows
+  }
+
+  /// Persists whether the full-screen meeting alert is enabled.
+  func setMeetingAlertEnabled(_ enabled: Bool) {
+    meetingAlertEnabled = enabled
+  }
+
+  /// Persists how early the full-screen meeting alert may appear.
+  func setMeetingAlertLead(minutes: Int) {
+    meetingAlertLeadMinutes = minutes
+  }
+
+  /// Dismisses the full-screen meeting alert for the current event.
+  func dismissMeetingAlert() {
+    if let event = meetingAlertEvent {
+      dismissedMeetingAlertEventIDs.insert(event.id)
+    }
+    meetingAlertEvent = nil
+  }
+
+  /// Opens the current alert event's meeting link and dismisses the alert.
+  func joinMeetingAlert() {
+    guard let event = meetingAlertEvent else { return }
+    if let url = event.openURL ?? event.calendarURL {
+      NSWorkspace.shared.open(url)
+    }
+    dismissMeetingAlert()
   }
 
   /// Persists a new Linear issue ordering and reapplies it immediately.
@@ -1796,6 +1854,26 @@ final class StatusStore: ObservableObject {
       leadTime: leadTime,
       postStartGrace: postStartGrace
     )
+  }
+
+  /// Recomputes which event, if any, the full-screen meeting alert should present.
+  private func updateMeetingAlert() {
+    guard meetingAlertEnabled, showsCalendarSection else {
+      meetingAlertEvent = nil
+      return
+    }
+
+    let now = menuBarClockDate
+    let lead = TimeInterval(meetingAlertLeadMinutes * 60)
+    meetingAlertEvent = events
+      .filter { event in
+        // Skip all-day style events that would fire the alert at midnight.
+        guard event.endDate.timeIntervalSince(event.startDate) < 24 * 60 * 60 else { return false }
+        return now >= event.startDate.addingTimeInterval(-lead)
+          && now < event.endDate
+          && !dismissedMeetingAlertEventIDs.contains(event.id)
+      }
+      .min { $0.startDate < $1.startDate }
   }
 
   /// Applies the selected Linear ordering to fetched issue candidates.

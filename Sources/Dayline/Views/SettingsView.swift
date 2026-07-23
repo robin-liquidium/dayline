@@ -93,6 +93,17 @@ struct SettingsView: View {
 
         Toggle("Show calendar names", isOn: showsCalendarSourceNamesBinding)
           .accessibilityIdentifier("settings.showsCalendarSourceNames")
+
+        Toggle("Full-screen meeting alerts", isOn: meetingAlertEnabledBinding)
+          .accessibilityIdentifier("settings.meetingAlertEnabled")
+
+        Picker("Show alert", selection: meetingAlertLeadBinding) {
+          ForEach(meetingAlertLeadPickerOptions, id: \.self) { minutes in
+            Text(minutes == 0 ? "When the meeting starts" : "\(minutes) min before").tag(minutes)
+          }
+        }
+        .disabled(!store.meetingAlertEnabled)
+        .accessibilityIdentifier("settings.meetingAlertLead")
       } header: {
         Label("Calendar", systemImage: "calendar")
       }
@@ -502,6 +513,27 @@ struct SettingsView: View {
       get: { store.showsCalendarSection },
       set: { store.setShowsCalendarSection($0) }
     )
+  }
+
+  /// Binding that persists whether full-screen meeting alerts are enabled.
+  private var meetingAlertEnabledBinding: Binding<Bool> {
+    Binding(
+      get: { store.meetingAlertEnabled },
+      set: { store.setMeetingAlertEnabled($0) }
+    )
+  }
+
+  /// Binding that persists how early the meeting alert may appear.
+  private var meetingAlertLeadBinding: Binding<Int> {
+    Binding(
+      get: { store.meetingAlertLeadMinutes },
+      set: { store.setMeetingAlertLead(minutes: $0) }
+    )
+  }
+
+  /// Alert lead choices plus any existing custom stored value.
+  private var meetingAlertLeadPickerOptions: [Int] {
+    Array(Set([0, 1, 2, 5, 10, 15, 30] + [store.meetingAlertLeadMinutes])).sorted()
   }
 
   /// Binding that persists whether the Linear section appears in the menu.

@@ -102,5 +102,16 @@ private struct MenuBarLabelView: View {
       openWindow(id: "linearIssueCreator")
       LinearIssueEditorWindowPresenter.bringIssueWindowToFront()
     }
+    .onChange(of: store.meetingAlertEvent, initial: true) {
+      if let event = store.meetingAlertEvent {
+        MeetingAlertWindowController.shared.show(
+          event: event,
+          onJoin: { store.joinMeetingAlert() },
+          onDismiss: { store.dismissMeetingAlert() }
+        )
+      } else {
+        MeetingAlertWindowController.shared.dismiss()
+      }
+    }
   }
 }
