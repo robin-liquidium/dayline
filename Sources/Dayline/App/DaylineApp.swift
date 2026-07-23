@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// Configures the app as an accessory process so it intentionally has no Dock icon.
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
+    DockIconVisibilityController.shared.start()
   }
 
   /// Forwards OAuth redirect URLs from the system browser back into the auth flow.
