@@ -7,64 +7,63 @@ struct MeetingAlertView: View {
   let onDismiss: () -> Void
 
   var body: some View {
-    ZStack {
-      LinearGradient(
-        colors: [
-          Color(red: 0.03, green: 0.04, blue: 0.09),
-          Color(red: 0.07, green: 0.05, blue: 0.14)
-        ],
-        startPoint: .top,
-        endPoint: .bottom
-      )
-      .ignoresSafeArea()
+    VStack(spacing: 0) {
+      DaylineWordmark(height: 34)
+        .opacity(0.7)
 
-      VStack(spacing: 0) {
-        Text("DAYLINE")
-          .font(.system(size: 15, weight: .semibold, design: .rounded))
-          .tracking(6)
-          .foregroundStyle(.white.opacity(0.45))
+      Spacer()
 
-        Spacer()
+      Text(startLabel)
+        .font(.system(size: 20, weight: .medium, design: .rounded))
+        .foregroundStyle(.secondary)
+        .padding(.bottom, 16)
 
-        Text(startLabel)
-          .font(.system(size: 20, weight: .medium, design: .rounded))
-          .foregroundStyle(.white.opacity(0.6))
-          .padding(.bottom, 16)
+      Text(event.title)
+        .font(.system(size: 60, weight: .semibold, design: .rounded))
+        .foregroundStyle(.primary)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 80)
+        .padding(.bottom, 12)
 
-        Text(event.title)
-          .font(.system(size: 60, weight: .semibold, design: .rounded))
-          .foregroundStyle(.white)
-          .multilineTextAlignment(.center)
-          .padding(.horizontal, 80)
-          .padding(.bottom, 12)
+      Text(DisplayFormatters.eventTimeRange(start: event.startDate, end: event.endDate))
+        .font(.system(size: 24, weight: .regular, design: .rounded))
+        .foregroundStyle(.secondary)
 
-        Text(DisplayFormatters.eventTimeRange(start: event.startDate, end: event.endDate))
-          .font(.system(size: 24, weight: .regular, design: .rounded))
-          .foregroundStyle(.white.opacity(0.6))
+      Spacer()
 
-        Spacer()
-
-        HStack(spacing: 16) {
-          if event.openURL != nil || event.calendarURL != nil {
-            Button("Join Meeting", action: onJoin)
-              .buttonStyle(.borderedProminent)
-              .controlSize(.extraLarge)
-              .keyboardShortcut(.defaultAction)
-              .accessibilityIdentifier("meetingAlert.join")
-          }
-
-          Button("Dismiss", action: onDismiss)
-            .buttonStyle(.bordered)
+      HStack(spacing: 16) {
+        if event.openURL != nil || event.calendarURL != nil {
+          Button("Join Meeting", action: onJoin)
+            .buttonStyle(.borderedProminent)
             .controlSize(.extraLarge)
-            .keyboardShortcut(.cancelAction)
-            .accessibilityIdentifier("meetingAlert.dismiss")
+            .keyboardShortcut(.defaultAction)
+            .accessibilityIdentifier("meetingAlert.join")
         }
-        .padding(.bottom, 24)
+
+        Button("Dismiss", action: onDismiss)
+          .buttonStyle(.bordered)
+          .controlSize(.extraLarge)
+          .keyboardShortcut(.cancelAction)
+          .accessibilityIdentifier("meetingAlert.dismiss")
       }
-      .padding(.vertical, 48)
+      .padding(.bottom, 24)
+    }
+    .padding(.vertical, 48)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background {
+      VisualEffectBackdrop()
+        .overlay(backdropColor.opacity(0.55))
+        .ignoresSafeArea()
     }
     .onExitCommand(perform: onDismiss)
     .accessibilityIdentifier("meetingAlert.view")
+  }
+
+  /// Fully black in dark mode and white in light mode for the tinted blur backdrop.
+  private var backdropColor: Color {
+    Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
+      appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .black : .white
+    }))
   }
 
   /// Static lead text resolved when the alert appears.
@@ -76,4 +75,17 @@ struct MeetingAlertView: View {
     let minutes = max(1, Int(ceil(secondsUntilStart / 60)))
     return minutes == 1 ? "Starts in 1 minute" : "Starts in \(minutes) minutes"
   }
+}
+
+/// AppKit vibrancy backdrop that blurs whatever sits behind the window.
+private struct VisualEffectBackdrop: NSViewRepresentable {
+  func makeNSView(context: Context) -> NSVisualEffectView {
+    let view = NSVisualEffectView()
+    view.material = .underWindowBackground
+    view.blendingMode = .behindWindow
+    view.state = .active
+    return view
+  }
+
+  func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
