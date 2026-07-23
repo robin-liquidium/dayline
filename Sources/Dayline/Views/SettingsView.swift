@@ -88,6 +88,9 @@ struct SettingsView: View {
       }
 
       Section {
+        Toggle("Show calendar in menu", isOn: showsCalendarSectionBinding)
+          .accessibilityIdentifier("settings.showsCalendarSection")
+
         Toggle("Show calendar names", isOn: showsCalendarSourceNamesBinding)
           .accessibilityIdentifier("settings.showsCalendarSourceNames")
       } header: {
@@ -164,6 +167,9 @@ struct SettingsView: View {
       }
 
       Section {
+        Toggle("Show Linear in menu", isOn: showsLinearSectionBinding)
+          .accessibilityIdentifier("settings.showsLinearSection")
+
         Picker("Default team", selection: linearCreateDefaultTeamBinding) {
           if linearCreateTeams.isEmpty {
             Text(isLoadingLinearCreateDefaults ? "Loading..." : "Unavailable")
@@ -248,6 +254,9 @@ struct SettingsView: View {
       }
 
       Section {
+        Toggle("Show notes in menu", isOn: showsNotesSectionBinding)
+          .accessibilityIdentifier("settings.showsNotesSection")
+
         Picker("Notes shown", selection: defaultNoteCountBinding) {
           ForEach(defaultNoteCountPickerOptions, id: \.self) { count in
             Text("\(count)").tag(count)
@@ -484,6 +493,30 @@ struct SettingsView: View {
     Binding(
       get: { store.showsCalendarSourceNames },
       set: { store.setShowsCalendarSourceNames($0) }
+    )
+  }
+
+  /// Binding that persists whether the calendar section appears in the menu.
+  private var showsCalendarSectionBinding: Binding<Bool> {
+    Binding(
+      get: { store.showsCalendarSection },
+      set: { store.setShowsCalendarSection($0) }
+    )
+  }
+
+  /// Binding that persists whether the Linear section appears in the menu.
+  private var showsLinearSectionBinding: Binding<Bool> {
+    Binding(
+      get: { store.showsLinearSection },
+      set: { store.setShowsLinearSection($0) }
+    )
+  }
+
+  /// Binding that persists whether the notes section appears in the menu.
+  private var showsNotesSectionBinding: Binding<Bool> {
+    Binding(
+      get: { store.showsNotesSection },
+      set: { store.setShowsNotesSection($0) }
     )
   }
 

@@ -152,6 +152,27 @@ final class StatusStore: ObservableObject {
     }
   }
 
+  /// Whether the calendar section appears in the menu bar popover.
+  @Published var showsCalendarSection: Bool {
+    didSet {
+      UserDefaults.standard.set(showsCalendarSection, forKey: Self.showsCalendarSectionKey)
+    }
+  }
+
+  /// Whether the Linear section appears in the menu bar popover.
+  @Published var showsLinearSection: Bool {
+    didSet {
+      UserDefaults.standard.set(showsLinearSection, forKey: Self.showsLinearSectionKey)
+    }
+  }
+
+  /// Whether the notes section appears in the menu bar popover.
+  @Published var showsNotesSection: Bool {
+    didSet {
+      UserDefaults.standard.set(showsNotesSection, forKey: Self.showsNotesSectionKey)
+    }
+  }
+
   /// What the copy shortcut places on the clipboard.
   @Published var linearCopyStyle: LinearCopyStyle {
     didSet {
@@ -291,7 +312,7 @@ final class StatusStore: ObservableObject {
 
   /// Optional text that replaces the menu bar icon near a meeting start.
   var menuBarEventText: String? {
-    guard let event = menuBarEvent(at: menuBarClockDate) else {
+    guard showsCalendarSection, let event = menuBarEvent(at: menuBarClockDate) else {
       return nil
     }
 
@@ -317,6 +338,9 @@ final class StatusStore: ObservableObject {
   private static let priorityPickerHotkeyKey = "priorityPickerHotkey"
   private static let dueDatePickerHotkeyKey = "dueDatePickerHotkey"
   private static let showsCalendarSourceNamesKey = "showsCalendarSourceNames"
+  private static let showsCalendarSectionKey = "showsCalendarSection"
+  private static let showsLinearSectionKey = "showsLinearSection"
+  private static let showsNotesSectionKey = "showsNotesSection"
   private static let linearIssueOrderKey = "linearIssueOrder"
   private static let linearCopyStyleKey = "linearCopyStyle"
   private static let linearIssueCreateDefaultTeamIDKey = "linearIssueCreateDefaultTeamID"
@@ -394,6 +418,9 @@ final class StatusStore: ObservableObject {
     self.newNoteShortcut = Self.loadShortcut(forKey: Self.newNoteShortcutKey, defaultValue: .newNoteDefault)
     self.newLinearIssueShortcut = Self.loadShortcut(forKey: Self.newLinearIssueShortcutKey, defaultValue: .newLinearIssueDefault)
     self.showsCalendarSourceNames = defaults.object(forKey: Self.showsCalendarSourceNamesKey) as? Bool ?? true
+    self.showsCalendarSection = defaults.object(forKey: Self.showsCalendarSectionKey) as? Bool ?? true
+    self.showsLinearSection = defaults.object(forKey: Self.showsLinearSectionKey) as? Bool ?? true
+    self.showsNotesSection = defaults.object(forKey: Self.showsNotesSectionKey) as? Bool ?? true
     self.linearIssueOrder = LinearIssueOrder(rawValue: UserDefaults.standard.string(forKey: Self.linearIssueOrderKey) ?? "") ?? .priority
     self.linearCopyStyle = LinearCopyStyle(rawValue: UserDefaults.standard.string(forKey: Self.linearCopyStyleKey) ?? "") ?? .link
     self.linearIssueCreateDefaultTeamID = defaults.string(forKey: Self.linearIssueCreateDefaultTeamIDKey) ?? ""
@@ -614,13 +641,25 @@ final class StatusStore: ObservableObject {
   /// Providers that still need the user to connect an account.
   var connectionSetupItems: [ConnectionStatus] {
     connectionStatuses.filter { status in
-      status.state != .connected && (status.provider != .google || googleAccounts.isEmpty)
+      guard isSectionEnabled(for: status.provider) else { return false }
+      return status.state != .connected && (status.provider != .google || googleAccounts.isEmpty)
+    }
+  }
+
+  /// Whether the menu section tied to a provider is enabled.
+  private func isSectionEnabled(for provider: AuthProvider) -> Bool {
+    switch provider {
+    case .google:
+      showsCalendarSection
+    case .linear:
+      showsLinearSection
     }
   }
 
   /// Existing Google accounts that need account-specific reauthentication.
   var googleAccountsNeedingAttention: [GoogleAccountStatus] {
-    googleAccounts.filter(\.needsAttention)
+    guard showsCalendarSection else { return [] }
+    return googleAccounts.filter(\.needsAttention)
   }
 
   /// Whether another Google authorization can begin without duplicating a migrated placeholder.
@@ -829,6 +868,21 @@ final class StatusStore: ObservableObject {
   /// Persists whether calendar event rows show their source calendar names.
   func setShowsCalendarSourceNames(_ shows: Bool) {
     showsCalendarSourceNames = shows
+  }
+
+  /// Persists whether the calendar section appears in the menu bar popover.
+  func setShowsCalendarSection(_ shows: Bool) {
+    showsCalendarSection = shows
+  }
+
+  /// Persists whether the Linear section appears in the menu bar popover.
+  func setShowsLinearSection(_ shows: Bool) {
+    showsLinearSection = shows
+  }
+
+  /// Persists whether the notes section appears in the menu bar popover.
+  func setShowsNotesSection(_ shows: Bool) {
+    showsNotesSection = shows
   }
 
   /// Persists a new Linear issue ordering and reapplies it immediately.
@@ -1672,8 +1726,10 @@ final class StatusStore: ObservableObject {
       }
       switch hotkey {
       case .newNote:
+        guard self.showsNotesSection else { return }
         self.noteCreationRequestID = UUID()
       case .newLinearIssue:
+        guard self.showsLinearSection else { return }
         self.linearIssueCreationRequestID = UUID()
       }
     }

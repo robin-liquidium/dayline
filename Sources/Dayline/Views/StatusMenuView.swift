@@ -36,38 +36,44 @@ struct StatusMenuView: View {
             )
           }
 
-          CalendarSection(
-            events: store.events,
-            tomorrowEvents: store.tomorrowEvents,
-            warnings: store.calendarWarnings,
-            hoveredEventID: store.hoveredEventID,
-            isTomorrowExpanded: store.isTomorrowExpanded,
-            now: store.calendarHighlightDate
-          )
-          LinearSection(
-            issues: store.issues,
-            error: store.linearError,
-            hoveredIssueID: store.hoveredIssueID,
-            copiedIssueID: store.copiedIssueID,
-            updatingStatusIssueID: store.updatingStatusIssueID,
-            updatingPriorityIssueID: store.updatingPriorityIssueID,
-            updatingDueDateIssueID: store.updatingDueDateIssueID,
-            openNewIssue: {
-              openLinearIssueCreator()
-            }
-          )
+          if store.showsCalendarSection {
+            CalendarSection(
+              events: store.events,
+              tomorrowEvents: store.tomorrowEvents,
+              warnings: store.calendarWarnings,
+              hoveredEventID: store.hoveredEventID,
+              isTomorrowExpanded: store.isTomorrowExpanded,
+              now: store.calendarHighlightDate
+            )
+          }
+          if store.showsLinearSection {
+            LinearSection(
+              issues: store.issues,
+              error: store.linearError,
+              hoveredIssueID: store.hoveredIssueID,
+              copiedIssueID: store.copiedIssueID,
+              updatingStatusIssueID: store.updatingStatusIssueID,
+              updatingPriorityIssueID: store.updatingPriorityIssueID,
+              updatingDueDateIssueID: store.updatingDueDateIssueID,
+              openNewIssue: {
+                openLinearIssueCreator()
+              }
+            )
+          }
 
-          NotesSection(
-            notes: store.notes,
-            error: store.notesError,
-            hoveredNoteID: store.hoveredNoteID,
-            openNewNote: {
-              openNoteEditor(.new)
-            },
-            openNote: { note in
-              openNoteEditor(.existing(note.id))
-            }
-          )
+          if store.showsNotesSection {
+            NotesSection(
+              notes: store.notes,
+              error: store.notesError,
+              hoveredNoteID: store.hoveredNoteID,
+              openNewNote: {
+                openNoteEditor(.new)
+              },
+              openNote: { note in
+                openNoteEditor(.existing(note.id))
+              }
+            )
+          }
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 10)
@@ -215,12 +221,13 @@ struct StatusMenuView: View {
     let setupItemCount = store.connectionSetupItems.count + store.googleAccountsNeedingAttention.count
     let setupRows = store.hasConnectionSetupItems ? CGFloat(max(setupItemCount, 1)) * 64 + 44 : 0
     let eventRowEstimate: CGFloat = store.showsCalendarSourceNames ? 48 : compactEventRowHeight
-    let eventRows = CGFloat(max(store.events.count, 1)) * eventRowEstimate
-    let tomorrowRows = store.isTomorrowExpanded ? CGFloat(max(store.tomorrowEvents.count, 1)) * eventRowEstimate + 34 : 0
-    let issueRows = CGFloat(max(store.issues.count, 1)) * workItemRowHeight
-    let issueMoreRow: CGFloat = store.hasMoreIssues || store.hasExpandedIssues ? 34 : 0
-    let noteRows = CGFloat(max(store.notes.count, 1)) * workItemRowHeight
-    let noteMoreRow: CGFloat = store.hasMoreNotes || store.hasExpandedNotes ? 34 : 0
+    let eventRows = store.showsCalendarSection ? CGFloat(max(store.events.count, 1)) * eventRowEstimate : 0
+    let tomorrowRows = store.showsCalendarSection && store.isTomorrowExpanded
+      ? CGFloat(max(store.tomorrowEvents.count, 1)) * eventRowEstimate + 34 : 0
+    let issueRows = store.showsLinearSection ? CGFloat(max(store.issues.count, 1)) * workItemRowHeight : 0
+    let issueMoreRow: CGFloat = store.showsLinearSection && (store.hasMoreIssues || store.hasExpandedIssues) ? 34 : 0
+    let noteRows = store.showsNotesSection ? CGFloat(max(store.notes.count, 1)) * workItemRowHeight : 0
+    let noteMoreRow: CGFloat = store.showsNotesSection && (store.hasMoreNotes || store.hasExpandedNotes) ? 34 : 0
     return 108 + setupRows + eventRows + tomorrowRows + issueRows + issueMoreRow + noteRows + noteMoreRow
   }
 
