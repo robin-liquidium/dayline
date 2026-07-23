@@ -24,6 +24,7 @@ Get the current Dayline work reviewed, merged, and synced into `main`. This is t
 
 2. After merge, update local `main`.
    - Require clean local `main` to equal `origin/main`. Leave the repository on `main` so `dayline-release` can start immediately.
+   - If unrelated local changes prevent a clean `main` sync, stop and report — never discard them and never sweep them into a commit.
 
 3. Close out with evidence.
    - Report the PR URL and merge commit, latest-head CI and review state, and clean or intentionally dirty worktree state.

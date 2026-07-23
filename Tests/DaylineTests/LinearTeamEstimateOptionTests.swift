@@ -47,6 +47,13 @@ struct LinearTeamEstimateOptionTests {
     #expect(team(type: "linear", allowZero: true).estimateOptions.map(\.value) == [0, 1, 2, 3, 4, 5])
   }
 
+  @Test("Zero estimates keep t-shirt labels aligned")
+  func tShirtZeroEstimates() {
+    let options = team(type: "tShirt", allowZero: true).estimateOptions
+    #expect(options.map(\.value) == [0, 1, 2, 3, 5, 8])
+    #expect(options.map(\.label) == ["0", "XS", "S", "M", "L", "XL"])
+  }
+
   @Test("Teams without estimation offer no estimate options")
   func estimatesDisabled() {
     #expect(team(type: "notUsed").estimateOptions.isEmpty)

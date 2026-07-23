@@ -606,6 +606,7 @@ struct SettingsView: View {
         let state = team.states.first(where: { $0.type == "unstarted" }) ?? team.states.first
         store.setLinearIssueCreateDefaultStateID(state?.id ?? "")
         if !store.linearIssueCreateDefaultProjectID.isEmpty,
+           !linearCreateProjects.isEmpty,
            !linearCreateProjectOptions.contains(where: { $0.id == store.linearIssueCreateDefaultProjectID }) {
           store.setLinearIssueCreateDefaultProjectID("")
         }

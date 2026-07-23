@@ -1,4 +1,4 @@
 interface:
   display_name: "Dayline Release"
   short_description: "Cut a notarized Dayline release from a clean main"
-  default_prompt: "Use $dayline-release to update the changelog, tag main, complete the notarized GitHub, website, Sparkle, and Homebrew release, and verify every distribution path."
+  default_prompt: "Use $dayline-release to run the Dayline release workflow — changelog, tag, notarized GitHub release, website, Sparkle, and Homebrew — and report exactly which stages completed and which remain pending (such as notarization continuation)."

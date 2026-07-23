@@ -8,8 +8,8 @@ export default defineConfig({
   server: {
     port: 3000,
     fs: {
-      // changelog.json lives at the repository root.
-      allow: [".", ".."],
+      // changelog.json lives at the repository root; allow only that file.
+      allow: [".", "../changelog.json"],
     },
   },
   plugins: [
