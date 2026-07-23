@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsView: View {
   @EnvironmentObject private var store: StatusStore
   @EnvironmentObject private var updateService: UpdateService
+  @Environment(\.openURL) private var openURL
   @State private var isShowingFeedback = false
   @State private var linearCreateTeams: [LinearTeamOption] = []
   @State private var linearCreateProjects: [LinearProjectOption] = []
@@ -209,7 +210,7 @@ struct SettingsView: View {
 
         Picker("Default project", selection: linearCreateDefaultProjectBinding) {
           Text("None").tag("")
-          ForEach(linearCreateProjects) { project in
+          ForEach(linearCreateProjectOptions) { project in
             Text(project.label).tag(project.id)
           }
         }
@@ -284,6 +285,11 @@ struct SettingsView: View {
         }
         .disabled(!updateService.canCheckForUpdates)
         .accessibilityIdentifier("settings.checkForUpdates")
+
+        Button("View Changelog...") {
+          openURL(URL(string: "https://dayline.robin.build/changelog")!)
+        }
+        .accessibilityIdentifier("settings.viewChangelog")
       } header: {
         Label("About", systemImage: "info.circle")
       }
@@ -599,6 +605,11 @@ struct SettingsView: View {
         guard let team = linearCreateTeams.first(where: { $0.id == teamID }) else { return }
         let state = team.states.first(where: { $0.type == "unstarted" }) ?? team.states.first
         store.setLinearIssueCreateDefaultStateID(state?.id ?? "")
+        if !store.linearIssueCreateDefaultProjectID.isEmpty,
+           !linearCreateProjects.isEmpty,
+           !linearCreateProjectOptions.contains(where: { $0.id == store.linearIssueCreateDefaultProjectID }) {
+          store.setLinearIssueCreateDefaultProjectID("")
+        }
         Task { await loadLinearCreateLabels() }
       }
     )
@@ -618,6 +629,13 @@ struct SettingsView: View {
       get: { String(store.linearIssueCreateDefaultPriority) },
       set: { store.setLinearIssueCreateDefaultPriority(Int($0) ?? 0) }
     )
+  }
+
+  /// Projects available for the configured default team.
+  private var linearCreateProjectOptions: [LinearProjectOption] {
+    linearCreateProjects.filter {
+      $0.teamIDs.isEmpty || $0.teamIDs.contains(store.linearIssueCreateDefaultTeamID)
+    }
   }
 
   /// Binding that persists the default project for newly created Linear issues.
@@ -673,7 +691,7 @@ struct SettingsView: View {
     do {
       linearCreateProjects = try await store.linearIssueCreateProjectOptions()
       if !store.linearIssueCreateDefaultProjectID.isEmpty,
-         !linearCreateProjects.contains(where: { $0.id == store.linearIssueCreateDefaultProjectID }) {
+         !linearCreateProjectOptions.contains(where: { $0.id == store.linearIssueCreateDefaultProjectID }) {
         store.setLinearIssueCreateDefaultProjectID("")
       }
     } catch {

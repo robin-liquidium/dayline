@@ -99,12 +99,15 @@ export function Footer({ showSupport = true }: { showSupport?: boolean }) {
             <span aria-hidden="true">·</span>
             <span>© {new Date().getFullYear()}</span>
           </div>
-          <div className="flex items-center gap-6">
+          <div className="flex flex-wrap items-center justify-center gap-6">
             <Link to="/privacy" className="transition-colors hover:text-ink">
               Privacy
             </Link>
             <Link to="/terms" className="transition-colors hover:text-ink">
               Terms
+            </Link>
+            <Link to="/changelog" className="transition-colors hover:text-ink">
+              Changelog
             </Link>
             <a
               href={site.githubUrl}

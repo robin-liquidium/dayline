@@ -101,7 +101,15 @@ struct MockData {
     ]
 
     let teams = [
-      LinearTeamOption(id: "mock-team", key: "DAY", name: "Dayline", states: workflowStates)
+      LinearTeamOption(
+        id: "mock-team",
+        key: "DAY",
+        name: "Dayline",
+        states: workflowStates,
+        issueEstimationType: "fibonacci",
+        issueEstimationAllowZero: false,
+        issueEstimationExtended: false
+      )
     ]
 
     let workAccount = GoogleAccount(
@@ -154,8 +162,8 @@ struct MockData {
         LinearUserOption(id: "mock-user", name: "Alex Morgan", displayName: "alex", isActive: true)
       ],
       projects: [
-        LinearProjectOption(id: "mock-project-1", name: "Menu Bar Redesign"),
-        LinearProjectOption(id: "mock-project-2", name: "Mobile Companion")
+        LinearProjectOption(id: "mock-project-1", name: "Menu Bar Redesign", teamIDs: ["mock-team"]),
+        LinearProjectOption(id: "mock-project-2", name: "Mobile Companion", teamIDs: ["mock-team"])
       ],
       cycles: [
         LinearCycleOption(id: "mock-cycle-12", number: 12, name: "Polish"),

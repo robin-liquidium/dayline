@@ -30,6 +30,9 @@ struct LinearProjectOption: Identifiable, Equatable {
   /// Human-readable project name.
   let name: String
 
+  /// IDs of the Linear teams this project belongs to.
+  let teamIDs: [String]
+
   /// Compact menu label for pickers.
   var label: String {
     name

@@ -1,4 +1,4 @@
 interface:
   display_name: "Dayline Publish Latest"
   short_description: "Review and ship Dayline through every release channel"
-  default_prompt: "Use $dayline-publish-latest to review all current Dayline changes, fix legitimate findings, merge the PR, and complete the notarized GitHub, website, Sparkle, Homebrew, and local release."
+  default_prompt: "Use $dayline-publish-latest to review all current Dayline changes, land them on main, and complete the notarized GitHub, changelog, website, Sparkle, and Homebrew release."
