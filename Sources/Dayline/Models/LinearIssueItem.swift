@@ -26,6 +26,15 @@ struct LinearIssueItem: Identifiable, Equatable {
   /// Workflow states available on the issue's Linear team.
   let workflowStates: [LinearWorkflowState]
 
+  /// Stable identifier of the owning Linear team.
+  let teamID: String
+
+  /// Labels currently applied to the issue.
+  let labels: [LinearLabelOption]
+
+  /// Current singular assignee, when assigned.
+  let assignee: LinearUserOption?
+
   /// Optional Linear due date in `YYYY-MM-DD` form.
   let dueDate: String?
 
@@ -52,5 +61,14 @@ struct LinearIssueItem: Identifiable, Equatable {
     default:
       3
     }
+  }
+
+  func replacing(labels: [LinearLabelOption]? = nil, assignee: LinearUserOption?? = nil) -> LinearIssueItem {
+    LinearIssueItem(
+      id: id, title: title, priority: priority, priorityLabel: priorityLabel,
+      stateName: stateName, stateID: stateID, stateType: stateType, workflowStates: workflowStates,
+      teamID: teamID, labels: labels ?? self.labels, assignee: assignee ?? self.assignee,
+      dueDate: dueDate, branchName: branchName, url: url
+    )
   }
 }

@@ -27,6 +27,12 @@ final class StatusStore: ObservableObject {
   /// Linear loading error shown as a compact status row.
   @Published private(set) var linearError: String?
 
+  /// Linear workspace identity and locally selected teams.
+  @Published private(set) var linearAccount = LinearAccount(workspaceName: "", userLabel: "", teams: [])
+
+  /// Team discovery error shown in the expandable Linear account row.
+  @Published private(set) var linearTeamError: String?
+
   /// Local notes persistence error shown as a compact status row.
   @Published private(set) var notesError: String?
 
@@ -35,6 +41,12 @@ final class StatusStore: ObservableObject {
 
   /// GitHub loading error shown as a compact status row.
   @Published private(set) var githubError: String?
+
+  /// Repository discovery error shown in the expandable GitHub account row.
+  @Published private(set) var githubRepositoryError: String?
+
+  /// Accessible GitHub repositories and their local issue-list selections.
+  @Published private(set) var githubAccount = GitHubAccount(repositories: [])
 
   /// Which provider supplies the issues section of the menu.
   @Published var issueSource: IssueSource {
@@ -70,7 +82,7 @@ final class StatusStore: ObservableObject {
   }
 
   /// Identifier for the Linear issue currently under the pointer.
-  @Published private(set) var hoveredIssueID: LinearIssueItem.ID?
+  @Published private(set) var hoveredIssueTarget: IssueActionTarget?
 
   /// Identifier for the local note currently under the pointer.
   @Published private(set) var hoveredNoteID: LocalNoteItem.ID?
@@ -85,13 +97,19 @@ final class StatusStore: ObservableObject {
   @Published private(set) var isTomorrowExpanded = false
 
   /// Identifier for the Linear issue whose URL was most recently copied.
-  @Published private(set) var copiedIssueID: LinearIssueItem.ID?
+  @Published private(set) var copiedIssueTarget: IssueActionTarget?
 
   /// Identifier for the calendar event whose link was most recently copied.
   @Published private(set) var copiedEventID: CalendarEventItem.ID?
 
   /// Identifier for the Linear issue whose status picker is open.
-  @Published private(set) var statusPickerIssueID: LinearIssueItem.ID?
+  @Published private(set) var statusPickerTarget: IssueActionTarget?
+
+  /// Issue whose label picker is open.
+  @Published private(set) var labelPickerTarget: IssueActionTarget?
+
+  /// Issue whose assignee picker is open.
+  @Published private(set) var assigneePickerTarget: IssueActionTarget?
 
   /// Identifier for the Linear issue whose priority picker is open.
   @Published private(set) var priorityPickerIssueID: LinearIssueItem.ID?
@@ -100,7 +118,7 @@ final class StatusStore: ObservableObject {
   @Published private(set) var dueDatePickerIssueID: LinearIssueItem.ID?
 
   /// Identifier for the Linear issue currently being updated.
-  @Published private(set) var updatingStatusIssueID: LinearIssueItem.ID?
+  @Published private(set) var updatingIssueTarget: IssueActionTarget?
 
   /// Identifier for the Linear issue whose priority is currently being updated.
   @Published private(set) var updatingPriorityIssueID: LinearIssueItem.ID?
@@ -159,6 +177,24 @@ final class StatusStore: ObservableObject {
         return
       }
       UserDefaults.standard.set(dueDatePickerHotkey, forKey: Self.dueDatePickerHotkeyKey)
+    }
+  }
+
+  /// Keyboard character used to open the hovered issue label picker.
+  @Published private(set) var labelPickerHotkey: String {
+    didSet {
+      let normalized = Self.normalizedHotkey(labelPickerHotkey, defaultValue: "l")
+      guard labelPickerHotkey == normalized else { labelPickerHotkey = normalized; return }
+      UserDefaults.standard.set(labelPickerHotkey, forKey: Self.labelPickerHotkeyKey)
+    }
+  }
+
+  /// Keyboard character used to open the hovered issue assignee picker.
+  @Published private(set) var assigneePickerHotkey: String {
+    didSet {
+      let normalized = Self.normalizedHotkey(assigneePickerHotkey, defaultValue: "a")
+      guard assigneePickerHotkey == normalized else { assigneePickerHotkey = normalized; return }
+      UserDefaults.standard.set(assigneePickerHotkey, forKey: Self.assigneePickerHotkeyKey)
     }
   }
 
@@ -377,6 +413,8 @@ final class StatusStore: ObservableObject {
   private static let statusPickerHotkeyKey = "statusPickerHotkey"
   private static let priorityPickerHotkeyKey = "priorityPickerHotkey"
   private static let dueDatePickerHotkeyKey = "dueDatePickerHotkey"
+  private static let labelPickerHotkeyKey = "labelPickerHotkey"
+  private static let assigneePickerHotkeyKey = "assigneePickerHotkey"
   private static let showsCalendarSourceNamesKey = "showsCalendarSourceNames"
   private static let showsCalendarSectionKey = "showsCalendarSection"
   private static let showsLinearSectionKey = "showsLinearSection"
@@ -412,6 +450,8 @@ final class StatusStore: ObservableObject {
   private let notesService: LocalNotesService
   private let authSessions: [AuthProvider: OAuthSession]
   private let googleAccountRepository: GoogleAccountRepository
+  private let linearAccountRepository: LinearAccountRepository
+  private let githubAccountRepository: GitHubAccountRepository
   private let launchAtLoginService: LaunchAtLoginService
   private let globalHotkeyService = GlobalHotkeyService()
   private let mockData: MockData?
@@ -428,6 +468,8 @@ final class StatusStore: ObservableObject {
     notesService: LocalNotesService = LocalNotesService(),
     authSessions: [AuthProvider: OAuthSession] = [.linear: .linear],
     googleAccountRepository: GoogleAccountRepository = GoogleAccountRepository(),
+    linearAccountRepository: LinearAccountRepository = LinearAccountRepository(),
+    githubAccountRepository: GitHubAccountRepository = GitHubAccountRepository(),
     launchAtLoginService: LaunchAtLoginService = LaunchAtLoginService(),
     mockData: MockData? = nil
   ) {
@@ -443,6 +485,8 @@ final class StatusStore: ObservableObject {
     self.notesService = notesService
     self.authSessions = authSessions
     self.googleAccountRepository = googleAccountRepository
+    self.linearAccountRepository = linearAccountRepository
+    self.githubAccountRepository = githubAccountRepository
     self.launchAtLoginService = launchAtLoginService
     self.mockData = mockData
     self.refreshIntervalMinutes = defaults.integer(forKey: Self.refreshIntervalKey)
@@ -450,16 +494,22 @@ final class StatusStore: ObservableObject {
       copy: defaults.string(forKey: Self.copyIssueHotkeyKey),
       status: defaults.string(forKey: Self.statusPickerHotkeyKey),
       priority: defaults.string(forKey: Self.priorityPickerHotkeyKey),
-      dueDate: defaults.string(forKey: Self.dueDatePickerHotkeyKey)
+      dueDate: defaults.string(forKey: Self.dueDatePickerHotkeyKey),
+      label: defaults.string(forKey: Self.labelPickerHotkeyKey),
+      assignee: defaults.string(forKey: Self.assigneePickerHotkeyKey)
     )
     self.copyIssueHotkey = repairedHotkeys[0]
     self.statusPickerHotkey = repairedHotkeys[1]
     self.priorityPickerHotkey = repairedHotkeys[2]
     self.dueDatePickerHotkey = repairedHotkeys[3]
+    self.labelPickerHotkey = repairedHotkeys[4]
+    self.assigneePickerHotkey = repairedHotkeys[5]
     defaults.set(repairedHotkeys[0], forKey: Self.copyIssueHotkeyKey)
     defaults.set(repairedHotkeys[1], forKey: Self.statusPickerHotkeyKey)
     defaults.set(repairedHotkeys[2], forKey: Self.priorityPickerHotkeyKey)
     defaults.set(repairedHotkeys[3], forKey: Self.dueDatePickerHotkeyKey)
+    defaults.set(repairedHotkeys[4], forKey: Self.labelPickerHotkeyKey)
+    defaults.set(repairedHotkeys[5], forKey: Self.assigneePickerHotkeyKey)
     self.newNoteShortcut = Self.loadShortcut(forKey: Self.newNoteShortcutKey, defaultValue: .newNoteDefault)
     self.newLinearIssueShortcut = Self.loadShortcut(forKey: Self.newLinearIssueShortcutKey, defaultValue: .newLinearIssueDefault)
     self.showsCalendarSourceNames = defaults.object(forKey: Self.showsCalendarSourceNamesKey) as? Bool ?? true
@@ -522,20 +572,17 @@ final class StatusStore: ObservableObject {
     }
     if let mockData {
       applyMockData(mockData)
-      if ProcessInfo.processInfo.arguments.contains("--mock-meeting-alert") {
-        let now = Date()
-        meetingAlertEvent = CalendarEventItem(
-          id: "mock-meeting-alert",
-          title: "Product stand-up",
-          startDate: now,
-          endDate: now.addingTimeInterval(30 * 60),
-          location: nil,
-          calendarURL: URL(string: "https://calendar.google.com"),
-          openURL: URL(string: "https://meet.google.com/mock-dayline-demo"),
-          sourceCalendarNames: ["Product Team"]
-        )
-      }
     } else {
+      do {
+        linearAccount = try linearAccountRepository.load()
+      } catch {
+        linearTeamError = error.localizedDescription
+      }
+      do {
+        githubAccount = try githubAccountRepository.load()
+      } catch {
+        githubError = error.localizedDescription
+      }
       do {
         googleAccounts = try googleAccountRepository.loadAndMigrateLegacyAccount().map {
           GoogleAccountStatus(account: $0, state: .checking, detail: nil)
@@ -626,7 +673,7 @@ final class StatusStore: ObservableObject {
 
     switch await githubResult {
     case .success(let fetchedIssues)? where connectionRevisions[.github, default: 0] == githubRevision && isConnected(.github):
-      githubIssues = fetchedIssues
+      githubIssues = fetchedIssues.filter { enabledGitHubRepositories.contains($0.repoFullName.lowercased()) }
       githubError = nil
     case .failure(let error)? where connectionRevisions[.github, default: 0] == githubRevision && isConnected(.github):
       handleFetchFailure(error, for: .github)
@@ -703,12 +750,22 @@ final class StatusStore: ObservableObject {
     let hasLinearTokens = await linearSession.hasTokens()
     guard connectionRevisions[.linear, default: 0] == linearRevision else { return }
     if hasLinearTokens {
-      let previousLabel = connectionStatuses.first(where: { $0.provider == .linear })?.accountLabel
-      let accountLabel: String?
-      if let previousLabel {
-        accountLabel = previousLabel
-      } else {
-        accountLabel = try? await linearService.fetchAccountLabel()
+      var accountLabel = linearAccount.workspaceName.isEmpty
+        ? connectionStatuses.first(where: { $0.provider == .linear })?.accountLabel
+        : linearAccount.workspaceName
+      do {
+        let discovery = try await linearService.fetchAccountDiscovery()
+        guard connectionRevisions[.linear, default: 0] == linearRevision else { return }
+        linearAccount = linearAccount.reconciling(
+          workspaceName: discovery.workspaceName,
+          userLabel: discovery.userLabel,
+          teams: discovery.teams
+        )
+        try linearAccountRepository.save(linearAccount)
+        accountLabel = discovery.workspaceName
+        linearTeamError = nil
+      } catch {
+        linearTeamError = "Team discovery failed: \(error.localizedDescription)"
       }
       guard connectionRevisions[.linear, default: 0] == linearRevision else { return }
       updateConnectionStatus(.linear, state: .connected, detail: nil, accountLabel: accountLabel)
@@ -728,9 +785,21 @@ final class StatusStore: ObservableObject {
       }
       guard connectionRevisions[.github, default: 0] == githubRevision else { return }
       updateConnectionStatus(.github, state: .connected, detail: nil, accountLabel: accountLabel)
+      do {
+        let discovered = try await githubService.fetchRepositories()
+        guard connectionRevisions[.github, default: 0] == githubRevision else { return }
+        githubAccount = githubAccount.reconcilingRepositories(discovered)
+        try githubAccountRepository.save(githubAccount)
+        githubRepositoryError = nil
+      } catch {
+        githubRepositoryError = "Repository discovery failed: \(error.localizedDescription)"
+      }
     } else {
-      let detail = AuthProvider.github.isConfigured ? nil : "This build is missing its OAuth client ID."
-      updateConnectionStatus(.github, state: .disconnected, detail: detail, accountLabel: nil)
+      let currentState = connectionStatuses.first(where: { $0.provider == .github })?.state
+      if currentState != .connecting {
+        let detail = AuthProvider.github.isConfigured ? nil : "This build is missing its OAuth client ID."
+        updateConnectionStatus(.github, state: .disconnected, detail: detail, accountLabel: nil)
+      }
     }
   }
 
@@ -964,6 +1033,47 @@ final class StatusStore: ObservableObject {
     Task { await refresh() }
   }
 
+  /// Updates one Linear team checkbox and immediately refreshes the assigned issue list.
+  func setLinearTeamEnabled(teamID: String, isEnabled: Bool) {
+    guard let index = linearAccount.teams.firstIndex(where: { $0.id == teamID }) else { return }
+    linearAccount.teams[index].isEnabled = isEnabled
+    do {
+      try linearAccountRepository.save(linearAccount)
+      allIssues.removeAll { !enabledLinearTeamIDs.contains($0.teamID) }
+      applyLinearIssueOrder()
+      linearTeamError = nil
+      Task { await refresh() }
+    } catch {
+      linearTeamError = error.localizedDescription
+    }
+  }
+
+  private var enabledLinearTeamIDs: Set<String> {
+    Set(linearAccount.teams.filter(\.isEnabled).map(\.id))
+  }
+
+  private var linearIssueTeamFilter: Set<String>? {
+    linearAccount.hasDiscoveredTeams ? enabledLinearTeamIDs : nil
+  }
+
+  /// Updates one GitHub repository checkbox and immediately refreshes the issue list.
+  func setGitHubRepositoryEnabled(fullName: String, isEnabled: Bool) {
+    guard let index = githubAccount.repositories.firstIndex(where: { $0.fullName == fullName }) else { return }
+    githubAccount.repositories[index].isEnabled = isEnabled
+    do {
+      try githubAccountRepository.save(githubAccount)
+      githubIssues.removeAll { !enabledGitHubRepositories.contains($0.repoFullName.lowercased()) }
+      githubRepositoryError = nil
+      Task { await refresh() }
+    } catch {
+      githubError = error.localizedDescription
+    }
+  }
+
+  private var enabledGitHubRepositories: Set<String> {
+    Set(githubAccount.repositories.filter(\.isEnabled).map { $0.fullName.lowercased() })
+  }
+
   /// Persists a new refresh cadence selected from Settings.
   func setRefreshInterval(minutes: Int) {
     refreshIntervalMinutes = minutes
@@ -984,29 +1094,46 @@ final class StatusStore: ObservableObject {
   /// Persists a new copy hotkey selected from Settings.
   func setCopyIssueHotkey(_ hotkey: String) {
     let normalized = Self.normalizedHotkey(hotkey, defaultValue: "c")
-    guard ![statusPickerHotkey, priorityPickerHotkey, dueDatePickerHotkey].contains(normalized) else { return }
+    guard !hoverHotkeys(excluding: copyIssueHotkey).contains(normalized) else { return }
     copyIssueHotkey = normalized
   }
 
   /// Persists a new status picker hotkey selected from Settings.
   func setStatusPickerHotkey(_ hotkey: String) {
     let normalized = Self.normalizedHotkey(hotkey, defaultValue: "s")
-    guard ![copyIssueHotkey, priorityPickerHotkey, dueDatePickerHotkey].contains(normalized) else { return }
+    guard !hoverHotkeys(excluding: statusPickerHotkey).contains(normalized) else { return }
     statusPickerHotkey = normalized
   }
 
   /// Persists a new priority picker hotkey selected from Settings.
   func setPriorityPickerHotkey(_ hotkey: String) {
     let normalized = Self.normalizedHotkey(hotkey, defaultValue: "p")
-    guard ![copyIssueHotkey, statusPickerHotkey, dueDatePickerHotkey].contains(normalized) else { return }
+    guard !hoverHotkeys(excluding: priorityPickerHotkey).contains(normalized) else { return }
     priorityPickerHotkey = normalized
   }
 
   /// Persists a new due date picker hotkey selected from Settings.
   func setDueDatePickerHotkey(_ hotkey: String) {
     let normalized = Self.normalizedHotkey(hotkey, defaultValue: "d")
-    guard ![copyIssueHotkey, statusPickerHotkey, priorityPickerHotkey].contains(normalized) else { return }
+    guard !hoverHotkeys(excluding: dueDatePickerHotkey).contains(normalized) else { return }
     dueDatePickerHotkey = normalized
+  }
+
+  func setLabelPickerHotkey(_ hotkey: String) {
+    let normalized = Self.normalizedHotkey(hotkey, defaultValue: "l")
+    guard !hoverHotkeys(excluding: labelPickerHotkey).contains(normalized) else { return }
+    labelPickerHotkey = normalized
+  }
+
+  func setAssigneePickerHotkey(_ hotkey: String) {
+    let normalized = Self.normalizedHotkey(hotkey, defaultValue: "a")
+    guard !hoverHotkeys(excluding: assigneePickerHotkey).contains(normalized) else { return }
+    assigneePickerHotkey = normalized
+  }
+
+  private func hoverHotkeys(excluding value: String) -> [String] {
+    [copyIssueHotkey, statusPickerHotkey, priorityPickerHotkey, dueDatePickerHotkey, labelPickerHotkey, assigneePickerHotkey]
+      .filter { $0 != value }
   }
 
   /// Persists a new global shortcut for creating notes selected from Settings.
@@ -1214,27 +1341,35 @@ final class StatusStore: ObservableObject {
 
   /// Returns whether a keypress should copy the hovered Linear issue link.
   func matchesCopyIssueHotkey(_ characters: String) -> Bool {
-    Self.normalizedHotkey(characters, defaultValue: "c") == copyIssueHotkey
+    Self.hotkeyMatches(characters, configured: copyIssueHotkey)
   }
 
   /// Returns whether a keypress should open the status picker.
   func matchesStatusPickerHotkey(_ characters: String) -> Bool {
-    Self.normalizedHotkey(characters, defaultValue: "s") == statusPickerHotkey
+    Self.hotkeyMatches(characters, configured: statusPickerHotkey)
   }
 
   /// Returns whether a keypress should open the priority picker.
   func matchesPriorityPickerHotkey(_ characters: String) -> Bool {
-    Self.normalizedHotkey(characters, defaultValue: "p") == priorityPickerHotkey
+    Self.hotkeyMatches(characters, configured: priorityPickerHotkey)
   }
 
   /// Returns whether a keypress should open the due date picker.
   func matchesDueDatePickerHotkey(_ characters: String) -> Bool {
-    Self.normalizedHotkey(characters, defaultValue: "d") == dueDatePickerHotkey
+    Self.hotkeyMatches(characters, configured: dueDatePickerHotkey)
+  }
+
+  func matchesLabelPickerHotkey(_ characters: String) -> Bool {
+    Self.hotkeyMatches(characters, configured: labelPickerHotkey)
+  }
+
+  func matchesAssigneePickerHotkey(_ characters: String) -> Bool {
+    Self.hotkeyMatches(characters, configured: assigneePickerHotkey)
   }
 
   /// Tracks which Linear issue is currently hovered for keyboard actions.
-  func setHoveredIssue(_ issueID: LinearIssueItem.ID?) {
-    hoveredIssueID = issueID
+  func setHoveredIssue(_ target: IssueActionTarget?) {
+    hoveredIssueTarget = target
   }
 
   /// Tracks which local note is currently hovered for row highlighting.
@@ -1245,14 +1380,6 @@ final class StatusStore: ObservableObject {
   /// Tracks which menu chrome control is currently hovered.
   func setHoveredControl(_ controlID: MenuControlID?) {
     hoveredControlID = controlID
-  }
-
-  /// Issue whose status picker should currently be shown.
-  var statusPickerIssue: LinearIssueItem? {
-    guard let statusPickerIssueID else {
-      return nil
-    }
-    return allIssues.first { $0.id == statusPickerIssueID }
   }
 
   /// Issue whose priority picker should currently be shown.
@@ -1266,45 +1393,79 @@ final class StatusStore: ObservableObject {
   /// Opens the status picker for the hovered Linear issue.
   @discardableResult
   func presentStatusPickerForHoveredIssue() -> Bool {
-    guard let hoveredIssueID,
-          allIssues.contains(where: { $0.id == hoveredIssueID }) else {
-      return false
-    }
-    statusPickerIssueID = hoveredIssueID
+    guard let target = validHoveredIssueTarget else { return false }
+    statusPickerTarget = target
     priorityPickerIssueID = nil
     dueDatePickerIssueID = nil
+    labelPickerTarget = nil
+    assigneePickerTarget = nil
     return true
   }
 
   /// Opens the priority picker for the hovered Linear issue.
   @discardableResult
   func presentPriorityPickerForHoveredIssue() -> Bool {
-    guard let hoveredIssueID,
-          allIssues.contains(where: { $0.id == hoveredIssueID }) else {
+    guard case .linear(let issueID)? = validHoveredIssueTarget else {
       return false
     }
-    priorityPickerIssueID = hoveredIssueID
-    statusPickerIssueID = nil
+    priorityPickerIssueID = issueID
+    statusPickerTarget = nil
     dueDatePickerIssueID = nil
+    labelPickerTarget = nil
+    assigneePickerTarget = nil
     return true
   }
 
   /// Opens the due date picker for the hovered Linear issue.
   @discardableResult
   func presentDueDatePickerForHoveredIssue() -> Bool {
-    guard let hoveredIssueID,
-          allIssues.contains(where: { $0.id == hoveredIssueID }) else {
+    guard case .linear(let issueID)? = validHoveredIssueTarget else {
       return false
     }
-    dueDatePickerIssueID = hoveredIssueID
-    statusPickerIssueID = nil
+    dueDatePickerIssueID = issueID
+    statusPickerTarget = nil
     priorityPickerIssueID = nil
+    labelPickerTarget = nil
+    assigneePickerTarget = nil
     return true
+  }
+
+  @discardableResult
+  func presentLabelPickerForHoveredIssue() -> Bool {
+    guard let target = validHoveredIssueTarget else { return false }
+    labelPickerTarget = target
+    dismissOtherPickers(kind: .label)
+    return true
+  }
+
+  @discardableResult
+  func presentAssigneePickerForHoveredIssue() -> Bool {
+    guard let target = validHoveredIssueTarget else { return false }
+    assigneePickerTarget = target
+    dismissOtherPickers(kind: .assignee)
+    return true
+  }
+
+  private var validHoveredIssueTarget: IssueActionTarget? {
+    guard let target = hoveredIssueTarget else { return nil }
+    switch target {
+    case .linear(let id): return allIssues.contains { $0.id == id } ? target : nil
+    case .github(let id): return githubIssues.contains { $0.id == id } ? target : nil
+    }
+  }
+
+  private enum PickerKind { case label, assignee }
+  private func dismissOtherPickers(kind: PickerKind) {
+    statusPickerTarget = nil
+    priorityPickerIssueID = nil
+    dueDatePickerIssueID = nil
+    if kind != .label { labelPickerTarget = nil }
+    if kind != .assignee { assigneePickerTarget = nil }
   }
 
   /// Dismisses the status picker without changing Linear.
   func dismissStatusPicker() {
-    statusPickerIssueID = nil
+    statusPickerTarget = nil
   }
 
   /// Dismisses the priority picker without changing Linear.
@@ -1317,6 +1478,9 @@ final class StatusStore: ObservableObject {
     dueDatePickerIssueID = nil
   }
 
+  func dismissLabelPicker() { labelPickerTarget = nil }
+  func dismissAssigneePicker() { assigneePickerTarget = nil }
+
   /// Tracks which calendar event is currently hovered for row highlighting.
   func setHoveredEvent(_ eventID: CalendarEventItem.ID?) {
     hoveredEventID = eventID
@@ -1325,17 +1489,15 @@ final class StatusStore: ObservableObject {
   /// Copies the hovered issue link and briefly marks the row as copied.
   @discardableResult
   func copyHoveredIssueLink() -> Bool {
-    guard let hoveredIssueID else {
-      return false
-    }
-
-    if let githubIssue = githubIssues.first(where: { $0.id == hoveredIssueID }),
+    guard let target = validHoveredIssueTarget else { return false }
+    if case .github(let id) = target,
+       let githubIssue = githubIssues.first(where: { $0.id == id }),
        let url = githubIssue.url {
-      copyToClipboard(url.absoluteString, markingCopied: githubIssue.id)
+      copyToClipboard(url.absoluteString, markingCopied: target)
       return true
     }
-
-    guard let issue = issues.first(where: { $0.id == hoveredIssueID }) else {
+    guard case .linear(let id) = target,
+          let issue = issues.first(where: { $0.id == id }) else {
       return false
     }
 
@@ -1351,20 +1513,20 @@ final class StatusStore: ObservableObject {
       return false
     }
 
-    copyToClipboard(clipboardText, markingCopied: issue.id)
+    copyToClipboard(clipboardText, markingCopied: target)
     return true
   }
 
   /// Copies one string and flashes the copied indicator on the matching row.
-  private func copyToClipboard(_ text: String, markingCopied issueID: String) {
+  private func copyToClipboard(_ text: String, markingCopied target: IssueActionTarget) {
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(text, forType: .string)
-    copiedIssueID = issueID
+    copiedIssueTarget = target
 
     Task { @MainActor in
       try? await Task.sleep(for: .seconds(1.4))
-      if copiedIssueID == issueID {
-        copiedIssueID = nil
+      if copiedIssueTarget == target {
+        copiedIssueTarget = nil
       }
     }
   }
@@ -1394,12 +1556,13 @@ final class StatusStore: ObservableObject {
 
   /// Changes a Linear issue status and updates the visible list.
   func changeIssueStatus(issueID: LinearIssueItem.ID, state: LinearWorkflowState) async {
-    guard updatingStatusIssueID == nil else {
+    let target = IssueActionTarget.linear(issueID)
+    guard updatingIssueTarget == nil else {
       return
     }
 
-    updatingStatusIssueID = issueID
-    statusPickerIssueID = nil
+    updatingIssueTarget = target
+    statusPickerTarget = nil
 
     if mockData != nil {
       if let issue = allIssues.first(where: { $0.id == issueID }) {
@@ -1412,12 +1575,15 @@ final class StatusStore: ObservableObject {
           stateID: state.id,
           stateType: state.type,
           workflowStates: issue.workflowStates,
+          teamID: issue.teamID,
+          labels: issue.labels,
+          assignee: issue.assignee,
           dueDate: issue.dueDate,
           branchName: issue.branchName,
           url: issue.url
         ))
       }
-      updatingStatusIssueID = nil
+      updatingIssueTarget = nil
       return
     }
 
@@ -1429,7 +1595,7 @@ final class StatusStore: ObservableObject {
       linearError = error.localizedDescription
     }
 
-    updatingStatusIssueID = nil
+    updatingIssueTarget = nil
   }
 
   /// Changes a Linear issue priority and updates the visible list.
@@ -1452,6 +1618,9 @@ final class StatusStore: ObservableObject {
           stateID: issue.stateID,
           stateType: issue.stateType,
           workflowStates: issue.workflowStates,
+          teamID: issue.teamID,
+          labels: issue.labels,
+          assignee: issue.assignee,
           dueDate: issue.dueDate,
           branchName: issue.branchName,
           url: issue.url
@@ -1496,6 +1665,9 @@ final class StatusStore: ObservableObject {
           stateID: issue.stateID,
           stateType: issue.stateType,
           workflowStates: issue.workflowStates,
+          teamID: issue.teamID,
+          labels: issue.labels,
+          assignee: issue.assignee,
           dueDate: formattedDueDate,
           branchName: issue.branchName,
           url: issue.url
@@ -1518,7 +1690,7 @@ final class StatusStore: ObservableObject {
 
   /// Moves a Linear issue to its team's canceled workflow state.
   func cancelLinearIssue(issueID: LinearIssueItem.ID) async {
-    guard updatingStatusIssueID == nil else {
+    guard updatingIssueTarget == nil else {
       return
     }
 
@@ -1529,6 +1701,160 @@ final class StatusStore: ObservableObject {
     }
 
     await changeIssueStatus(issueID: issueID, state: canceledState)
+  }
+
+  /// Closes or reopens a GitHub issue. Closed issues leave the assigned-open list immediately.
+  func changeGitHubIssueState(issueID: String, isOpen: Bool) async {
+    let target = IssueActionTarget.github(issueID)
+    guard updatingIssueTarget == nil,
+          let issue = githubIssues.first(where: { $0.id == issueID }) else { return }
+    updatingIssueTarget = target
+    statusPickerTarget = nil
+    defer { updatingIssueTarget = nil }
+    if mockData == nil {
+      do {
+        try await githubService.updateIssueState(repoFullName: issue.repoFullName, number: issue.number, isOpen: isOpen)
+      } catch {
+        githubError = error.localizedDescription
+        return
+      }
+    }
+    if !isOpen { githubIssues.removeAll { $0.id == issueID } }
+    githubError = nil
+  }
+
+  /// Loads labels appropriate for one issue target.
+  func labelOptions(for target: IssueActionTarget) async throws -> [IssueLabelOption] {
+    switch target {
+    case .linear(let id):
+      guard let issue = allIssues.first(where: { $0.id == id }) else { return [] }
+      return try await linearIssueCreateLabelOptions(teamID: issue.teamID).map {
+        IssueLabelOption(id: $0.id, name: $0.name, color: $0.color)
+      }
+    case .github(let id):
+      guard let issue = githubIssues.first(where: { $0.id == id }) else { return [] }
+      if let mockData { return mockData.labels.map { IssueLabelOption(id: $0.id, name: $0.name, color: $0.color) } }
+      return try await githubService.fetchLabels(repoFullName: issue.repoFullName).map {
+        IssueLabelOption(id: $0.id, name: $0.name, color: $0.color)
+      }
+    }
+  }
+
+  func selectedLabelIDs(for target: IssueActionTarget) -> Set<String> {
+    switch target {
+    case .linear(let id): return Set(allIssues.first { $0.id == id }?.labels.map(\.id) ?? [])
+    case .github(let id): return Set(githubIssues.first { $0.id == id }?.labels.map(\.id) ?? [])
+    }
+  }
+
+  /// Toggles one label while preserving every other applied label.
+  func toggleLabel(target: IssueActionTarget, option: IssueLabelOption) async {
+    guard updatingIssueTarget == nil else { return }
+    updatingIssueTarget = target
+    defer { updatingIssueTarget = nil }
+    switch target {
+    case .linear(let id):
+      guard let issue = allIssues.first(where: { $0.id == id }) else { return }
+      var ids = issue.labels.map(\.id)
+      if let index = ids.firstIndex(of: option.id) { ids.remove(at: index) } else { ids.append(option.id) }
+      do {
+        if mockData != nil {
+          replaceFetchedIssue(issue.replacing(labels: ids.map { labelID in
+            let existing = issue.labels.first { $0.id == labelID }
+            return existing ?? LinearLabelOption(id: option.id, name: option.name, color: option.color)
+          }))
+        } else {
+          replaceFetchedIssue(try await linearService.updateIssueLabels(issueID: id, labelIDs: ids))
+        }
+        linearError = nil
+      } catch { linearError = error.localizedDescription }
+    case .github(let id):
+      guard let issue = githubIssues.first(where: { $0.id == id }) else { return }
+      var labels = issue.labels
+      if let index = labels.firstIndex(where: { $0.id == option.id }) {
+        labels.remove(at: index)
+      } else {
+        labels.append(GitHubLabelOption(name: option.name, color: option.color))
+      }
+      do {
+        if mockData == nil {
+          try await githubService.updateIssueLabels(repoFullName: issue.repoFullName, number: issue.number, labels: labels.map(\.name))
+        }
+        replaceGitHubIssue(issue.replacing(labels: labels))
+        githubError = nil
+      } catch { githubError = error.localizedDescription }
+    }
+  }
+
+  /// Loads assignable users appropriate for one issue target.
+  func assigneeOptions(for target: IssueActionTarget) async throws -> [IssueAssigneeOption] {
+    switch target {
+    case .linear:
+      return [IssueAssigneeOption(id: "", name: "Unassigned")] + (try await linearIssueCreateAssigneeOptions().map {
+        IssueAssigneeOption(id: $0.id, name: $0.label)
+      })
+    case .github(let id):
+      guard let issue = githubIssues.first(where: { $0.id == id }) else { return [] }
+      if let mockData { return mockData.users.map { IssueAssigneeOption(id: $0.id, name: $0.label) } }
+      return try await githubService.fetchAssignees(repoFullName: issue.repoFullName).map {
+        IssueAssigneeOption(id: $0.id, name: $0.login)
+      }
+    }
+  }
+
+  func selectedAssigneeIDs(for target: IssueActionTarget) -> Set<String> {
+    switch target {
+    case .linear(let id): return Set(allIssues.first { $0.id == id }?.assignee.map { [$0.id] } ?? [""])
+    case .github(let id): return Set(githubIssues.first { $0.id == id }?.assignees.map(\.id) ?? [])
+    }
+  }
+
+  /// Applies singular Linear assignment or toggles one GitHub assignee while preserving the rest.
+  func toggleAssignee(target: IssueActionTarget, option: IssueAssigneeOption) async {
+    guard updatingIssueTarget == nil else { return }
+    updatingIssueTarget = target
+    defer { updatingIssueTarget = nil }
+    switch target {
+    case .linear(let id):
+      guard let issue = allIssues.first(where: { $0.id == id }) else { return }
+      let assigneeID = option.id.isEmpty || issue.assignee?.id == option.id ? nil : option.id
+      do {
+        if mockData != nil {
+          allIssues.removeAll { $0.id == id }
+          applyLinearIssueOrder()
+        } else {
+          _ = try await linearService.updateIssueAssignee(issueID: id, assigneeID: assigneeID)
+          // The menu only shows issues assigned to the viewer, so any singular
+          // reassignment or unassignment removes this issue from the active list.
+          allIssues.removeAll { $0.id == id }
+          applyLinearIssueOrder()
+        }
+        linearError = nil
+      } catch { linearError = error.localizedDescription }
+    case .github(let id):
+      guard let issue = githubIssues.first(where: { $0.id == id }) else { return }
+      var assignees = issue.assignees
+      if let index = assignees.firstIndex(where: { $0.id == option.id }) {
+        assignees.remove(at: index)
+      } else {
+        assignees.append(GitHubAssigneeOption(login: option.name))
+      }
+      do {
+        if mockData == nil {
+          try await githubService.updateIssueAssignees(repoFullName: issue.repoFullName, number: issue.number, assignees: assignees.map(\.login))
+        }
+        let viewerLogin = connectionStatuses
+          .first(where: { $0.provider == .github })?
+          .accountLabel?
+          .lowercased()
+        if let viewerLogin, !assignees.contains(where: { $0.login.lowercased() == viewerLogin }) {
+          githubIssues.removeAll { $0.id == id }
+        } else {
+          replaceGitHubIssue(issue.replacing(assignees: assignees))
+        }
+        githubError = nil
+      } catch { githubError = error.localizedDescription }
+    }
   }
 
   /// Loads Linear teams and states for the issue creator.
@@ -1584,6 +1910,9 @@ final class StatusStore: ObservableObject {
         stateID: state?.id ?? "mock-todo",
         stateType: state?.type ?? "unstarted",
         workflowStates: team?.states ?? [],
+        teamID: team?.id ?? "mock-team",
+        labels: draft.label.isEmpty ? [] : mockData.labels.filter { $0.id == draft.label },
+        assignee: nil,
         dueDate: draft.formattedDueDate,
         branchName: nil,
         url: URL(string: "https://linear.app/dayline")
@@ -1596,7 +1925,7 @@ final class StatusStore: ObservableObject {
     try await linearService.createIssue(draft: draft)
 
     do {
-      allIssues = try await linearService.fetchAssignedIssues()
+      allIssues = try await linearService.fetchAssignedIssues(enabledTeamIDs: linearIssueTeamFilter)
       visibleIssueCount = max(Self.initialVisibleIssueCount, min(visibleIssueCount, allIssues.count))
       applyLinearIssueOrder()
       linearError = nil
@@ -2054,6 +2383,11 @@ final class StatusStore: ObservableObject {
     applyLinearIssueOrder()
   }
 
+  private func replaceGitHubIssue(_ updatedIssue: GitHubIssueItem) {
+    guard let index = githubIssues.firstIndex(where: { $0.id == updatedIssue.id }) else { return }
+    githubIssues[index] = updatedIssue
+  }
+
   /// Returns Linear issues sorted by the current user preference.
   private func sortedLinearIssues(_ issues: [LinearIssueItem]) -> [LinearIssueItem] {
     issues.sorted { lhs, rhs in
@@ -2099,11 +2433,38 @@ final class StatusStore: ObservableObject {
 
   /// Restores the isolated screenshot state without touching OAuth or disk persistence.
   private func applyMockData(_ mockData: MockData) {
-    events = mockData.events
+    if ProcessInfo.processInfo.arguments.contains("--mock-meeting-alert") {
+      let now = Date()
+      let alertEvent = CalendarEventItem(
+        id: "mock-meeting-alert",
+        title: "Product stand-up",
+        startDate: now,
+        endDate: now.addingTimeInterval(30 * 60),
+        location: nil,
+        calendarURL: URL(string: "https://calendar.google.com"),
+        openURL: URL(string: "https://meet.google.com/mock-dayline-demo"),
+        sourceCalendarNames: ["Product Team"]
+      )
+      events = [alertEvent] + mockData.events
+      meetingAlertEvent = alertEvent
+    } else {
+      events = mockData.events
+    }
     tomorrowEvents = mockData.tomorrowEvents
     allIssues = mockData.issues
     allNotes = mockData.notes
+    linearAccount = LinearAccount(
+      workspaceName: "Dayline",
+      userLabel: "Alex Morgan",
+      teams: mockData.teams.map {
+        LinearTeamSelection(id: $0.id, key: $0.key, name: $0.name, isEnabled: true)
+      },
+      hasDiscoveredTeams: true
+    )
     githubIssues = mockData.githubIssues
+    githubAccount = GitHubAccount(repositories: Array(Set(mockData.githubIssues.map(\.repoFullName))).map {
+      GitHubRepository(fullName: $0, isEnabled: true)
+    }.sorted { $0.fullName < $1.fullName })
     connectionStatuses = mockData.connectionStatuses
     googleAccounts = mockData.googleAccounts
     visibleIssueCount = Self.initialVisibleIssueCount
@@ -2111,6 +2472,7 @@ final class StatusStore: ObservableObject {
     calendarWarnings = []
     googleAuthorizationError = nil
     linearError = nil
+    linearTeamError = nil
     githubError = nil
     notesError = nil
     issues = Array(allIssues.prefix(visibleIssueCount))
@@ -2194,24 +2556,38 @@ final class StatusStore: ObservableObject {
       .map(String.init) ?? defaultValue
   }
 
+  /// Matches raw key input without converting empty input into an action default.
+  static func hotkeyMatches(_ input: String, configured: String) -> Bool {
+    guard let character = input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().first else {
+      return false
+    }
+    return String(character) == configured
+  }
+
   /// Repairs persisted hover shortcuts in precedence order so every action remains reachable.
   static func repairedHoverHotkeys(
     copy: String?,
     status: String?,
     priority: String?,
-    dueDate: String?
+    dueDate: String?,
+    label: String? = nil,
+    assignee: String? = nil
   ) -> [String] {
     let preferred = [
       normalizedHotkey(copy, defaultValue: "c"),
       normalizedHotkey(status, defaultValue: "s"),
       normalizedHotkey(priority, defaultValue: "p"),
-      normalizedHotkey(dueDate, defaultValue: "d")
+      normalizedHotkey(dueDate, defaultValue: "d"),
+      normalizedHotkey(label, defaultValue: "l"),
+      normalizedHotkey(assignee, defaultValue: "a")
     ]
     let fallbacks = [
       ["c", "l", "k", "y"],
       ["s", "w", "u", "d"],
       ["p", "r", "i", "o"],
-      ["d", "e", "t", "x"]
+      ["d", "e", "t", "x"],
+      ["l", "f", "g", "b"],
+      ["a", "q", "v", "z"]
     ]
     var used = Set<String>()
     return preferred.enumerated().map { index, candidate in
@@ -2373,7 +2749,7 @@ final class StatusStore: ObservableObject {
   /// Loads Linear issues and packages thrown errors as `Result`.
   private func loadLinearIssues() async -> Result<[LinearIssueItem], Error> {
     do {
-      return .success(try await linearService.fetchAssignedIssues())
+      return .success(try await linearService.fetchAssignedIssues(enabledTeamIDs: linearIssueTeamFilter))
     } catch {
       return .failure(error)
     }
@@ -2382,7 +2758,7 @@ final class StatusStore: ObservableObject {
   /// Loads open GitHub issues assigned to the signed-in user.
   private func loadGitHubIssues() async -> Result<[GitHubIssueItem], Error> {
     do {
-      return .success(try await githubService.fetchAssignedIssues())
+      return .success(try await githubService.fetchAssignedIssues(enabledRepositories: enabledGitHubRepositories))
     } catch {
       return .failure(error)
     }

@@ -51,16 +51,16 @@ struct StatusMenuView: View {
               GitHubSection(
                 issues: store.githubIssues,
                 error: store.githubError,
-                hoveredIssueID: store.hoveredIssueID,
-                copiedIssueID: store.copiedIssueID
+                hoveredIssueTarget: store.hoveredIssueTarget,
+                copiedIssueTarget: store.copiedIssueTarget
               )
             } else {
               LinearSection(
                 issues: store.issues,
                 error: store.linearError,
-                hoveredIssueID: store.hoveredIssueID,
-                copiedIssueID: store.copiedIssueID,
-                updatingStatusIssueID: store.updatingStatusIssueID,
+                hoveredIssueTarget: store.hoveredIssueTarget,
+                copiedIssueTarget: store.copiedIssueTarget,
+                updatingIssueTarget: store.updatingIssueTarget,
                 updatingPriorityIssueID: store.updatingPriorityIssueID,
                 updatingDueDateIssueID: store.updatingDueDateIssueID,
                 openNewIssue: {
@@ -253,6 +253,14 @@ struct StatusMenuView: View {
 
     if store.matchesDueDatePickerHotkey(characters) {
       return store.presentDueDatePickerForHoveredIssue()
+    }
+
+    if store.matchesLabelPickerHotkey(characters) {
+      return store.presentLabelPickerForHoveredIssue()
+    }
+
+    if store.matchesAssigneePickerHotkey(characters) {
+      return store.presentAssigneePickerForHoveredIssue()
     }
 
     if store.matchesCopyIssueHotkey(characters) {
@@ -498,6 +506,127 @@ private struct PickerOptionRow<Content: View>: View {
   }
 }
 
+/// Shared checkbox picker for provider-specific labels or assignees.
+private struct IssueMultiValuePickerPopover: View {
+  enum Kind { case labels, assignees }
+
+  @EnvironmentObject private var store: StatusStore
+  let target: IssueActionTarget
+  let title: String
+  let kind: Kind
+  @State private var labels: [IssueLabelOption] = []
+  @State private var assignees: [IssueAssigneeOption] = []
+  @State private var error: String?
+  @State private var isLoading = true
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text(pickerTitle)
+        .font(.headline)
+      Text(title).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+      Divider()
+      if let error {
+        Text(error).font(.caption).foregroundStyle(.secondary)
+      } else if isLoading {
+        ProgressView().controlSize(.small).frame(maxWidth: .infinity)
+      } else if labels.isEmpty && assignees.isEmpty {
+        Text(kind == .labels ? "No labels available" : "No assignees available")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      } else {
+        ScrollView {
+          VStack(alignment: .leading, spacing: 0) {
+            if kind == .labels {
+              ForEach(labels) { option in
+                let isSelected = store.selectedLabelIDs(for: target).contains(option.id)
+                PickerOptionRow(isDisabled: store.updatingIssueTarget == target) {
+                  Task { await store.toggleLabel(target: target, option: option) }
+                } content: {
+                  HStack(spacing: 8) {
+                    Image(systemName: "circle.fill")
+                      .foregroundStyle(Color(linearHex: option.color))
+                    Text(option.name)
+                    Spacer(minLength: 0)
+                    if isSelected {
+                      Image(systemName: "checkmark")
+                        .foregroundStyle(.secondary)
+                    }
+                  }
+                }
+                .accessibilityIdentifier("issue.label.\(option.id)")
+              }
+            } else {
+              ForEach(assignees) { option in
+                let isSelected = store.selectedAssigneeIDs(for: target).contains(option.id)
+                PickerOptionRow(isDisabled: store.updatingIssueTarget == target) {
+                  Task { await store.toggleAssignee(target: target, option: option) }
+                } content: {
+                  HStack(spacing: 8) {
+                    Image(systemName: "person")
+                      .foregroundStyle(.secondary)
+                    Text(option.name)
+                    Spacer(minLength: 0)
+                    if isSelected {
+                      Image(systemName: "checkmark")
+                        .foregroundStyle(.secondary)
+                    }
+                  }
+                }
+                .accessibilityIdentifier("issue.assignee.\(option.id)")
+              }
+            }
+          }
+        }
+        .frame(height: min(CGFloat(optionCount) * 32, 280))
+      }
+    }
+    .padding(12)
+    .frame(width: 250)
+    .task {
+      defer { isLoading = false }
+      do {
+        if kind == .labels { labels = try await store.labelOptions(for: target) }
+        else { assignees = try await store.assigneeOptions(for: target) }
+      } catch { self.error = error.localizedDescription }
+    }
+  }
+
+  private var pickerTitle: String {
+    if kind == .labels { return "Change Labels" }
+    if case .linear = target { return "Change Assignee" }
+    return "Change Assignees"
+  }
+
+  private var optionCount: Int {
+    kind == .labels ? labels.count : assignees.count
+  }
+}
+
+/// Compact status selector for GitHub's open/closed states.
+private struct GitHubStatusPickerPopover: View {
+  @EnvironmentObject private var store: StatusStore
+  let issue: GitHubIssueItem
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Change Status").font(.headline)
+      Text(issue.title).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+      Divider()
+      PickerOptionRow(isDisabled: true, action: {}) {
+        Label("Open", systemImage: "checkmark")
+      }
+      PickerOptionRow(isDisabled: store.updatingIssueTarget == .github(issue.id)) {
+        Task { await store.changeGitHubIssueState(issueID: issue.id, isOpen: false) }
+      } content: {
+        Label("Closed", systemImage: "checkmark.circle")
+      }
+      .accessibilityIdentifier("github.status.closed")
+    }
+    .padding(12)
+    .frame(width: 240)
+  }
+}
+
 /// Native popover for changing the status of a hovered Linear issue.
 private struct StatusPickerPopover: View {
   @EnvironmentObject private var store: StatusStore
@@ -522,7 +651,7 @@ private struct StatusPickerPopover: View {
       VStack(alignment: .leading, spacing: 0) {
         ForEach(issue.workflowStates) { state in
           PickerOptionRow(
-            isDisabled: state.id == issue.stateID || store.updatingStatusIssueID == issue.id,
+            isDisabled: state.id == issue.stateID || store.updatingIssueTarget == .linear(issue.id),
             action: {
               Task {
                 await store.changeIssueStatus(issueID: issue.id, state: state)
@@ -854,13 +983,13 @@ private struct LinearSection: View {
   let error: String?
 
   /// Identifier for the issue currently under the pointer.
-  let hoveredIssueID: LinearIssueItem.ID?
+  let hoveredIssueTarget: IssueActionTarget?
 
   /// Identifier for the issue whose link was just copied.
-  let copiedIssueID: LinearIssueItem.ID?
+  let copiedIssueTarget: IssueActionTarget?
 
   /// Identifier for the issue whose status is being updated.
-  let updatingStatusIssueID: LinearIssueItem.ID?
+  let updatingIssueTarget: IssueActionTarget?
 
   /// Identifier for the issue whose priority is being updated.
   let updatingPriorityIssueID: LinearIssueItem.ID?
@@ -904,21 +1033,23 @@ private struct LinearSection: View {
           ForEach(issues) { issue in
             IssueRow(
               issue: issue,
-              isHovered: hoveredIssueID == issue.id,
-              isCopied: copiedIssueID == issue.id,
-              isUpdating: updatingStatusIssueID == issue.id
+              isHovered: hoveredIssueTarget == .linear(issue.id),
+              isCopied: copiedIssueTarget == .linear(issue.id),
+              isUpdating: updatingIssueTarget == .linear(issue.id)
                 || updatingPriorityIssueID == issue.id
                 || updatingDueDateIssueID == issue.id,
               copyHotkey: store.copyIssueHotkey,
               statusHotkey: store.statusPickerHotkey,
               priorityHotkey: store.priorityPickerHotkey,
               dueDateHotkey: store.dueDatePickerHotkey,
+              labelHotkey: store.labelPickerHotkey,
+              assigneeHotkey: store.assigneePickerHotkey,
               cancel: {
                 Task { await store.cancelLinearIssue(issueID: issue.id) }
               }
             )
             .onHover { isHovered in
-              store.setHoveredIssue(isHovered ? issue.id : nil)
+              store.setHoveredIssue(isHovered ? .linear(issue.id) : nil)
             }
             .popover(isPresented: statusPickerBinding(for: issue.id), arrowEdge: .trailing) {
               StatusPickerPopover(issue: issue)
@@ -930,6 +1061,14 @@ private struct LinearSection: View {
             }
             .popover(isPresented: dueDatePickerBinding(for: issue.id), arrowEdge: .trailing) {
               DueDatePickerPopover(issue: issue)
+                .environmentObject(store)
+            }
+            .popover(isPresented: labelPickerBinding(for: .linear(issue.id)), arrowEdge: .trailing) {
+              IssueMultiValuePickerPopover(target: .linear(issue.id), title: issue.title, kind: .labels)
+                .environmentObject(store)
+            }
+            .popover(isPresented: assigneePickerBinding(for: .linear(issue.id)), arrowEdge: .trailing) {
+              IssueMultiValuePickerPopover(target: .linear(issue.id), title: issue.title, kind: .assignees)
                 .environmentObject(store)
             }
           }
@@ -954,9 +1093,9 @@ private struct LinearSection: View {
   /// Binding that anchors the status chooser to its selected issue row.
   private func statusPickerBinding(for issueID: LinearIssueItem.ID) -> Binding<Bool> {
     Binding(
-      get: { store.statusPickerIssueID == issueID },
+      get: { store.statusPickerTarget == .linear(issueID) },
       set: { isPresented in
-        if !isPresented, store.statusPickerIssueID == issueID {
+        if !isPresented, store.statusPickerTarget == .linear(issueID) {
           store.dismissStatusPicker()
         }
       }
@@ -986,6 +1125,14 @@ private struct LinearSection: View {
       }
     )
   }
+
+  private func labelPickerBinding(for target: IssueActionTarget) -> Binding<Bool> {
+    Binding(get: { store.labelPickerTarget == target }, set: { if !$0 { store.dismissLabelPicker() } })
+  }
+
+  private func assigneePickerBinding(for target: IssueActionTarget) -> Binding<Bool> {
+    Binding(get: { store.assigneePickerTarget == target }, set: { if !$0 { store.dismissAssigneePicker() } })
+  }
 }
 
 /// GitHub issues section of the menu popover.
@@ -999,10 +1146,10 @@ private struct GitHubSection: View {
   let error: String?
 
   /// Identifier for the issue currently under the pointer.
-  let hoveredIssueID: GitHubIssueItem.ID?
+  let hoveredIssueTarget: IssueActionTarget?
 
   /// Identifier for the issue whose link was just copied.
-  let copiedIssueID: GitHubIssueItem.ID?
+  let copiedIssueTarget: IssueActionTarget?
 
   /// Builds the GitHub section.
   var body: some View {
@@ -1020,11 +1167,22 @@ private struct GitHubSection: View {
           ForEach(issues) { issue in
             GitHubIssueRow(
               issue: issue,
-              isHovered: hoveredIssueID == issue.id,
-              isCopied: copiedIssueID == issue.id
+              isHovered: hoveredIssueTarget == .github(issue.id),
+              isCopied: copiedIssueTarget == .github(issue.id)
             )
             .onHover { isHovered in
-              store.setHoveredIssue(isHovered ? issue.id : nil)
+              store.setHoveredIssue(isHovered ? .github(issue.id) : nil)
+            }
+            .popover(isPresented: statusPickerBinding(for: issue.id), arrowEdge: .trailing) {
+              GitHubStatusPickerPopover(issue: issue).environmentObject(store)
+            }
+            .popover(isPresented: labelPickerBinding(for: .github(issue.id)), arrowEdge: .trailing) {
+              IssueMultiValuePickerPopover(target: .github(issue.id), title: issue.title, kind: .labels)
+                .environmentObject(store)
+            }
+            .popover(isPresented: assigneePickerBinding(for: .github(issue.id)), arrowEdge: .trailing) {
+              IssueMultiValuePickerPopover(target: .github(issue.id), title: issue.title, kind: .assignees)
+                .environmentObject(store)
             }
           }
         }
@@ -1032,10 +1190,23 @@ private struct GitHubSection: View {
       }
     }
   }
+
+  private func statusPickerBinding(for issueID: String) -> Binding<Bool> {
+    Binding(get: { store.statusPickerTarget == .github(issueID) }, set: { if !$0 { store.dismissStatusPicker() } })
+  }
+
+  private func labelPickerBinding(for target: IssueActionTarget) -> Binding<Bool> {
+    Binding(get: { store.labelPickerTarget == target }, set: { if !$0 { store.dismissLabelPicker() } })
+  }
+
+  private func assigneePickerBinding(for target: IssueActionTarget) -> Binding<Bool> {
+    Binding(get: { store.assigneePickerTarget == target }, set: { if !$0 { store.dismissAssigneePicker() } })
+  }
 }
 
 /// One compact GitHub issue row that opens the issue in the browser.
 private struct GitHubIssueRow: View {
+  @EnvironmentObject private var store: StatusStore
   /// Issue represented by the row.
   let issue: GitHubIssueItem
 
@@ -1099,7 +1270,7 @@ private struct GitHubIssueRow: View {
     .buttonStyle(.plain)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("\(issue.title), \(issue.reference)")
-    .accessibilityHint("Opens the GitHub issue in your browser")
+    .accessibilityHint("Opens the GitHub issue. Press \(store.copyIssueHotkey.uppercased()) to copy, \(store.statusPickerHotkey.uppercased()) for status, \(store.labelPickerHotkey.uppercased()) for labels, or \(store.assigneePickerHotkey.uppercased()) for assignees while hovering.")
     .accessibilityIdentifier("github.issue.\(issue.id)")
     .disabled(issue.url == nil)
     .frame(height: workItemRowHeight)
@@ -1492,6 +1663,10 @@ private struct IssueRow: View {
   /// Keyboard character that opens the due date picker while hovering.
   let dueDateHotkey: String
 
+  let labelHotkey: String
+
+  let assigneeHotkey: String
+
   /// Action run when the issue is canceled.
   let cancel: () -> Void
 
@@ -1609,7 +1784,7 @@ private struct IssueRow: View {
       return "No Linear link is available"
     }
 
-    return "Open Linear issue. Press \(copyHotkey.uppercased()) to copy, \(statusHotkey.uppercased()) to change status, \(priorityHotkey.uppercased()) to change priority, or \(dueDateHotkey.uppercased()) to change the due date while hovering."
+    return "Open Linear issue. Press \(copyHotkey.uppercased()) to copy, \(statusHotkey.uppercased()) for status, \(priorityHotkey.uppercased()) for priority, \(dueDateHotkey.uppercased()) for due date, \(labelHotkey.uppercased()) for labels, or \(assigneeHotkey.uppercased()) for assignee while hovering."
   }
 
   /// Visual style for the Linear workflow state.

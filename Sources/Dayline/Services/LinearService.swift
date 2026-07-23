@@ -10,33 +10,48 @@ struct LinearService {
 
   /// Loads the connected Linear account label for Settings.
   func fetchAccountLabel() async throws -> String {
+    try await fetchAccountDiscovery().workspaceName
+  }
+
+  /// Loads the current workspace, viewer identity, and complete visible team catalog.
+  func fetchAccountDiscovery() async throws -> LinearAccountDiscovery {
     let query = """
-    query ViewerIdentity {
-      viewer {
-        name
-        email
-        displayName
+    query LinearAccountDiscovery($first: Int!, $after: String) {
+      viewer { name email displayName }
+      organization { name }
+      teams(first: $first, after: $after) {
+        nodes { id key name }
+        pageInfo { hasNextPage endCursor }
       }
     }
     """
 
-    let response = try await graphQL(query, variables: [:], as: LinearViewerIdentityResponse.self)
-    let viewer = response.data.viewer
-    if let email = viewer.email, !email.isEmpty {
-      return email
-    }
-    if let displayName = viewer.displayName, !displayName.isEmpty {
-      return displayName
-    }
-    return viewer.name
+    var teams: [LinearTeamSelection] = []
+    var after: String?
+    var workspaceName = "Linear"
+    var userLabel = ""
+    repeat {
+      var variables: [String: Any] = ["first": 100]
+      if let after { variables["after"] = after }
+      let response = try await graphQL(query, variables: variables, as: LinearAccountDiscoveryResponse.self)
+      workspaceName = response.data.organization.name
+      userLabel = response.data.viewer.accountLabel
+      teams.append(contentsOf: response.data.teams.nodes.map {
+        LinearTeamSelection(id: $0.id, key: $0.key, name: $0.name, isEnabled: true)
+      })
+      after = response.data.teams.pageInfo.nextCursor
+    } while after != nil
+
+    return LinearAccountDiscovery(workspaceName: workspaceName, userLabel: userLabel, teams: teams)
   }
 
   /// Loads active assigned issues for display in the menu bar.
-  func fetchAssignedIssues() async throws -> [LinearIssueItem] {
+  func fetchAssignedIssues(enabledTeamIDs: Set<String>?) async throws -> [LinearIssueItem] {
+    if let enabledTeamIDs, enabledTeamIDs.isEmpty { return [] }
     let query = """
-    query AssignedIssues($first: Int!) {
+    query AssignedIssues($first: Int!, $after: String) {
       viewer {
-        assignedIssues(first: $first, filter: { state: { type: { nin: ["completed", "canceled"] } } }) {
+        assignedIssues(first: $first, after: $after, filter: { state: { type: { nin: ["completed", "canceled"] } } }) {
           nodes {
             identifier
             title
@@ -46,20 +61,34 @@ struct LinearService {
             branchName
             url
             state { id name type }
+            assignee { id name displayName active }
+            labels(first: 250) { nodes { id name color } }
             team {
+              id
               states(first: 50) {
                 nodes { id name type position }
               }
             }
           }
+          pageInfo { hasNextPage endCursor }
         }
       }
     }
     """
 
-    let response = try await graphQL(query, variables: ["first": 50], as: LinearAPIResponse.self)
-    return response.data.viewer.assignedIssues.nodes
-      .map(\.displayItem)
+    var issues: [LinearIssueItem] = []
+    var after: String?
+    repeat {
+      var variables: [String: Any] = ["first": 50]
+      if let after { variables["after"] = after }
+      let response = try await graphQL(query, variables: variables, as: LinearAPIResponse.self)
+      let connection = response.data.viewer.assignedIssues
+      issues.append(contentsOf: connection.nodes.map(\.displayItem).filter { issue in
+        enabledTeamIDs?.contains(issue.teamID) ?? true
+      })
+      after = connection.pageInfo.nextCursor
+    } while after != nil
+    return issues
   }
 
   /// Updates a Linear issue to the selected workflow state.
@@ -77,7 +106,10 @@ struct LinearService {
           branchName
           url
           state { id name type }
+          assignee { id name displayName active }
+          labels(first: 250) { nodes { id name color } }
           team {
+            id
             states(first: 50) {
               nodes { id name type position }
             }
@@ -112,7 +144,10 @@ struct LinearService {
           branchName
           url
           state { id name type }
+          assignee { id name displayName active }
+          labels(first: 250) { nodes { id name color } }
           team {
+            id
             states(first: 50) {
               nodes { id name type position }
             }
@@ -147,7 +182,10 @@ struct LinearService {
           branchName
           url
           state { id name type }
+          assignee { id name displayName active }
+          labels(first: 250) { nodes { id name color } }
           team {
+            id
             states(first: 50) {
               nodes { id name type position }
             }
@@ -163,6 +201,40 @@ struct LinearService {
     guard response.data.issueUpdate.success else {
       throw LinearServiceError.dueDateUpdateFailed
     }
+    return response.data.issueUpdate.issue.displayItem
+  }
+
+  /// Replaces all labels on one Linear issue.
+  func updateIssueLabels(issueID: String, labelIDs: [String]) async throws -> LinearIssueItem {
+    try await updateIssueFields(issueID: issueID, input: ["labelIds": labelIDs])
+  }
+
+  /// Replaces or clears the singular Linear assignee.
+  func updateIssueAssignee(issueID: String, assigneeID: String?) async throws -> LinearIssueItem {
+    try await updateIssueFields(issueID: issueID, input: ["assigneeId": assigneeID ?? NSNull()])
+  }
+
+  private func updateIssueFields(issueID: String, input: [String: Any]) async throws -> LinearIssueItem {
+    let mutation = """
+    mutation UpdateIssueFields($id: String!, $input: IssueUpdateInput!) {
+      issueUpdate(id: $id, input: $input) {
+        success
+        issue {
+          identifier title priority priorityLabel dueDate branchName url
+          state { id name type }
+          assignee { id name displayName active }
+          labels(first: 250) { nodes { id name color } }
+          team { id states(first: 50) { nodes { id name type position } } }
+        }
+      }
+    }
+    """
+    let response = try await graphQL(
+      mutation,
+      variables: ["id": issueID, "input": input],
+      as: LinearUpdateResponse.self
+    )
+    guard response.data.issueUpdate.success else { throw LinearServiceError.issueUpdateFailed }
     return response.data.issueUpdate.issue.displayItem
   }
 
@@ -199,20 +271,29 @@ struct LinearService {
   /// Loads active Linear users for the issue creator assignee picker.
   func fetchUserOptions() async throws -> [LinearUserOption] {
     let query = """
-    query LinearUsers($first: Int!) {
-      users(first: $first) {
+    query LinearUsers($first: Int!, $after: String) {
+      users(first: $first, after: $after) {
         nodes {
           id
           name
           displayName
           active
         }
+        pageInfo { hasNextPage endCursor }
       }
     }
     """
 
-    let response = try await graphQL(query, variables: ["first": 100], as: LinearUsersResponse.self)
-    return response.data.users.nodes
+    var users: [LinearUserNode] = []
+    var after: String?
+    repeat {
+      var variables: [String: Any] = ["first": 100]
+      if let after { variables["after"] = after }
+      let response = try await graphQL(query, variables: variables, as: LinearUsersResponse.self)
+      users.append(contentsOf: response.data.users.nodes)
+      after = response.data.users.pageInfo.nextCursor
+    } while after != nil
+    return users
       .map(\.displayItem)
       .filter(\.isActive)
       .sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
@@ -472,6 +553,9 @@ enum LinearServiceError: LocalizedError {
   /// Linear accepted the due date mutation but reported failure.
   case dueDateUpdateFailed
 
+  /// Linear accepted a generic issue mutation but reported failure.
+  case issueUpdateFailed
+
   /// Linear accepted the create mutation but reported failure.
   case createFailed
 
@@ -493,6 +577,8 @@ enum LinearServiceError: LocalizedError {
       "Linear did not update the issue priority."
     case .dueDateUpdateFailed:
       "Linear did not update the issue due date."
+    case .issueUpdateFailed:
+      "Linear did not update the issue."
     case .createFailed:
       "Linear did not create the issue."
     case .missingTeamOrTitle:
@@ -511,18 +597,6 @@ private struct GraphQLErrorEnvelope: Decodable {
   let errors: [GraphQLErrorItem]?
 }
 
-/// Root GraphQL response shape for the viewer identity query.
-private struct LinearViewerIdentityResponse: Decodable {
-  /// GraphQL data payload.
-  let data: LinearViewerIdentityData
-}
-
-/// Viewer identity query data payload.
-private struct LinearViewerIdentityData: Decodable {
-  /// Current authenticated user.
-  let viewer: LinearViewerIdentity
-}
-
 /// Viewer identity fields used for Settings.
 private struct LinearViewerIdentity: Decodable {
   /// Human-readable profile name.
@@ -533,6 +607,38 @@ private struct LinearViewerIdentity: Decodable {
 
   /// Linear username when available.
   let displayName: String?
+
+  var accountLabel: String {
+    if let email, !email.isEmpty { return email }
+    if let displayName, !displayName.isEmpty { return displayName }
+    return name
+  }
+}
+
+/// Root response for Linear workspace and team discovery.
+private struct LinearAccountDiscoveryResponse: Decodable {
+  let data: LinearAccountDiscoveryData
+}
+
+private struct LinearAccountDiscoveryData: Decodable {
+  let viewer: LinearViewerIdentity
+  let organization: LinearOrganizationIdentity
+  let teams: LinearAccountTeamConnection
+}
+
+private struct LinearOrganizationIdentity: Decodable {
+  let name: String
+}
+
+private struct LinearAccountTeamConnection: Decodable {
+  let nodes: [LinearAccountTeamNode]
+  let pageInfo: LinearPageInfo
+}
+
+private struct LinearAccountTeamNode: Decodable {
+  let id: String
+  let key: String
+  let name: String
 }
 
 /// One GraphQL error entry.
@@ -805,6 +911,9 @@ private struct LinearTeamConnection: Decodable {
 private struct LinearUserConnection: Decodable {
   /// Visible Linear user nodes.
   let nodes: [LinearUserNode]
+
+  /// Cursor metadata for the next page.
+  let pageInfo: LinearPageInfo
 }
 
 /// Raw Linear team node returned by GraphQL.
@@ -925,6 +1034,9 @@ private struct LinearViewer: Decodable {
 private struct LinearAssignedIssues: Decodable {
   /// Assigned issue nodes.
   let nodes: [LinearIssueNode]
+
+  /// Cursor metadata for the next page.
+  let pageInfo: LinearPageInfo
 }
 
 /// Raw Linear issue node returned by GraphQL.
@@ -956,6 +1068,12 @@ private struct LinearIssueNode: Decodable {
   /// Owning Linear team.
   let team: LinearIssueTeam
 
+  /// Current issue labels.
+  let labels: LinearIssueLabelConnection
+
+  /// Current singular assignee.
+  let assignee: LinearUserNode?
+
   /// Converts the GraphQL node into a display item.
   var displayItem: LinearIssueItem {
     LinearIssueItem(
@@ -969,6 +1087,9 @@ private struct LinearIssueNode: Decodable {
       workflowStates: team.states.nodes
         .map(\.displayItem)
         .sorted { $0.position < $1.position },
+      teamID: team.id,
+      labels: labels.nodes.map { LinearLabelOption(id: $0.id, name: $0.name, color: $0.color) },
+      assignee: assignee?.displayItem,
       dueDate: dueDate,
       branchName: branchName,
       url: url.flatMap(URL.init(string:))
@@ -990,8 +1111,16 @@ private struct LinearIssueState: Decodable {
 
 /// Raw Linear team shape.
 private struct LinearIssueTeam: Decodable {
+  /// Stable team identifier.
+  let id: String
+
   /// Workflow states connection.
   let states: LinearWorkflowStateConnection
+}
+
+/// Current labels connection embedded in issue payloads.
+private struct LinearIssueLabelConnection: Decodable {
+  let nodes: [LinearLabelNode]
 }
 
 /// Raw Linear workflow states connection.

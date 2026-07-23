@@ -51,11 +51,20 @@ struct GlobalShortcutTests {
       copy: "c",
       status: "d",
       priority: "p",
-      dueDate: "d"
+      dueDate: "d",
+      label: "c",
+      assignee: "a"
     )
 
-    #expect(repaired == ["c", "d", "p", "e"])
-    #expect(Set(repaired).count == 4)
+    #expect(repaired == ["c", "d", "p", "e", "l", "a"])
+    #expect(Set(repaired).count == 6)
+  }
+
+  @MainActor
+  @Test func emptyHoverShortcutInputNeverMatchesAnAction() {
+    #expect(!StatusStore.hotkeyMatches("", configured: "c"))
+    #expect(!StatusStore.hotkeyMatches("   ", configured: "s"))
+    #expect(StatusStore.hotkeyMatches("L", configured: "l"))
   }
 
   /// Builds a synthetic key event for recorder tests.

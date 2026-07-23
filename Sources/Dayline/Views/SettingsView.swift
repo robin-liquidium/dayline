@@ -36,6 +36,8 @@ struct SettingsView: View {
 
   /// Supported single-key due date picker shortcut choices.
   private let dueDatePickerHotkeyOptions = ["d", "e", "t", "x"]
+  private let labelPickerHotkeyOptions = ["l", "f", "g", "b"]
+  private let assigneePickerHotkeyOptions = ["a", "q", "v", "z"]
 
   /// Builds the settings form.
   var body: some View {
@@ -143,6 +145,20 @@ struct SettingsView: View {
           }
         }
         .accessibilityIdentifier("settings.dueDatePickerHotkey")
+
+        Picker("Change labels", selection: labelPickerHotkeyBinding) {
+          ForEach(labelPickerHotkeyPickerOptions, id: \.self) { hotkey in
+            Text(hotkey.uppercased()).tag(hotkey)
+          }
+        }
+        .accessibilityIdentifier("settings.labelPickerHotkey")
+
+        Picker("Change assignees", selection: assigneePickerHotkeyBinding) {
+          ForEach(assigneePickerHotkeyPickerOptions, id: \.self) { hotkey in
+            Text(hotkey.uppercased()).tag(hotkey)
+          }
+        }
+        .accessibilityIdentifier("settings.assigneePickerHotkey")
 
         LabeledContent("New note") {
           ShortcutRecorderView(
@@ -335,57 +351,11 @@ struct SettingsView: View {
     }
 
     if let linearStatus = store.connectionStatuses.first(where: { $0.provider == .linear }) {
-      accountRow(linearStatus)
+      LinearAccountSettingsRow(status: linearStatus)
     }
 
     if let githubStatus = store.connectionStatuses.first(where: { $0.provider == .github }) {
-      accountRow(githubStatus)
-    }
-  }
-
-  /// Builds one account connection row with a connect/disconnect action.
-  private func accountRow(_ status: ConnectionStatus) -> some View {
-    HStack(spacing: 12) {
-      Text(status.provider.title)
-
-      Spacer(minLength: 0)
-
-      Text(accountStateLabel(status))
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
-
-      if status.state == .checking || status.state == .connecting {
-        ProgressView()
-          .controlSize(.small)
-      } else if status.isConnected {
-        Button("Disconnect") {
-          Task { await store.disconnect(status.provider) }
-        }
-      } else {
-        Button("Connect") {
-          Task { await store.connect(status.provider) }
-        }
-        .disabled(!status.provider.isConfigured)
-      }
-    }
-    .accessibilityIdentifier("settings.account.\(status.provider.id)")
-  }
-
-  /// Compact state label for one account row.
-  private func accountStateLabel(_ status: ConnectionStatus) -> String {
-    switch status.state {
-    case .checking:
-      "Checking..."
-    case .disconnected:
-      status.detail ?? "Not connected"
-    case .connecting:
-      status.detail ?? "Connecting..."
-    case .connected:
-      if let accountLabel = status.accountLabel, !accountLabel.isEmpty {
-        accountLabel
-      } else {
-        "Connected"
-      }
+      GitHubAccountSettingsRow(status: githubStatus)
     }
   }
 
@@ -619,6 +589,14 @@ struct SettingsView: View {
     )
   }
 
+  private var labelPickerHotkeyBinding: Binding<String> {
+    Binding(get: { store.labelPickerHotkey }, set: { store.setLabelPickerHotkey($0) })
+  }
+
+  private var assigneePickerHotkeyBinding: Binding<String> {
+    Binding(get: { store.assigneePickerHotkey }, set: { store.setAssigneePickerHotkey($0) })
+  }
+
   /// Persists a recorded new-note shortcut unless it collides with the issue shortcut.
   private func recordNewNoteShortcut(_ candidate: GlobalShortcut) {
     guard candidate != store.newLinearIssueShortcut else {
@@ -644,7 +622,7 @@ struct SettingsView: View {
     availablePickerOptions(
       statusPickerHotkeyOptions,
       currentValue: store.statusPickerHotkey,
-      usedValues: [store.copyIssueHotkey, store.priorityPickerHotkey, store.dueDatePickerHotkey]
+      usedValues: [store.copyIssueHotkey, store.priorityPickerHotkey, store.dueDatePickerHotkey, store.labelPickerHotkey, store.assigneePickerHotkey]
     )
   }
 
@@ -653,7 +631,7 @@ struct SettingsView: View {
     availablePickerOptions(
       priorityPickerHotkeyOptions,
       currentValue: store.priorityPickerHotkey,
-      usedValues: [store.copyIssueHotkey, store.statusPickerHotkey, store.dueDatePickerHotkey]
+      usedValues: [store.copyIssueHotkey, store.statusPickerHotkey, store.dueDatePickerHotkey, store.labelPickerHotkey, store.assigneePickerHotkey]
     )
   }
 
@@ -662,7 +640,7 @@ struct SettingsView: View {
     availablePickerOptions(
       dueDatePickerHotkeyOptions,
       currentValue: store.dueDatePickerHotkey,
-      usedValues: [store.copyIssueHotkey, store.statusPickerHotkey, store.priorityPickerHotkey]
+      usedValues: [store.copyIssueHotkey, store.statusPickerHotkey, store.priorityPickerHotkey, store.labelPickerHotkey, store.assigneePickerHotkey]
     )
   }
 
@@ -671,7 +649,23 @@ struct SettingsView: View {
     availablePickerOptions(
       copyHotkeyOptions,
       currentValue: store.copyIssueHotkey,
-      usedValues: [store.statusPickerHotkey, store.priorityPickerHotkey, store.dueDatePickerHotkey]
+      usedValues: [store.statusPickerHotkey, store.priorityPickerHotkey, store.dueDatePickerHotkey, store.labelPickerHotkey, store.assigneePickerHotkey]
+    )
+  }
+
+  private var labelPickerHotkeyPickerOptions: [String] {
+    availablePickerOptions(
+      labelPickerHotkeyOptions,
+      currentValue: store.labelPickerHotkey,
+      usedValues: [store.copyIssueHotkey, store.statusPickerHotkey, store.priorityPickerHotkey, store.dueDatePickerHotkey, store.assigneePickerHotkey]
+    )
+  }
+
+  private var assigneePickerHotkeyPickerOptions: [String] {
+    availablePickerOptions(
+      assigneePickerHotkeyOptions,
+      currentValue: store.assigneePickerHotkey,
+      usedValues: [store.copyIssueHotkey, store.statusPickerHotkey, store.priorityPickerHotkey, store.dueDatePickerHotkey, store.labelPickerHotkey]
     )
   }
 
@@ -1013,6 +1007,151 @@ private struct GoogleAccountSettingsRow: View {
           isEnabled: $0
         )
       }
+    )
+  }
+}
+
+/// Connected Linear workspace with inline team selection.
+private struct LinearAccountSettingsRow: View {
+  @EnvironmentObject private var store: StatusStore
+  @State private var isExpanded = false
+  let status: ConnectionStatus
+
+  var body: some View {
+    DisclosureGroup(isExpanded: $isExpanded) {
+      VStack(alignment: .leading, spacing: 7) {
+        if let error = store.linearTeamError {
+          Text(error)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("settings.account.linear.teamError")
+        }
+
+        if store.linearAccount.teams.isEmpty {
+          Text("Teams will appear after this workspace connects.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        } else {
+          ForEach(store.linearAccount.teams) { team in
+            Toggle(team.label, isOn: teamBinding(team))
+              .toggleStyle(.checkbox)
+              .accessibilityIdentifier("settings.account.linear.team.\(team.id)")
+          }
+        }
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.top, 6)
+    } label: {
+      HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text(workspaceLabel)
+            .lineLimit(1)
+          Text(accountDetail)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
+        }
+        Spacer(minLength: 0)
+        if status.state == .checking || status.state == .connecting {
+          ProgressView().controlSize(.small)
+        } else if status.isConnected {
+          Button("Disconnect", role: .destructive) { Task { await store.disconnect(.linear) } }
+        } else {
+          Button("Connect") { Task { await store.connect(.linear) } }
+            .disabled(!AuthProvider.linear.isConfigured)
+        }
+      }
+    }
+    .accessibilityIdentifier("settings.account.linear")
+  }
+
+  private var workspaceLabel: String {
+    if !store.linearAccount.workspaceName.isEmpty { return store.linearAccount.workspaceName }
+    return status.accountLabel ?? "Linear"
+  }
+
+  private var accountDetail: String {
+    guard status.isConnected else { return status.detail ?? "Not connected" }
+    let total = store.linearAccount.teams.count
+    let enabled = store.linearAccount.teams.filter(\.isEnabled).count
+    let teamCount = "\(enabled) of \(total) teams enabled"
+    guard !store.linearAccount.userLabel.isEmpty else { return teamCount }
+    return "\(store.linearAccount.userLabel) · \(teamCount)"
+  }
+
+  private func teamBinding(_ team: LinearTeamSelection) -> Binding<Bool> {
+    Binding(
+      get: { team.isEnabled },
+      set: { store.setLinearTeamEnabled(teamID: team.id, isEnabled: $0) }
+    )
+  }
+}
+
+/// Connected GitHub account with inline repository selection.
+private struct GitHubAccountSettingsRow: View {
+  @EnvironmentObject private var store: StatusStore
+  @State private var isExpanded = false
+  let status: ConnectionStatus
+
+  var body: some View {
+    DisclosureGroup(isExpanded: $isExpanded) {
+      VStack(alignment: .leading, spacing: 7) {
+        if let error = store.githubRepositoryError {
+          Text(error)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("settings.account.github.repositoryError")
+        }
+
+        if store.githubAccount.repositories.isEmpty {
+          Text("Repositories will appear after this account connects.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        } else {
+          ForEach(store.githubAccount.repositories) { repository in
+            Toggle(repository.fullName, isOn: repositoryBinding(repository))
+              .toggleStyle(.checkbox)
+              .accessibilityIdentifier("settings.account.github.repository.\(repository.fullName)")
+          }
+        }
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.top, 6)
+    } label: {
+      HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text(status.accountLabel ?? "GitHub")
+            .lineLimit(1)
+          Text(repositoryCountLabel)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        Spacer(minLength: 0)
+        if status.state == .checking || status.state == .connecting {
+          ProgressView().controlSize(.small)
+        } else if status.isConnected {
+          Button("Disconnect", role: .destructive) { Task { await store.disconnect(.github) } }
+        } else {
+          Button("Connect") { Task { await store.connect(.github) } }
+            .disabled(!AuthProvider.github.isConfigured)
+        }
+      }
+    }
+    .accessibilityIdentifier("settings.account.github")
+  }
+
+  private var repositoryCountLabel: String {
+    let total = store.githubAccount.repositories.count
+    let enabled = store.githubAccount.repositories.filter(\.isEnabled).count
+    return status.isConnected ? "\(enabled) of \(total) repositories enabled" : (status.detail ?? "Not connected")
+  }
+
+  private func repositoryBinding(_ repository: GitHubRepository) -> Binding<Bool> {
+    Binding(
+      get: { repository.isEnabled },
+      set: { store.setGitHubRepositoryEnabled(fullName: repository.fullName, isEnabled: $0) }
     )
   }
 }
