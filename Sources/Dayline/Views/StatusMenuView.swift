@@ -47,18 +47,27 @@ struct StatusMenuView: View {
             )
           }
           if store.showsLinearSection {
-            LinearSection(
-              issues: store.issues,
-              error: store.linearError,
-              hoveredIssueID: store.hoveredIssueID,
-              copiedIssueID: store.copiedIssueID,
-              updatingStatusIssueID: store.updatingStatusIssueID,
-              updatingPriorityIssueID: store.updatingPriorityIssueID,
-              updatingDueDateIssueID: store.updatingDueDateIssueID,
-              openNewIssue: {
-                openLinearIssueCreator()
-              }
-            )
+            if store.issueSource == .github {
+              GitHubSection(
+                issues: store.githubIssues,
+                error: store.githubError,
+                hoveredIssueID: store.hoveredIssueID,
+                copiedIssueID: store.copiedIssueID
+              )
+            } else {
+              LinearSection(
+                issues: store.issues,
+                error: store.linearError,
+                hoveredIssueID: store.hoveredIssueID,
+                copiedIssueID: store.copiedIssueID,
+                updatingStatusIssueID: store.updatingStatusIssueID,
+                updatingPriorityIssueID: store.updatingPriorityIssueID,
+                updatingDueDateIssueID: store.updatingDueDateIssueID,
+                openNewIssue: {
+                  openLinearIssueCreator()
+                }
+              )
+            }
           }
 
           if store.showsNotesSection {
@@ -224,8 +233,9 @@ struct StatusMenuView: View {
     let eventRows = store.showsCalendarSection ? CGFloat(max(store.events.count, 1)) * eventRowEstimate : 0
     let tomorrowRows = store.showsCalendarSection && store.isTomorrowExpanded
       ? CGFloat(max(store.tomorrowEvents.count, 1)) * eventRowEstimate + 34 : 0
-    let issueRows = store.showsLinearSection ? CGFloat(max(store.issues.count, 1)) * workItemRowHeight : 0
-    let issueMoreRow: CGFloat = store.showsLinearSection && (store.hasMoreIssues || store.hasExpandedIssues) ? 34 : 0
+    let visibleIssueCount = store.issueSource == .github ? store.githubIssues.count : store.issues.count
+    let issueRows = store.showsLinearSection ? CGFloat(max(visibleIssueCount, 1)) * workItemRowHeight : 0
+    let issueMoreRow: CGFloat = store.showsLinearSection && store.issueSource == .linear && (store.hasMoreIssues || store.hasExpandedIssues) ? 34 : 0
     let noteRows = store.showsNotesSection ? CGFloat(max(store.notes.count, 1)) * workItemRowHeight : 0
     let noteMoreRow: CGFloat = store.showsNotesSection && (store.hasMoreNotes || store.hasExpandedNotes) ? 34 : 0
     return 108 + setupRows + eventRows + tomorrowRows + issueRows + issueMoreRow + noteRows + noteMoreRow
@@ -975,6 +985,124 @@ private struct LinearSection: View {
         }
       }
     )
+  }
+}
+
+/// GitHub issues section of the menu popover.
+private struct GitHubSection: View {
+  @EnvironmentObject private var store: StatusStore
+
+  /// Assigned open GitHub issues to display.
+  let issues: [GitHubIssueItem]
+
+  /// Optional GitHub loading error.
+  let error: String?
+
+  /// Identifier for the issue currently under the pointer.
+  let hoveredIssueID: GitHubIssueItem.ID?
+
+  /// Identifier for the issue whose link was just copied.
+  let copiedIssueID: GitHubIssueItem.ID?
+
+  /// Builds the GitHub section.
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack {
+        SectionTitle(title: "GitHub")
+      }
+
+      if let error {
+        MessageRow(title: "GitHub unavailable", detail: error)
+      } else if issues.isEmpty {
+        MessageRow(title: "No open issues", detail: nil)
+      } else {
+        VStack(alignment: .leading, spacing: 0) {
+          ForEach(issues) { issue in
+            GitHubIssueRow(
+              issue: issue,
+              isHovered: hoveredIssueID == issue.id,
+              isCopied: copiedIssueID == issue.id
+            )
+            .onHover { isHovered in
+              store.setHoveredIssue(isHovered ? issue.id : nil)
+            }
+          }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+    }
+  }
+}
+
+/// One compact GitHub issue row that opens the issue in the browser.
+private struct GitHubIssueRow: View {
+  /// Issue represented by the row.
+  let issue: GitHubIssueItem
+
+  /// Whether the pointer is currently over the row.
+  let isHovered: Bool
+
+  /// Whether this row should show a recent copy confirmation.
+  let isCopied: Bool
+
+  /// Builds the issue row.
+  var body: some View {
+    Button {
+      if let url = issue.url {
+        NSWorkspace.shared.open(url)
+      }
+    } label: {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(issue.title.compactLine(limit: 72))
+          .font(.callout.weight(.semibold))
+          .foregroundStyle(.primary)
+          .lineLimit(1)
+          .multilineTextAlignment(.leading)
+
+        HStack(spacing: 6) {
+          MetadataPill(
+            title: issue.reference,
+            systemImage: "smallcircle.filled.circle",
+            color: .green
+          )
+
+          if let updatedAt = issue.updatedAt {
+            MetadataPill(
+              title: "Updated \(DisplayFormatters.relative.localizedString(fromTimeInterval: -updatedAt.timeIntervalSinceNow))",
+              systemImage: "clock",
+              color: .secondary
+            )
+          }
+
+          if isCopied {
+            Spacer(minLength: 0)
+
+            Label("Copied", systemImage: "checkmark")
+              .font(.caption)
+              .foregroundStyle(.green)
+              .transition(.opacity)
+          }
+        }
+      }
+      .padding(.horizontal, 16)
+      .padding(.vertical, 3)
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+      .background {
+        if isHovered {
+          RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(Color.primary.opacity(0.06))
+        }
+      }
+      .animation(.easeOut(duration: 0.12), value: isHovered)
+      .animation(.easeOut(duration: 0.12), value: isCopied)
+    }
+    .buttonStyle(.plain)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("\(issue.title), \(issue.reference)")
+    .accessibilityHint("Opens the GitHub issue in your browser")
+    .accessibilityIdentifier("github.issue.\(issue.id)")
+    .disabled(issue.url == nil)
+    .frame(height: workItemRowHeight)
   }
 }
 

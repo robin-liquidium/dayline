@@ -178,85 +178,21 @@ struct SettingsView: View {
       }
 
       Section {
-        Toggle("Show Linear in menu", isOn: showsLinearSectionBinding)
+        Picker("Issue source", selection: issueSourceBinding) {
+          ForEach(IssueSource.allCases) { source in
+            Text(source.label).tag(source)
+          }
+        }
+        .accessibilityIdentifier("settings.issueSource")
+
+        Toggle("Show issues in menu", isOn: showsLinearSectionBinding)
           .accessibilityIdentifier("settings.showsLinearSection")
 
-        Picker("Default team", selection: linearCreateDefaultTeamBinding) {
-          if linearCreateTeams.isEmpty {
-            Text(isLoadingLinearCreateDefaults ? "Loading..." : "Unavailable")
-              .tag(store.linearIssueCreateDefaultTeamID)
-          } else {
-            ForEach(linearCreateTeams) { team in
-              Text(team.label).tag(team.id)
-            }
-          }
+        if store.issueSource == .linear {
+          linearDefaults
         }
-        .disabled(linearCreateTeams.isEmpty)
-        .accessibilityIdentifier("settings.linearCreateDefaultTeam")
-
-        LabeledContent("Default status") {
-          ColoredMenuPicker(
-            selection: linearCreateDefaultStateBinding,
-            items: linearCreateDefaultStatusOptions.map { state in
-              ColoredMenuPickerItem(
-                tag: state.id,
-                title: state.name,
-                symbolName: statusIcon(for: state),
-                color: statusColor(for: state)
-              )
-            },
-            isEnabled: !linearCreateDefaultStatusOptions.isEmpty
-          )
-        }
-        .accessibilityIdentifier("settings.linearCreateDefaultStatus")
-
-        LabeledContent("Default priority") {
-          ColoredMenuPicker(
-            selection: linearCreateDefaultPriorityTagBinding,
-            items: LinearPriorityOption.allCases.map { priority in
-              ColoredMenuPickerItem(
-                tag: String(priority.value),
-                title: priority.label,
-                symbolName: priorityStyle(for: priority).systemImage,
-                color: priorityStyle(for: priority).color
-              )
-            }
-          )
-        }
-        .accessibilityIdentifier("settings.linearCreateDefaultPriority")
-
-        Picker("Default project", selection: linearCreateDefaultProjectBinding) {
-          Text("None").tag("")
-          ForEach(linearCreateProjectOptions) { project in
-            Text(project.label).tag(project.id)
-          }
-        }
-        .accessibilityIdentifier("settings.linearCreateDefaultProject")
-
-        LabeledContent("Default label") {
-          ColoredMenuPicker(
-            selection: linearCreateDefaultLabelBinding,
-            items: [ColoredMenuPickerItem(tag: "", title: "None", symbolName: nil, color: .secondary)]
-              + linearCreateLabels.map { label in
-                ColoredMenuPickerItem(
-                  tag: label.id,
-                  title: label.label,
-                  symbolName: "circle.fill",
-                  color: Color(linearHex: label.color)
-                )
-              }
-          )
-        }
-        .accessibilityIdentifier("settings.linearCreateDefaultLabel")
-
-        Picker("Issue order", selection: linearIssueOrderBinding) {
-          ForEach(LinearIssueOrder.allCases) { order in
-            Text(order.label).tag(order)
-          }
-        }
-        .accessibilityIdentifier("settings.linearIssueOrder")
       } header: {
-        Label("Linear", systemImage: "checklist")
+        Label("Issues", systemImage: "checklist")
       } footer: {
         if let linearCreateDefaultsError {
           Text(linearCreateDefaultsError)
@@ -401,6 +337,10 @@ struct SettingsView: View {
     if let linearStatus = store.connectionStatuses.first(where: { $0.provider == .linear }) {
       accountRow(linearStatus)
     }
+
+    if let githubStatus = store.connectionStatuses.first(where: { $0.provider == .github }) {
+      accountRow(githubStatus)
+    }
   }
 
   /// Builds one account connection row with a connect/disconnect action.
@@ -542,6 +482,93 @@ struct SettingsView: View {
       get: { store.showsLinearSection },
       set: { store.setShowsLinearSection($0) }
     )
+  }
+
+  /// Binding that persists which provider supplies the issues section.
+  private var issueSourceBinding: Binding<IssueSource> {
+    Binding(
+      get: { store.issueSource },
+      set: { store.setIssueSource($0) }
+    )
+  }
+
+  /// Linear-specific defaults shown when Linear is the issue source.
+  @ViewBuilder
+  private var linearDefaults: some View {
+    Picker("Default team", selection: linearCreateDefaultTeamBinding) {
+      if linearCreateTeams.isEmpty {
+        Text(isLoadingLinearCreateDefaults ? "Loading..." : "Unavailable")
+          .tag(store.linearIssueCreateDefaultTeamID)
+      } else {
+        ForEach(linearCreateTeams) { team in
+          Text(team.label).tag(team.id)
+        }
+      }
+    }
+    .disabled(linearCreateTeams.isEmpty)
+    .accessibilityIdentifier("settings.linearCreateDefaultTeam")
+
+    LabeledContent("Default status") {
+      ColoredMenuPicker(
+        selection: linearCreateDefaultStateBinding,
+        items: linearCreateDefaultStatusOptions.map { state in
+          ColoredMenuPickerItem(
+            tag: state.id,
+            title: state.name,
+            symbolName: statusIcon(for: state),
+            color: statusColor(for: state)
+          )
+        },
+        isEnabled: !linearCreateDefaultStatusOptions.isEmpty
+      )
+    }
+    .accessibilityIdentifier("settings.linearCreateDefaultStatus")
+
+    LabeledContent("Default priority") {
+      ColoredMenuPicker(
+        selection: linearCreateDefaultPriorityTagBinding,
+        items: LinearPriorityOption.allCases.map { priority in
+          ColoredMenuPickerItem(
+            tag: String(priority.value),
+            title: priority.label,
+            symbolName: priorityStyle(for: priority).systemImage,
+            color: priorityStyle(for: priority).color
+          )
+        }
+      )
+    }
+    .accessibilityIdentifier("settings.linearCreateDefaultPriority")
+
+    Picker("Default project", selection: linearCreateDefaultProjectBinding) {
+      Text("None").tag("")
+      ForEach(linearCreateProjectOptions) { project in
+        Text(project.label).tag(project.id)
+      }
+    }
+    .accessibilityIdentifier("settings.linearCreateDefaultProject")
+
+    LabeledContent("Default label") {
+      ColoredMenuPicker(
+        selection: linearCreateDefaultLabelBinding,
+        items: [ColoredMenuPickerItem(tag: "", title: "None", symbolName: nil, color: .secondary)]
+          + linearCreateLabels.map { label in
+            ColoredMenuPickerItem(
+              tag: label.id,
+              title: label.label,
+              symbolName: "circle.fill",
+              color: Color(linearHex: label.color)
+            )
+        }
+      )
+    }
+    .accessibilityIdentifier("settings.linearCreateDefaultLabel")
+
+    Picker("Issue order", selection: linearIssueOrderBinding) {
+      ForEach(LinearIssueOrder.allCases) { order in
+        Text(order.label).tag(order)
+      }
+    }
+    .accessibilityIdentifier("settings.linearIssueOrder")
   }
 
   /// Binding that persists whether the notes section appears in the menu.

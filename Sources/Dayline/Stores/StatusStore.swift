@@ -30,6 +30,19 @@ final class StatusStore: ObservableObject {
   /// Local notes persistence error shown as a compact status row.
   @Published private(set) var notesError: String?
 
+  /// Open GitHub issues assigned to the user when GitHub is the issue source.
+  @Published private(set) var githubIssues: [GitHubIssueItem] = []
+
+  /// GitHub loading error shown as a compact status row.
+  @Published private(set) var githubError: String?
+
+  /// Which provider supplies the issues section of the menu.
+  @Published var issueSource: IssueSource {
+    didSet {
+      UserDefaults.standard.set(issueSource.rawValue, forKey: Self.issueSourceKey)
+    }
+  }
+
   /// Connection state for Google and Linear accounts.
   @Published private(set) var connectionStatuses = ConnectionStatus.checkingAll
 
@@ -370,6 +383,7 @@ final class StatusStore: ObservableObject {
   private static let showsNotesSectionKey = "showsNotesSection"
   private static let meetingAlertEnabledKey = "meetingAlertEnabled"
   private static let meetingAlertLeadMinutesKey = "meetingAlertLeadMinutes"
+  private static let issueSourceKey = "issueSource"
   private static let linearIssueOrderKey = "linearIssueOrder"
   private static let linearCopyStyleKey = "linearCopyStyle"
   private static let linearIssueCreateDefaultTeamIDKey = "linearIssueCreateDefaultTeamID"
@@ -393,6 +407,8 @@ final class StatusStore: ObservableObject {
   private static let tomorrowEventLimit = 8
 
   private let linearService: LinearService
+  private let githubService = GitHubService()
+  private let githubAuth = GitHubDeviceAuthService.shared
   private let notesService: LocalNotesService
   private let authSessions: [AuthProvider: OAuthSession]
   private let googleAccountRepository: GoogleAccountRepository
@@ -452,6 +468,7 @@ final class StatusStore: ObservableObject {
     self.showsNotesSection = defaults.object(forKey: Self.showsNotesSectionKey) as? Bool ?? true
     self.meetingAlertEnabled = defaults.object(forKey: Self.meetingAlertEnabledKey) as? Bool ?? true
     self.meetingAlertLeadMinutes = Self.storedInteger(forKey: Self.meetingAlertLeadMinutesKey, defaultValue: 0)
+    self.issueSource = IssueSource(rawValue: defaults.string(forKey: Self.issueSourceKey) ?? "") ?? .linear
     self.linearIssueOrder = LinearIssueOrder(rawValue: UserDefaults.standard.string(forKey: Self.linearIssueOrderKey) ?? "") ?? .priority
     self.linearCopyStyle = LinearCopyStyle(rawValue: UserDefaults.standard.string(forKey: Self.linearCopyStyleKey) ?? "") ?? .link
     self.linearIssueCreateDefaultTeamID = defaults.string(forKey: Self.linearIssueCreateDefaultTeamIDKey) ?? ""
@@ -542,9 +559,14 @@ final class StatusStore: ObservableObject {
     await refreshConnectionStatus()
     let googleRevision = connectionRevisions[.google, default: 0]
     let linearRevision = connectionRevisions[.linear, default: 0]
+    let githubRevision = connectionRevisions[.github, default: 0]
+
+    let shouldLoadLinear = issueSource == .linear && isConnected(.linear)
+    let shouldLoadGitHub = issueSource == .github && isConnected(.github)
 
     async let calendarResult: CalendarAgendaLoadResult? = hasConnectedGoogleAccount ? loadGoogleAgenda() : nil
-    async let linearResult: Result<[LinearIssueItem], Error>? = isConnected(.linear) ? loadLinearIssues() : nil
+    async let linearResult: Result<[LinearIssueItem], Error>? = shouldLoadLinear ? loadLinearIssues() : nil
+    async let githubResult: Result<[GitHubIssueItem], Error>? = shouldLoadGitHub ? loadGitHubIssues() : nil
 
     let resolvedCalendarResult = await calendarResult
     if connectionRevisions[.google, default: 0] == googleRevision {
@@ -587,6 +609,20 @@ final class StatusStore: ObservableObject {
       allIssues = []
       applyLinearIssueOrder()
       linearError = nil
+    }
+
+    switch await githubResult {
+    case .success(let fetchedIssues)? where connectionRevisions[.github, default: 0] == githubRevision && isConnected(.github):
+      githubIssues = fetchedIssues
+      githubError = nil
+    case .failure(let error)? where connectionRevisions[.github, default: 0] == githubRevision && isConnected(.github):
+      handleFetchFailure(error, for: .github)
+      githubError = error.localizedDescription
+    case .some(_):
+      break
+    case nil:
+      githubIssues = []
+      githubError = nil
     }
 
     lastUpdatedAt = Date()
@@ -667,13 +703,42 @@ final class StatusStore: ObservableObject {
       let detail = AuthProvider.linear.isConfigured ? nil : "This build is missing its OAuth client ID."
       updateConnectionStatus(.linear, state: .disconnected, detail: detail, accountLabel: nil)
     }
+
+    let githubRevision = connectionRevisions[.github, default: 0]
+    if await githubAuth.hasToken() {
+      let previousLabel = connectionStatuses.first(where: { $0.provider == .github })?.accountLabel
+      let accountLabel: String?
+      if let previousLabel {
+        accountLabel = previousLabel
+      } else {
+        accountLabel = try? await githubService.fetchAccountLabel()
+      }
+      guard connectionRevisions[.github, default: 0] == githubRevision else { return }
+      updateConnectionStatus(.github, state: .connected, detail: nil, accountLabel: accountLabel)
+    } else {
+      let detail = AuthProvider.github.isConfigured ? nil : "This build is missing its OAuth client ID."
+      updateConnectionStatus(.github, state: .disconnected, detail: detail, accountLabel: nil)
+    }
   }
 
   /// Providers that still need the user to connect an account.
   var connectionSetupItems: [ConnectionStatus] {
     connectionStatuses.filter { status in
       guard isSectionEnabled(for: status.provider) else { return false }
+      guard isActiveIssueProvider(status.provider) else { return false }
       return status.state != .connected && (status.provider != .google || googleAccounts.isEmpty)
+    }
+  }
+
+  /// Whether an issue provider matches the selected issue source.
+  private func isActiveIssueProvider(_ provider: AuthProvider) -> Bool {
+    switch provider {
+    case .google:
+      true
+    case .linear:
+      issueSource == .linear
+    case .github:
+      issueSource == .github
     }
   }
 
@@ -682,7 +747,7 @@ final class StatusStore: ObservableObject {
     switch provider {
     case .google:
       showsCalendarSection
-    case .linear:
+    case .linear, .github:
       showsLinearSection
     }
   }
@@ -710,6 +775,11 @@ final class StatusStore: ObservableObject {
 
     if provider == .google {
       await addGoogleAccount()
+      return
+    }
+
+    if provider == .github {
+      await connectGitHub()
       return
     }
 
@@ -750,6 +820,45 @@ final class StatusStore: ObservableObject {
     }
   }
 
+  /// Runs the GitHub device authorization flow and connects on success.
+  private func connectGitHub() async {
+    guard connectionStatuses.first(where: { $0.provider == .github })?.state != .connecting else {
+      return
+    }
+    connectionRevisions[.github, default: 0] += 1
+    let revision = connectionRevisions[.github, default: 0]
+
+    updateConnectionStatus(.github, state: .connecting, detail: "Requesting device code...", accountLabel: nil)
+
+    do {
+      let code = try await githubAuth.beginSignIn()
+      guard connectionRevisions[.github, default: 0] == revision else { return }
+      NSWorkspace.shared.open(code.verificationURI)
+      updateConnectionStatus(
+        .github,
+        state: .connecting,
+        detail: "Enter code \(code.userCode) on the GitHub page that just opened.",
+        accountLabel: nil
+      )
+      try await githubAuth.pollForAuthorization(code)
+      guard connectionRevisions[.github, default: 0] == revision else { return }
+      let accountLabel = try? await githubService.fetchAccountLabel()
+      guard connectionRevisions[.github, default: 0] == revision else { return }
+      updateConnectionStatus(.github, state: .connected, detail: nil, accountLabel: accountLabel)
+      await refresh()
+      guard connectionRevisions[.github, default: 0] == revision else { return }
+      presentSettingsAfterAuth()
+    } catch {
+      guard connectionRevisions[.github, default: 0] == revision else { return }
+      updateConnectionStatus(
+        .github,
+        state: .disconnected,
+        detail: error.localizedDescription.compactLine(limit: 96),
+        accountLabel: nil
+      )
+    }
+  }
+
   /// Revokes and removes the stored credentials for one provider.
   func disconnect(_ provider: AuthProvider) async {
     guard mockData == nil else { return }
@@ -758,6 +867,15 @@ final class StatusStore: ObservableObject {
       for account in googleAccounts {
         await disconnectGoogleAccount(account.id)
       }
+      return
+    }
+
+    if provider == .github {
+      connectionRevisions[.github, default: 0] += 1
+      await githubAuth.signOut()
+      updateConnectionStatus(.github, state: .disconnected, detail: nil, accountLabel: nil)
+      githubIssues = []
+      githubError = nil
       return
     }
 
@@ -909,6 +1027,13 @@ final class StatusStore: ObservableObject {
   /// Persists whether the Linear section appears in the menu bar popover.
   func setShowsLinearSection(_ shows: Bool) {
     showsLinearSection = shows
+  }
+
+  /// Persists the selected issue source and reloads the issues section.
+  func setIssueSource(_ source: IssueSource) {
+    guard issueSource != source else { return }
+    issueSource = source
+    Task { await refresh() }
   }
 
   /// Persists whether the notes section appears in the menu bar popover.
@@ -1184,11 +1309,20 @@ final class StatusStore: ObservableObject {
     hoveredEventID = eventID
   }
 
-  /// Copies the hovered Linear issue link or branch name and briefly marks the row as copied.
+  /// Copies the hovered issue link and briefly marks the row as copied.
   @discardableResult
   func copyHoveredIssueLink() -> Bool {
-    guard let hoveredIssueID,
-          let issue = issues.first(where: { $0.id == hoveredIssueID }) else {
+    guard let hoveredIssueID else {
+      return false
+    }
+
+    if let githubIssue = githubIssues.first(where: { $0.id == hoveredIssueID }),
+       let url = githubIssue.url {
+      copyToClipboard(url.absoluteString, markingCopied: githubIssue.id)
+      return true
+    }
+
+    guard let issue = issues.first(where: { $0.id == hoveredIssueID }) else {
       return false
     }
 
@@ -1204,18 +1338,22 @@ final class StatusStore: ObservableObject {
       return false
     }
 
+    copyToClipboard(clipboardText, markingCopied: issue.id)
+    return true
+  }
+
+  /// Copies one string and flashes the copied indicator on the matching row.
+  private func copyToClipboard(_ text: String, markingCopied issueID: String) {
     NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(clipboardText, forType: .string)
-    copiedIssueID = issue.id
+    NSPasteboard.general.setString(text, forType: .string)
+    copiedIssueID = issueID
 
     Task { @MainActor in
       try? await Task.sleep(for: .seconds(1.4))
-      if copiedIssueID == issue.id {
+      if copiedIssueID == issueID {
         copiedIssueID = nil
       }
     }
-
-    return true
   }
 
   /// Copies the hovered calendar event's meeting or event link and briefly marks the row.
@@ -1768,6 +1906,8 @@ final class StatusStore: ObservableObject {
       googleAccounts.first?.account.label ?? "Google Calendar"
     case .linear:
       try await linearService.fetchAccountLabel()
+    case .github:
+      try await githubService.fetchAccountLabel()
     }
   }
 
@@ -1787,7 +1927,7 @@ final class StatusStore: ObservableObject {
         guard self.showsNotesSection else { return }
         self.noteCreationRequestID = UUID()
       case .newLinearIssue:
-        guard self.showsLinearSection else { return }
+        guard self.showsLinearSection, self.issueSource == .linear else { return }
         self.linearIssueCreationRequestID = UUID()
       }
     }
@@ -1950,6 +2090,7 @@ final class StatusStore: ObservableObject {
     tomorrowEvents = mockData.tomorrowEvents
     allIssues = mockData.issues
     allNotes = mockData.notes
+    githubIssues = mockData.githubIssues
     connectionStatuses = mockData.connectionStatuses
     googleAccounts = mockData.googleAccounts
     visibleIssueCount = Self.initialVisibleIssueCount
@@ -1957,6 +2098,7 @@ final class StatusStore: ObservableObject {
     calendarWarnings = []
     googleAuthorizationError = nil
     linearError = nil
+    githubError = nil
     notesError = nil
     issues = Array(allIssues.prefix(visibleIssueCount))
     notes = Array(allNotes.prefix(visibleNoteCount))
@@ -2219,6 +2361,15 @@ final class StatusStore: ObservableObject {
   private func loadLinearIssues() async -> Result<[LinearIssueItem], Error> {
     do {
       return .success(try await linearService.fetchAssignedIssues())
+    } catch {
+      return .failure(error)
+    }
+  }
+
+  /// Loads open GitHub issues assigned to the signed-in user.
+  private func loadGitHubIssues() async -> Result<[GitHubIssueItem], Error> {
+    do {
+      return .success(try await githubService.fetchAssignedIssues())
     } catch {
       return .failure(error)
     }
