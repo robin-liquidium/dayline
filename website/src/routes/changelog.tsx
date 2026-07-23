@@ -58,8 +58,6 @@ function ReleaseEntry({
   isLatest: boolean;
   isFirst: boolean;
 }) {
-  const items = [...(release.new ?? []), ...(release.fixed ?? [])];
-
   return (
     <li className={isFirst ? "" : "border-t border-line pt-12"}>
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
@@ -74,22 +72,38 @@ function ReleaseEntry({
         </time>
       </div>
 
-      <div className="mt-4 space-y-3 text-[15px] leading-7 text-mute">
-        {items.map((item) => (
-          <ItemParagraph key={item.text} item={item} />
-        ))}
+      <div className="mt-5 space-y-6">
+        {release.new?.length ? (
+          <ItemSection title="New features" items={release.new} />
+        ) : null}
+        {release.fixed?.length ? (
+          <ItemSection title="Improvements & bug fixes" items={release.fixed} />
+        ) : null}
       </div>
     </li>
   );
 }
 
-function ItemParagraph({ item }: { item: ChangelogItem }) {
+function ItemSection({
+  title,
+  items,
+}: {
+  title: string;
+  items: ChangelogItem[];
+}) {
   return (
-    <p>
-      {item.title ? (
-        <span className="text-ink">{item.title} — </span>
-      ) : null}
-      {item.text}
-    </p>
+    <section>
+      <h3 className="eyebrow">{title}</h3>
+      <div className="mt-2.5 space-y-3 text-[15px] leading-7 text-mute">
+        {items.map((item) => (
+          <p key={item.text}>
+            {item.title ? (
+              <span className="text-ink">{item.title} — </span>
+            ) : null}
+            {item.text}
+          </p>
+        ))}
+      </div>
+    </section>
   );
 }
