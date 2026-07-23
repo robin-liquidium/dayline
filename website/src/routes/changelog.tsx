@@ -67,7 +67,7 @@ function ReleaseEntry({
         {isLatest ? (
           <span className="font-display text-lg italic text-ember">Latest</span>
         ) : null}
-        <time className="text-sm text-mute">
+        <time className="text-sm text-mute" dateTime={release.date}>
           {formatChangelogDate(release.date)}
         </time>
       </div>
