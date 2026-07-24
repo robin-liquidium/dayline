@@ -62,7 +62,7 @@ struct LinearService {
             url
             state { id name type }
             assignee { id name displayName active }
-            labels(first: 250) { nodes { id name color } }
+            labels(first: 50) { nodes { id name color } }
             team {
               id
               states(first: 50) {
@@ -107,7 +107,7 @@ struct LinearService {
           url
           state { id name type }
           assignee { id name displayName active }
-          labels(first: 250) { nodes { id name color } }
+          labels(first: 50) { nodes { id name color } }
           team {
             id
             states(first: 50) {
