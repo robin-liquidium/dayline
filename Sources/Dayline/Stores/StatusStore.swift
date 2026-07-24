@@ -479,6 +479,8 @@ final class StatusStore: ObservableObject {
   private static let defaultMenuBarEventPostStartGraceMinutes = 0
   private static let fallbackDefaultVisibleNoteCount = 3
   private static let menuBarClockRefreshSeconds: TimeInterval = 15
+  /// Post-start window during which the full-screen meeting alert may still appear.
+  private static let meetingAlertPostStartGrace: TimeInterval = 10 * 60
   private static let todayEventLimit = 6
   private static let tomorrowEventLimit = 8
 
@@ -2633,7 +2635,7 @@ final class StatusStore: ObservableObject {
         // Skip all-day style events that would fire the alert at midnight.
         guard event.endDate.timeIntervalSince(event.startDate) < 24 * 60 * 60 else { return false }
         return now >= event.startDate.addingTimeInterval(-lead)
-          && now < event.endDate
+          && now < event.startDate.addingTimeInterval(Self.meetingAlertPostStartGrace)
           && !dismissedMeetingAlertEventIDs.contains(event.deduplicationKey ?? event.id)
       }
       .min { $0.startDate < $1.startDate }

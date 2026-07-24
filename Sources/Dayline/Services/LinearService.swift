@@ -95,8 +95,8 @@ struct LinearService {
   func fetchOpenIssues(enabledTeamIDs: Set<String>?) async throws -> [LinearIssueItem] {
     if let enabledTeamIDs, enabledTeamIDs.isEmpty { return [] }
     let query = """
-    query OpenIssues($first: Int!, $after: String) {
-      issues(first: $first, after: $after, filter: { state: { type: { nin: ["completed", "canceled"] } } }) {
+    query OpenIssues($first: Int!, $after: String, $filter: IssueFilter!) {
+      issues(first: $first, after: $after, filter: $filter) {
         nodes {
           identifier
           title
@@ -122,14 +122,16 @@ struct LinearService {
 
     var issues: [LinearIssueItem] = []
     var after: String?
+    var filter: [String: Any] = ["state": ["type": ["nin": ["completed", "canceled"]]]]
+    if let enabledTeamIDs {
+      filter["team"] = ["id": ["in": Array(enabledTeamIDs)]]
+    }
     repeat {
-      var variables: [String: Any] = ["first": 50]
+      var variables: [String: Any] = ["first": 50, "filter": filter]
       if let after { variables["after"] = after }
       let response = try await graphQL(query, variables: variables, as: LinearIssuesResponse.self)
       let connection = response.data.issues
-      issues.append(contentsOf: connection.nodes.map(\.displayItem).filter { issue in
-        enabledTeamIDs?.contains(issue.teamID) ?? true
-      })
+      issues.append(contentsOf: connection.nodes.map(\.displayItem))
       after = connection.pageInfo.nextCursor
     } while after != nil
     return issues

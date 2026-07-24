@@ -46,11 +46,13 @@ function PrivacyPolicy() {
         <p>
           Dayline connects to Linear or GitHub only when you choose to use those
           issue features. It reads the account or workspace identity, available
-          teams or repositories, and assigned issue data needed for the menu and
-          actions you request. When you create a Linear issue or change an
-          issue&apos;s status, priority, due date, labels, or assignee, Dayline sends
-          that requested change directly to Linear or GitHub. It does not make
-          issue changes without your action.
+          teams or repositories, and issue data needed for the menu and actions
+          you request. Depending on the issue filter you choose, that is either
+          only issues assigned to you or all open issues in the Linear teams or
+          GitHub repositories you select. When you create a Linear issue or
+          change an issue&apos;s status, priority, due date, labels, or assignee,
+          Dayline sends that requested change directly to Linear or GitHub. It
+          does not make issue changes without your action.
         </p>
         <p>
           Quick notes you create in Dayline are stored locally on your Mac and

@@ -36,7 +36,7 @@ struct GitHubService: Sendable {
           affiliations: [OWNER, COLLABORATOR, ORGANIZATION_MEMBER]
           orderBy: { field: NAME, direction: ASC }
         ) {
-          nodes { nameWithOwner }
+          nodes { nameWithOwner hasIssuesEnabled }
           pageInfo { hasNextPage endCursor }
         }
       }
@@ -57,7 +57,9 @@ struct GitHubService: Sendable {
         ? response.data.viewer.repositories.pageInfo.endCursor
         : nil
     } while after != nil
-    return repositories.map { GitHubRepository(fullName: $0.nameWithOwner, isEnabled: true) }
+    return repositories
+      .filter(\.hasIssuesEnabled)
+      .map { GitHubRepository(fullName: $0.nameWithOwner, isEnabled: true) }
   }
 
   /// Returns up to 25 assigned open issues from enabled repositories.
@@ -103,7 +105,8 @@ struct GitHubService: Sendable {
       let chunkIssues = try await withThrowingTaskGroup(of: [GitHubIssueItem].self) { group in
         for repo in chunk {
           group.addTask {
-            try await self.fetchRepoIssues(repoFullName: repo)
+            // A failing repository must not take down the whole feed.
+            (try? await self.fetchRepoIssues(repoFullName: repo)) ?? []
           }
         }
         var batch: [GitHubIssueItem] = []
@@ -276,7 +279,10 @@ struct GitHubService: Sendable {
     let nodes: [GitHubGraphQLRepository]
     let pageInfo: GitHubGraphQLPageInfo
   }
-  private struct GitHubGraphQLRepository: Decodable, Sendable { let nameWithOwner: String }
+  private struct GitHubGraphQLRepository: Decodable, Sendable {
+    let nameWithOwner: String
+    let hasIssuesEnabled: Bool
+  }
   private struct GitHubGraphQLPageInfo: Decodable, Sendable {
     let hasNextPage: Bool
     let endCursor: String?
