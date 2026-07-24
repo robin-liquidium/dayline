@@ -109,7 +109,9 @@ struct GitHubIssueEditorView: View {
       if draft.repository.isEmpty {
         let defaultRepo = store.githubIssueCreateDefaultRepo
         let enabled = enabledRepositories.map(\.fullName)
-        draft.repository = enabled.contains(defaultRepo) ? defaultRepo : (enabled.first ?? "")
+        let chosen = enabled.contains(defaultRepo) ? defaultRepo : (enabled.first ?? "")
+        requestedOptionsRepository = chosen
+        draft.repository = chosen
       }
       draft.assignee = ownLogin ?? ""
       await loadRepositoryOptions()
