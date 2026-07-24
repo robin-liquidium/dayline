@@ -66,7 +66,7 @@ cat >"$INFO_PLIST" <<PLIST
 </plist>
 PLIST
 
-/usr/bin/open -n "$APP_BUNDLE" --args --mock "$@"
+/usr/bin/open "$APP_BUNDLE" --args --mock "$@"
 
 for _ in {1..30}; do
   if pgrep -x "$APP_NAME" >/dev/null; then

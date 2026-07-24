@@ -149,6 +149,10 @@ actor GitHubDeviceAuthService {
             "grant_type": "urn:ietf:params:oauth:grant-type:device_code"
           ]
         )
+        try Task.checkCancellation()
+        guard generation == signInGeneration else {
+          throw GitHubDeviceAuthError.cancelled
+        }
         let tokens = OAuthTokens(
           accessToken: token.accessToken,  // autoreview:allow-secret
           refreshToken: nil,
@@ -183,8 +187,10 @@ actor GitHubDeviceAuthService {
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Accept")
     request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+    var formAllowedCharacters = CharacterSet.urlQueryAllowed
+    formAllowedCharacters.remove(charactersIn: "&=+")
     request.httpBody = form
-      .map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }
+      .map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: formAllowedCharacters) ?? $0.value)" }
       .joined(separator: "&")
       .data(using: .utf8)
 

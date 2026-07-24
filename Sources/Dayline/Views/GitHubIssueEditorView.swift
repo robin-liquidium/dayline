@@ -6,6 +6,7 @@ struct GitHubIssueEditorView: View {
   @Environment(\.dismiss) private var dismiss
 
   @StateObject private var draft = GitHubIssueDraft()
+  @State private var didLoadOptionsInitially = false
 
   /// Builds the GitHub issue creator window content.
   var body: some View {
@@ -112,9 +113,11 @@ struct GitHubIssueEditorView: View {
       }
       draft.assignee = ownLogin ?? ""
       await loadRepositoryOptions()
+      didLoadOptionsInitially = true
     }
     .onChange(of: draft.repository) { _, _ in
       draft.selectedLabel = ""
+      guard didLoadOptionsInitially else { return }
       Task { await loadRepositoryOptions() }
     }
   }

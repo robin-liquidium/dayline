@@ -44,7 +44,7 @@ final class DockIconVisibilityController {
 
   /// Matches the same window titles the window presenters use to find SwiftUI scenes.
   private static func isDaylineWindow(_ window: NSWindow) -> Bool {
-    if ["Note", "New Note", "New Linear Issue", "General"].contains(window.title) {
+    if ["Note", "New Note", "New Linear Issue", "New GitHub Issue", "General"].contains(window.title) {
       return true
     }
     if window.title.hasSuffix("Settings") {

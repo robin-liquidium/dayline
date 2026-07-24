@@ -63,6 +63,7 @@ Environment:
   BUILD_NUMBER            Build number. Defaults to git commit count.
   DAYLINE_GOOGLE_CLIENT_ID  Google OAuth client ID embedded in the app.
   DAYLINE_LINEAR_CLIENT_ID  Linear OAuth client ID embedded in the app.
+  DAYLINE_GITHUB_CLIENT_ID  GitHub OAuth client ID embedded in the app.
   CODESIGN_IDENTITY       Signing identity. Auto-detects Developer ID, then Apple Development.
   NOTARY_PROFILE          Local notarytool keychain profile.
   NOTARY_KEY_PATH         App Store Connect API key (.p8) for CI notarization.
@@ -187,6 +188,7 @@ write_info_plist() {
   /usr/bin/plutil -insert CFBundleVersion -string "$BUILD_NUMBER_RESOLVED" "$INFO_PLIST"
   /usr/bin/plutil -insert DaylineGoogleClientID -string "$google_client_id" "$INFO_PLIST"
   /usr/bin/plutil -insert DaylineLinearClientID -string "$LINEAR_CLIENT_ID" "$INFO_PLIST"
+  /usr/bin/plutil -insert DaylineGitHubClientID -string "$GITHUB_CLIENT_ID" "$INFO_PLIST"
   /usr/bin/plutil -insert DaylineLinearCallbackScheme -string "$linear_url_scheme" "$INFO_PLIST"
   /usr/bin/plutil -insert CFBundleURLTypes -json "[{\"CFBundleURLName\":\"$BUNDLE_ID.oauth.linear\",\"CFBundleURLSchemes\":[\"$linear_url_scheme\"]},{\"CFBundleURLName\":\"$BUNDLE_ID.oauth.google\",\"CFBundleURLSchemes\":[\"$google_url_scheme\"]}]" "$INFO_PLIST"
   /usr/bin/plutil -insert LSApplicationCategoryType -string "public.app-category.productivity" "$INFO_PLIST"
@@ -370,6 +372,7 @@ install_app() {
 BUNDLE_ID="${BUNDLE_ID:-$DEFAULT_BUNDLE_ID}"
 GOOGLE_CLIENT_ID="${DAYLINE_GOOGLE_CLIENT_ID:-551177930544-9sl0govp6ok205csb939j4p2dhckrgbk.apps.googleusercontent.com}"
 LINEAR_CLIENT_ID="${DAYLINE_LINEAR_CLIENT_ID:-00c88957100199ecb91362294a3f6e55}"
+GITHUB_CLIENT_ID="${DAYLINE_GITHUB_CLIENT_ID:-Ov23litV6nyANcKL6p4l}"
 VERSION="$(resolve_version)"
 BUILD_NUMBER_RESOLVED="$(resolve_build_number)"
 SIGNING_IDENTITY="$(detect_codesign_identity)"

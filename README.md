@@ -130,6 +130,9 @@ On first launch, connect either or both integrations from the menu:
 - **GitHub:** assigned issues from user-selected repositories, with status, label, and assignee actions.
 
 Google and Linear use OAuth 2.0 with PKCE; GitHub uses OAuth's device flow.
+GitHub's OAuth `repo` scope grants Dayline access to every repository the
+signed-in user can access; the selected repositories only filter what Dayline
+displays and acts on.
 Tokens are stored in the macOS
 Keychain, and disconnecting a Google account revokes and removes only that
 account's token. Shared meeting occurrences are shown once, with their source

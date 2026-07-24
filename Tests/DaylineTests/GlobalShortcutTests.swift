@@ -18,6 +18,15 @@ struct GlobalShortcutTests {
     #expect(GlobalShortcut.newGitHubIssueFallbacks.allSatisfy { $0 != GlobalShortcut.openGoogleCalendarDefault })
   }
 
+  @Test func allDefaultsAndFallbacksArePairwiseUnique() {
+    // Both fallback lists lead with their own default, so they cover all four defaults.
+    let shortcuts = [
+      GlobalShortcut.newNoteDefault,
+      GlobalShortcut.newLinearIssueDefault
+    ] + GlobalShortcut.newGitHubIssueFallbacks + GlobalShortcut.openGoogleCalendarFallbacks
+    #expect(Set(shortcuts.map { "\($0.keyCode)-\($0.carbonModifiers)" }).count == shortcuts.count)
+  }
+
   @Test func defaultsUseControlOptionCommand() {
     let expectedModifiers = UInt32(controlKey | optionKey | cmdKey)
     #expect(GlobalShortcut.newNoteDefault.carbonModifiers == expectedModifiers)

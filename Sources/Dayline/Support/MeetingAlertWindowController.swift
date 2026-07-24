@@ -37,7 +37,7 @@ final class MeetingAlertWindowController {
     alertWindow.hasShadow = false
     alertWindow.contentView = NSHostingView(rootView: rootView)
     alertWindow.makeKeyAndOrderFront(nil)
-    NSApp.activate(ignoringOtherApps: true)
+    NSApp.activate()
     window = alertWindow
   }
 

@@ -47,12 +47,22 @@ struct SettingsView: View {
     .onAppear {
       // Keep the search field from stealing focus when the window opens.
       DispatchQueue.main.async {
-        NSApp.keyWindow?.makeFirstResponder(nil)
+        Self.clearFirstResponderIfSettingsWindowIsKey()
       }
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-        NSApp.keyWindow?.makeFirstResponder(nil)
+        Self.clearFirstResponderIfSettingsWindowIsKey()
       }
     }
+  }
+
+  /// Clears the first responder only when the key window is the settings window.
+  private static func clearFirstResponderIfSettingsWindowIsKey() {
+    guard let window = NSApp.keyWindow,
+          window.title.hasSuffix("Settings")
+            || window.identifier?.rawValue.localizedCaseInsensitiveContains("settings") == true else {
+      return
+    }
+    window.makeFirstResponder(nil)
   }
 
   @ViewBuilder

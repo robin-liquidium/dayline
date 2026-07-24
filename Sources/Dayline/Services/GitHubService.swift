@@ -94,20 +94,28 @@ struct GitHubService: Sendable {
 
   /// Returns up to 25 open issues from enabled repositories, not only assigned ones.
   func fetchOpenIssues(enabledRepositories: Set<String>) async throws -> [GitHubIssueItem] {
-    let issues = try await withThrowingTaskGroup(of: [GitHubIssueItem].self) { group in
-      for repo in enabledRepositories {
-        group.addTask {
-          try await self.fetchRepoIssues(repoFullName: repo)
+    let repositories = Array(enabledRepositories)
+    var collected: [GitHubIssueItem] = []
+    // Fetch in bounded chunks so users with many enabled repositories stay
+    // clear of GitHub's secondary rate limits.
+    for chunkStart in stride(from: 0, to: repositories.count, by: 8) {
+      let chunk = repositories[chunkStart..<min(chunkStart + 8, repositories.count)]
+      let chunkIssues = try await withThrowingTaskGroup(of: [GitHubIssueItem].self) { group in
+        for repo in chunk {
+          group.addTask {
+            try await self.fetchRepoIssues(repoFullName: repo)
+          }
         }
+        var batch: [GitHubIssueItem] = []
+        for try await issues in group {
+          batch.append(contentsOf: issues)
+        }
+        return batch
       }
-      var collected: [GitHubIssueItem] = []
-      for try await batch in group {
-        collected.append(contentsOf: batch)
-      }
-      return collected
+      collected.append(contentsOf: chunkIssues)
     }
     return Array(
-      issues
+      collected
         .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
         .prefix(25)
     )

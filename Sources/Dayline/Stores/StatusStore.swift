@@ -1052,7 +1052,6 @@ final class StatusStore: ObservableObject {
     guard mockData == nil else { return }
 
     connectionRevisions[provider, default: 0] += 1
-    BrowserOAuthCoordinator.shared.cancel()
 
     switch provider {
     case .github:
@@ -1060,13 +1059,15 @@ final class StatusStore: ObservableObject {
       Task { await githubAuth.cancelSignIn() }
       updateConnectionStatus(.github, state: .disconnected, detail: nil, accountLabel: nil)
     case .google:
+      BrowserOAuthCoordinator.shared.cancel()
       isGoogleAuthorizationInProgress = false
       googleAuthorizationError = nil
       for accountID in googleAccounts.filter({ $0.state == .connecting }).map(\.id) {
         updateGoogleAccountStatus(accountID, state: .disconnected, detail: "Reconnect required.")
       }
       updateGoogleAggregateStatus()
-    default:
+    case .linear:
+      BrowserOAuthCoordinator.shared.cancel()
       updateConnectionStatus(provider, state: .disconnected, detail: nil, accountLabel: nil)
     }
   }
@@ -1215,7 +1216,7 @@ final class StatusStore: ObservableObject {
       githubRepositoryError = nil
       Task { await refresh() }
     } catch {
-      githubError = error.localizedDescription
+      githubRepositoryError = error.localizedDescription
     }
   }
 
@@ -1991,14 +1992,25 @@ final class StatusStore: ObservableObject {
       let assigneeID = option.id.isEmpty || issue.assignee?.id == option.id ? nil : option.id
       do {
         if mockData != nil {
-          allIssues.removeAll { $0.id == id }
-          applyLinearIssueOrder()
+          if linearIssueFilter == .allOpen {
+            let newAssignee: LinearUserOption? = assigneeID.map {
+              LinearUserOption(id: $0, name: option.name, displayName: option.name, isActive: true)
+            }
+            replaceFetchedIssue(issue.replacing(assignee: .some(newAssignee)))
+          } else {
+            allIssues.removeAll { $0.id == id }
+            applyLinearIssueOrder()
+          }
         } else {
-          _ = try await linearService.updateIssueAssignee(issueID: id, assigneeID: assigneeID)
-          // The menu only shows issues assigned to the viewer, so any singular
-          // reassignment or unassignment removes this issue from the active list.
-          allIssues.removeAll { $0.id == id }
-          applyLinearIssueOrder()
+          let updatedIssue = try await linearService.updateIssueAssignee(issueID: id, assigneeID: assigneeID)
+          if linearIssueFilter == .allOpen {
+            replaceFetchedIssue(updatedIssue)
+          } else {
+            // The menu only shows issues assigned to the viewer, so any singular
+            // reassignment or unassignment removes this issue from the active list.
+            allIssues.removeAll { $0.id == id }
+            applyLinearIssueOrder()
+          }
         }
         linearError = nil
       } catch { linearError = error.localizedDescription }
@@ -2018,10 +2030,12 @@ final class StatusStore: ObservableObject {
           .first(where: { $0.provider == .github })?
           .accountLabel?
           .lowercased()
-        if let viewerLogin, !assignees.contains(where: { $0.login.lowercased() == viewerLogin }) {
-          githubIssues.removeAll { $0.id == id }
-        } else {
+        if githubIssueFilter == .allOpen {
           replaceGitHubIssue(issue.replacing(assignees: assignees))
+        } else if let viewerLogin, assignees.contains(where: { $0.login.lowercased() == viewerLogin }) {
+          replaceGitHubIssue(issue.replacing(assignees: assignees))
+        } else {
+          githubIssues.removeAll { $0.id == id }
         }
         githubError = nil
       } catch { githubError = error.localizedDescription }
@@ -2488,6 +2502,9 @@ final class StatusStore: ObservableObject {
       return
     }
     connectionRevisions[provider, default: 0] += 1
+    if provider == .github {
+      Task { await githubAuth.signOut() }
+    }
     updateConnectionStatus(provider, state: .disconnected, detail: "Sign in again.", accountLabel: nil)
   }
 
@@ -2516,13 +2533,12 @@ final class StatusStore: ObservableObject {
       }
       switch hotkey {
       case .newNote:
-        guard self.showsNotesSection else { return }
         self.noteCreationRequestID = UUID()
       case .newLinearIssue:
-        guard self.isIssuesSectionVisible, self.availableIssueSources.contains(.linear) else { return }
+        guard self.availableIssueSources.contains(.linear) else { return }
         self.linearIssueCreationRequestID = UUID()
       case .newGitHubIssue:
-        guard self.isIssuesSectionVisible, self.availableIssueSources.contains(.github) else { return }
+        guard self.availableIssueSources.contains(.github) else { return }
         self.githubIssueCreationRequestID = UUID()
       case .openGoogleCalendar:
         self.openGoogleCalendar()
@@ -2596,7 +2612,7 @@ final class StatusStore: ObservableObject {
 
   /// Recomputes which event, if any, the full-screen meeting alert should present.
   private func updateMeetingAlert() {
-    guard meetingAlertEnabled, isCalendarSectionVisible else {
+    guard meetingAlertEnabled else {
       meetingAlertEvent = nil
       return
     }
