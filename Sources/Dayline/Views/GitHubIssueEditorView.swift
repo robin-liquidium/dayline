@@ -118,6 +118,7 @@ struct GitHubIssueEditorView: View {
     }
     .onChange(of: draft.repository) { _, _ in
       guard draft.repository != requestedOptionsRepository else { return }
+      requestedOptionsRepository = draft.repository
       draft.selectedLabel = ""
       draft.assignee = ""
       draft.assignees = []
@@ -182,10 +183,10 @@ struct GitHubIssueEditorView: View {
   /// Loads assignable collaborators and labels for the selected repository.
   private func loadRepositoryOptions() async {
     let repository = draft.repository
-    requestedOptionsRepository = repository
     guard !repository.isEmpty else {
       draft.assignees = []
       draft.labels = []
+      draft.isLoadingOptions = false
       return
     }
 
