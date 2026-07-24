@@ -1213,6 +1213,7 @@ final class StatusStore: ObservableObject {
     do {
       try githubAccountRepository.save(githubAccount)
       githubIssues.removeAll { !enabledGitHubRepositories.contains($0.repoFullName.lowercased()) }
+      optimisticGitHubIssues.removeAll { !enabledGitHubRepositories.contains($0.issue.repoFullName.lowercased()) }
       githubRepositoryError = nil
       Task { await refresh() }
     } catch {
@@ -1366,7 +1367,7 @@ final class StatusStore: ObservableObject {
   /// Dismisses the full-screen meeting alert for the current event.
   func dismissMeetingAlert() {
     if let event = meetingAlertEvent {
-      dismissedMeetingAlertEventIDs.insert(event.id)
+      dismissedMeetingAlertEventIDs.insert(event.deduplicationKey ?? event.id)
     }
     meetingAlertEvent = nil
   }
@@ -1891,7 +1892,10 @@ final class StatusStore: ObservableObject {
         return
       }
     }
-    if !isOpen { githubIssues.removeAll { $0.id == issueID } }
+    if !isOpen {
+      githubIssues.removeAll { $0.id == issueID }
+      optimisticGitHubIssues.removeAll { $0.issue.id == issueID }
+    }
     githubError = nil
   }
 
@@ -2034,6 +2038,7 @@ final class StatusStore: ObservableObject {
           replaceGitHubIssue(issue.replacing(assignees: assignees))
         } else if let viewerLogin, !assignees.contains(where: { $0.login.lowercased() == viewerLogin }) {
           githubIssues.removeAll { $0.id == id }
+          optimisticGitHubIssues.removeAll { $0.issue.id == id }
         } else {
           replaceGitHubIssue(issue.replacing(assignees: assignees))
         }
@@ -2191,7 +2196,9 @@ final class StatusStore: ObservableObject {
   /// Reconciles optimistic issues with a fetched feed, expiring entries GitHub still has not indexed.
   private func mergingOptimisticGitHubIssues(into fetched: [GitHubIssueItem]) -> [GitHubIssueItem] {
     let cutoff = Date().addingTimeInterval(-90)
+    let enabledRepositories = enabledGitHubRepositories
     optimisticGitHubIssues.removeAll { $0.insertedAt < cutoff }
+    optimisticGitHubIssues.removeAll { !enabledRepositories.contains($0.issue.repoFullName.lowercased()) }
     let fetchedIDs = Set(fetched.map(\.id))
     optimisticGitHubIssues.removeAll { fetchedIDs.contains($0.issue.id) }
     let missing = optimisticGitHubIssues.map(\.issue)
@@ -2619,13 +2626,15 @@ final class StatusStore: ObservableObject {
 
     let now = menuBarClockDate
     let lead = TimeInterval(meetingAlertLeadMinutes * 60)
-    meetingAlertEvent = events
+    // Evaluate against the uncapped merged source pool so capped menu slices
+    // cannot hide meetings still inside the alert lead window.
+    meetingAlertEvent = CalendarEventItem.mergedAgenda(googleSourceEvents)
       .filter { event in
         // Skip all-day style events that would fire the alert at midnight.
         guard event.endDate.timeIntervalSince(event.startDate) < 24 * 60 * 60 else { return false }
         return now >= event.startDate.addingTimeInterval(-lead)
           && now < event.endDate
-          && !dismissedMeetingAlertEventIDs.contains(event.id)
+          && !dismissedMeetingAlertEventIDs.contains(event.deduplicationKey ?? event.id)
       }
       .min { $0.startDate < $1.startDate }
   }
@@ -2658,6 +2667,9 @@ final class StatusStore: ObservableObject {
   private func replaceGitHubIssue(_ updatedIssue: GitHubIssueItem) {
     guard let index = githubIssues.firstIndex(where: { $0.id == updatedIssue.id }) else { return }
     githubIssues[index] = updatedIssue
+    if let optimisticIndex = optimisticGitHubIssues.firstIndex(where: { $0.issue.id == updatedIssue.id }) {
+      optimisticGitHubIssues[optimisticIndex].issue = updatedIssue
+    }
   }
 
   /// Returns Linear issues sorted by the current user preference.
@@ -2722,6 +2734,7 @@ final class StatusStore: ObservableObject {
     } else {
       events = mockData.events
     }
+    googleSourceEvents = events
     tomorrowEvents = mockData.tomorrowEvents
     allIssues = mockData.issues
     allNotes = mockData.notes

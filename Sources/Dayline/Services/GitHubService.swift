@@ -122,19 +122,28 @@ struct GitHubService: Sendable {
   }
 
   /// Returns open issues (excluding pull requests) from one repository.
+  /// Pages until enough real issues are collected since pull requests share the feed.
   private func fetchRepoIssues(repoFullName repo: String) async throws -> [GitHubIssueItem] {
-    var components = URLComponents(string: "https://api.github.com/repos/\(repo)/issues")!
-    components.queryItems = [
-      URLQueryItem(name: "state", value: "open"),
-      URLQueryItem(name: "sort", value: "updated"),
-      URLQueryItem(name: "direction", value: "desc"),
-      URLQueryItem(name: "per_page", value: "100")
-    ]
-    let batch: [SearchItem] = try await request(components.url!)
-    return batch.compactMap { item in
-      guard item.pullRequest == nil else { return nil }
-      return item.displayItem(repoFullName: repo)
+    var page = 1
+    var issues: [GitHubIssueItem] = []
+    while issues.count < 25 {
+      var components = URLComponents(string: "https://api.github.com/repos/\(repo)/issues")!
+      components.queryItems = [
+        URLQueryItem(name: "state", value: "open"),
+        URLQueryItem(name: "sort", value: "updated"),
+        URLQueryItem(name: "direction", value: "desc"),
+        URLQueryItem(name: "per_page", value: "100"),
+        URLQueryItem(name: "page", value: String(page))
+      ]
+      let batch: [SearchItem] = try await request(components.url!)
+      issues.append(contentsOf: batch.compactMap { item in
+        guard item.pullRequest == nil else { return nil }
+        return item.displayItem(repoFullName: repo)
+      })
+      guard batch.count == 100 else { break }
+      page += 1
     }
+    return issues
   }
 
   func fetchLabels(repoFullName: String) async throws -> [GitHubLabelOption] {
