@@ -117,11 +117,11 @@ struct GitHubIssueEditorView: View {
       await loadRepositoryOptions()
     }
     .onChange(of: draft.repository) { _, _ in
+      guard draft.repository != requestedOptionsRepository else { return }
       draft.selectedLabel = ""
       draft.assignee = ""
       draft.assignees = []
       draft.labels = []
-      guard draft.repository != requestedOptionsRepository else { return }
       Task { await loadRepositoryOptions() }
     }
   }
@@ -190,7 +190,7 @@ struct GitHubIssueEditorView: View {
     }
 
     draft.isLoadingOptions = true
-    defer { draft.isLoadingOptions = false }
+    defer { if draft.repository == repository { draft.isLoadingOptions = false } }
 
     do {
       let assignees = try await store.githubIssueCreateAssigneeOptions(repoFullName: repository)
