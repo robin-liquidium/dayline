@@ -200,13 +200,15 @@ actor GitHubDeviceAuthService {
     let decoder = JSONDecoder()
     decoder.keyDecodingStrategy = .convertFromSnakeCase
 
+    guard (200..<300).contains(status) else {
+      let message = (try? decoder.decode(PollError.self, from: data))?.description
+      throw GitHubDeviceAuthError.httpError(status, message ?? String(data: data, encoding: .utf8))
+    }
+
     if let pollError = try? decoder.decode(PollError.self, from: data), pollError.reason != nil {
       throw pollError
     }
 
-    guard (200..<300).contains(status) else {
-      throw GitHubDeviceAuthError.httpError(status, String(data: data, encoding: .utf8))
-    }
     guard let decoded = try? decoder.decode(Response.self, from: data) else {
       throw GitHubDeviceAuthError.invalidResponse
     }

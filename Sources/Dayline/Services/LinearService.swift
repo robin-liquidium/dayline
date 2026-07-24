@@ -255,6 +255,34 @@ struct LinearService {
     try await updateIssueFields(issueID: issueID, input: ["labelIds": labelIDs])
   }
 
+  /// Loads every label ID currently applied to one issue, paging past the list-query label cap.
+  func fetchAppliedLabelIDs(issueID: String) async throws -> Set<String> {
+    let query = """
+    query IssueAppliedLabels($id: String!, $after: String) {
+      issue(id: $id) {
+        labels(first: 250, after: $after) {
+          nodes { id }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    }
+    """
+
+    var labelIDs = Set<String>()
+    var after: String?
+    repeat {
+      var variables: [String: Any] = ["id": issueID]
+      if let after { variables["after"] = after }
+      let response = try await graphQL(query, variables: variables, as: LinearAppliedLabelsResponse.self)
+      guard let connection = response.data.issue?.labels else {
+        throw LinearServiceError.unresolvedField("No Linear issue \"\(issueID)\".")
+      }
+      labelIDs.formUnion(connection.nodes.map(\.id))
+      after = connection.pageInfo.nextCursor
+    } while after != nil
+    return labelIDs
+  }
+
   /// Replaces or clears the singular Linear assignee.
   func updateIssueAssignee(issueID: String, assigneeID: String?) async throws -> LinearIssueItem {
     try await updateIssueFields(issueID: issueID, input: ["assigneeId": assigneeID ?? NSNull()])
@@ -795,6 +823,12 @@ private struct LinearLabelsResponse: Decodable {
   let data: LinearLabelsData
 }
 
+/// Root GraphQL response shape for applied label ID lookups.
+private struct LinearAppliedLabelsResponse: Decodable {
+  /// GraphQL data payload.
+  let data: LinearAppliedLabelsData
+}
+
 /// Project lookup data payload.
 private struct LinearProjectsData: Decodable {
   /// Matching projects.
@@ -892,6 +926,27 @@ private struct LinearIssueIDData: Decodable {
 private struct LinearLabelsData: Decodable {
   /// Looked-up team, when found.
   let team: LinearLabelTeam?
+}
+
+/// Applied label lookup data payload.
+private struct LinearAppliedLabelsData: Decodable {
+  /// Looked-up issue, when found.
+  let issue: LinearAppliedLabelsIssue?
+}
+
+/// Issue payload carrying its applied label IDs.
+private struct LinearAppliedLabelsIssue: Decodable {
+  /// Applied label IDs.
+  let labels: LinearAppliedLabelConnection
+}
+
+/// Connection of applied label ID nodes.
+private struct LinearAppliedLabelConnection: Decodable {
+  /// Label ID nodes.
+  let nodes: [LinearIDNode]
+
+  /// Cursor metadata for the next page.
+  let pageInfo: LinearPageInfo
 }
 
 /// Team payload carrying labels.

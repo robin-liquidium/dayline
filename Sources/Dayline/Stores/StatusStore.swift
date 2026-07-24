@@ -1936,9 +1936,14 @@ final class StatusStore: ObservableObject {
     switch target {
     case .linear(let id):
       guard let issue = allIssues.first(where: { $0.id == id }) else { return }
-      var ids = issue.labels.map(\.id)
-      if let index = ids.firstIndex(of: option.id) { ids.remove(at: index) } else { ids.append(option.id) }
       do {
+        var ids: [String]
+        if mockData == nil {
+          ids = Array(try await linearService.fetchAppliedLabelIDs(issueID: id))
+        } else {
+          ids = issue.labels.map(\.id)
+        }
+        if let index = ids.firstIndex(of: option.id) { ids.remove(at: index) } else { ids.append(option.id) }
         if mockData != nil {
           replaceFetchedIssue(issue.replacing(labels: ids.map { labelID in
             let existing = issue.labels.first { $0.id == labelID }
