@@ -1060,7 +1060,7 @@ final class StatusStore: ObservableObject {
       githubDeviceUserCode = nil
       Task {
         await githubAuth.cancelSignIn()
-        await githubAuth.signOut()
+        try? await githubAuth.signOut()
       }
       updateConnectionStatus(.github, state: .disconnected, detail: nil, accountLabel: nil)
     case .google:
@@ -1092,7 +1092,12 @@ final class StatusStore: ObservableObject {
       connectionRevisions[.github, default: 0] += 1
       githubDeviceUserCode = nil
       await githubAuth.cancelSignIn()
-      await githubAuth.signOut()
+      do {
+        try await githubAuth.signOut()
+      } catch {
+        githubError = error.localizedDescription
+        return
+      }
       updateConnectionStatus(.github, state: .disconnected, detail: nil, accountLabel: nil)
       githubIssues = []
       optimisticGitHubIssues = []
@@ -2520,7 +2525,7 @@ final class StatusStore: ObservableObject {
     }
     connectionRevisions[provider, default: 0] += 1
     if provider == .github {
-      Task { await githubAuth.signOut() }
+      Task { try? await githubAuth.signOut() }
     }
     updateConnectionStatus(provider, state: .disconnected, detail: "Sign in again.", accountLabel: nil)
   }

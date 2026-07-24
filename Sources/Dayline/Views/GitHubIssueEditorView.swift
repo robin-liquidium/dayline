@@ -118,6 +118,9 @@ struct GitHubIssueEditorView: View {
     }
     .onChange(of: draft.repository) { _, _ in
       draft.selectedLabel = ""
+      draft.assignee = ""
+      draft.assignees = []
+      draft.labels = []
       guard draft.repository != requestedOptionsRepository else { return }
       Task { await loadRepositoryOptions() }
     }
@@ -136,6 +139,7 @@ struct GitHubIssueEditorView: View {
   /// Whether the current draft can create a GitHub issue.
   private var canCreate: Bool {
     !draft.isCreating
+      && !draft.isLoadingOptions
       && !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       && !draft.repository.isEmpty
   }

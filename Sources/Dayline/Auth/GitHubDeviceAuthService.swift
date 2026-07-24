@@ -89,8 +89,8 @@ actor GitHubDeviceAuthService {
   }
 
   /// Deletes the stored GitHub credentials.
-  func signOut() {
-    try? store.delete(account: AuthProvider.github.keychainAccount)
+  func signOut() throws {
+    try store.delete(account: AuthProvider.github.keychainAccount)
   }
 
   /// Starts the device flow and returns the code the user must enter on GitHub.
