@@ -98,17 +98,19 @@ struct GitHubService: Sendable {
   func fetchOpenIssues(enabledRepositories: Set<String>) async throws -> [GitHubIssueItem] {
     let repositories = Array(enabledRepositories)
     var collected: [GitHubIssueItem] = []
+    var succeeded = 0
+    var firstFailure: Error?
     // Fetch in bounded chunks so users with many enabled repositories stay
     // clear of GitHub's secondary rate limits.
     for chunkStart in stride(from: 0, to: repositories.count, by: 8) {
       let chunk = repositories[chunkStart..<min(chunkStart + 8, repositories.count)]
-      let chunkIssues = try await withThrowingTaskGroup(of: [GitHubIssueItem].self) { group in
+      let chunkIssues = try await withThrowingTaskGroup(of: Result<[GitHubIssueItem], Error>.self) { group in
         for repo in chunk {
           group.addTask {
             // A failing repository must not take down the whole feed, but
             // auth and cancellation errors must still propagate.
             do {
-              return try await self.fetchRepoIssues(repoFullName: repo)
+              return .success(try await self.fetchRepoIssues(repoFullName: repo))
             } catch {
               if error is OAuthError || error is CancellationError {
                 throw error
@@ -116,17 +118,28 @@ struct GitHubService: Sendable {
               if let urlError = error as? URLError, urlError.code == .cancelled {
                 throw error
               }
-              return []
+              return .failure(error)
             }
           }
         }
         var batch: [GitHubIssueItem] = []
-        for try await issues in group {
-          batch.append(contentsOf: issues)
+        for try await result in group {
+          switch result {
+          case .success(let issues):
+            succeeded += 1
+            batch.append(contentsOf: issues)
+          case .failure(let error):
+            firstFailure = firstFailure ?? error
+          }
         }
         return batch
       }
       collected.append(contentsOf: chunkIssues)
+    }
+    // Tolerate partial failures, but if every enabled repository failed the
+    // feed would silently look empty; surface the first error instead.
+    if !repositories.isEmpty, succeeded == 0, let firstFailure {
+      throw firstFailure
     }
     return Array(
       collected

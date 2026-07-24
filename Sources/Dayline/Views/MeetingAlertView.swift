@@ -13,10 +13,12 @@ struct MeetingAlertView: View {
 
       Spacer()
 
-      Text(startLabel)
-        .font(.system(size: 20, weight: .medium, design: .rounded))
-        .foregroundStyle(.secondary)
-        .padding(.bottom, 16)
+      TimelineView(.periodic(from: .now, by: 15)) { _ in
+        Text(startLabel)
+          .font(.system(size: 20, weight: .medium, design: .rounded))
+          .foregroundStyle(.secondary)
+          .padding(.bottom, 16)
+      }
 
       Text(event.title)
         .font(.system(size: 60, weight: .semibold, design: .rounded))
@@ -33,7 +35,7 @@ struct MeetingAlertView: View {
 
       HStack(spacing: 16) {
         if event.openURL != nil || event.calendarURL != nil {
-          Button("Join Meeting", action: onJoin)
+          Button(joinButtonLabel, action: onJoin)
             .buttonStyle(.borderedProminent)
             .controlSize(.extraLarge)
             .keyboardShortcut(.defaultAction)
@@ -66,7 +68,8 @@ struct MeetingAlertView: View {
     }))
   }
 
-  /// Static lead text resolved when the alert appears.
+  /// Lead text re-evaluated by the periodic TimelineView so it ticks down
+  /// and flips to "Starting now" while the alert is visible.
   private var startLabel: String {
     let secondsUntilStart = event.startDate.timeIntervalSince(Date())
     guard secondsUntilStart > 30 else {
@@ -74,6 +77,15 @@ struct MeetingAlertView: View {
     }
     let minutes = max(1, Int(ceil(secondsUntilStart / 60)))
     return minutes == 1 ? "Starts in 1 minute" : "Starts in \(minutes) minutes"
+  }
+
+  /// "Join Meeting" only when the open URL is a real meeting link; when it
+  /// just falls back to the calendar page the honest label is "Open Event".
+  private var joinButtonLabel: String {
+    if event.openURL != nil, event.openURL != event.calendarURL {
+      return "Join Meeting"
+    }
+    return "Open Event"
   }
 }
 

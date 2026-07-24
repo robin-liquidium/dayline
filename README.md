@@ -164,6 +164,11 @@ Dayline derives automatically.
 
 Dayline requests the `read,write` scopes.
 
+Source builds run through `script/build_and_run.sh` sign in with the
+`dayline-dev://oauth/callback` scheme instead, so installed production builds
+are not hijacked. Register that callback URL in the same Linear OAuth
+application, or override the scheme with `DAYLINE_LINEAR_CALLBACK_SCHEME`.
+
 ### GitHub
 
 1. Create a GitHub OAuth app and enable Device Flow.
