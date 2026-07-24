@@ -1058,8 +1058,10 @@ final class StatusStore: ObservableObject {
     switch provider {
     case .github:
       githubDeviceUserCode = nil
-      Task { await githubAuth.cancelSignIn() }
-      Task { await githubAuth.signOut() }
+      Task {
+        await githubAuth.cancelSignIn()
+        await githubAuth.signOut()
+      }
       updateConnectionStatus(.github, state: .disconnected, detail: nil, accountLabel: nil)
     case .google:
       BrowserOAuthCoordinator.shared.cancel()

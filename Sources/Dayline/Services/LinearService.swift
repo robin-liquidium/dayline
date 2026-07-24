@@ -62,7 +62,7 @@ struct LinearService {
             url
             state { id name type }
             assignee { id name displayName active }
-            labels(first: 50) { nodes { id name color } }
+            labels(first: 100) { nodes { id name color } }
             team {
               id
               states(first: 50) {
@@ -79,7 +79,7 @@ struct LinearService {
     var issues: [LinearIssueItem] = []
     var after: String?
     repeat {
-      var variables: [String: Any] = ["first": 50]
+      var variables: [String: Any] = ["first": 25]
       if let after { variables["after"] = after }
       let response = try await graphQL(query, variables: variables, as: LinearAPIResponse.self)
       let connection = response.data.viewer.assignedIssues
@@ -107,7 +107,7 @@ struct LinearService {
           url
           state { id name type }
           assignee { id name displayName active }
-          labels(first: 50) { nodes { id name color } }
+          labels(first: 100) { nodes { id name color } }
           team {
             id
             states(first: 50) {
@@ -127,7 +127,7 @@ struct LinearService {
       filter["team"] = ["id": ["in": Array(enabledTeamIDs)]]
     }
     repeat {
-      var variables: [String: Any] = ["first": 50, "filter": filter]
+      var variables: [String: Any] = ["first": 25, "filter": filter]
       if let after { variables["after"] = after }
       let response = try await graphQL(query, variables: variables, as: LinearIssuesResponse.self)
       let connection = response.data.issues
