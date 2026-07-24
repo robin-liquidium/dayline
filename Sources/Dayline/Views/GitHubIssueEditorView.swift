@@ -112,8 +112,8 @@ struct GitHubIssueEditorView: View {
         draft.repository = enabled.contains(defaultRepo) ? defaultRepo : (enabled.first ?? "")
       }
       draft.assignee = ownLogin ?? ""
-      await loadRepositoryOptions()
       didLoadOptionsInitially = true
+      await loadRepositoryOptions()
     }
     .onChange(of: draft.repository) { _, _ in
       draft.selectedLabel = ""

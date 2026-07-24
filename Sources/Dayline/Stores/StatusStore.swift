@@ -2032,10 +2032,10 @@ final class StatusStore: ObservableObject {
           .lowercased()
         if githubIssueFilter == .allOpen {
           replaceGitHubIssue(issue.replacing(assignees: assignees))
-        } else if let viewerLogin, assignees.contains(where: { $0.login.lowercased() == viewerLogin }) {
-          replaceGitHubIssue(issue.replacing(assignees: assignees))
-        } else {
+        } else if let viewerLogin, !assignees.contains(where: { $0.login.lowercased() == viewerLogin }) {
           githubIssues.removeAll { $0.id == id }
+        } else {
+          replaceGitHubIssue(issue.replacing(assignees: assignees))
         }
         githubError = nil
       } catch { githubError = error.localizedDescription }
