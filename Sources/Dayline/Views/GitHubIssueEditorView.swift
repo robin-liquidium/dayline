@@ -6,7 +6,7 @@ struct GitHubIssueEditorView: View {
   @Environment(\.dismiss) private var dismiss
 
   @StateObject private var draft = GitHubIssueDraft()
-  @State private var didLoadOptionsInitially = false
+  @State private var requestedOptionsRepository = ""
 
   /// Builds the GitHub issue creator window content.
   var body: some View {
@@ -112,12 +112,11 @@ struct GitHubIssueEditorView: View {
         draft.repository = enabled.contains(defaultRepo) ? defaultRepo : (enabled.first ?? "")
       }
       draft.assignee = ownLogin ?? ""
-      didLoadOptionsInitially = true
       await loadRepositoryOptions()
     }
     .onChange(of: draft.repository) { _, _ in
       draft.selectedLabel = ""
-      guard didLoadOptionsInitially else { return }
+      guard draft.repository != requestedOptionsRepository else { return }
       Task { await loadRepositoryOptions() }
     }
   }
@@ -177,6 +176,7 @@ struct GitHubIssueEditorView: View {
   /// Loads assignable collaborators and labels for the selected repository.
   private func loadRepositoryOptions() async {
     let repository = draft.repository
+    requestedOptionsRepository = repository
     guard !repository.isEmpty else {
       draft.assignees = []
       draft.labels = []
