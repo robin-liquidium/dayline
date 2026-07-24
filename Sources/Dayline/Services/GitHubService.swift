@@ -126,7 +126,7 @@ struct GitHubService: Sendable {
   private func fetchRepoIssues(repoFullName repo: String) async throws -> [GitHubIssueItem] {
     var page = 1
     var issues: [GitHubIssueItem] = []
-    while issues.count < 25 {
+    while issues.count < 25, page <= 3 {
       var components = URLComponents(string: "https://api.github.com/repos/\(repo)/issues")!
       components.queryItems = [
         URLQueryItem(name: "state", value: "open"),
