@@ -1,6 +1,62 @@
 {
   "releases": [
     {
+      "version": "0.1.11",
+      "date": "2026-07-24",
+      "new": [
+        {
+          "title": "GitHub issues",
+          "text": "See and create GitHub issues right next to your Linear ones. Connect GitHub in Settings → Accounts with a secure device sign-in — no passwords or tokens to paste — pick the repositories you care about, and flip between the Linear and GitHub tabs in the menu.",
+          "pr": 33
+        },
+        {
+          "title": "Full-screen meeting alerts",
+          "text": "A calm full-screen alert with a live countdown appears when a meeting starts — join with one click or dismiss with Esc. Turn it on and set how early it shows in Settings → Calendar.",
+          "pr": 33
+        },
+        {
+          "title": "Issue filters",
+          "text": "Choose per provider whether the menu shows only issues assigned to you or every open issue across your selected Linear teams and GitHub repositories, in Settings → Issues.",
+          "pr": 33
+        },
+        {
+          "title": "Issue actions",
+          "text": "Hover any Linear or GitHub issue in the menu and press a hotkey to change its status, priority, due date, labels, or assignees. Pick your keys in Settings → Shortcuts.",
+          "pr": 33
+        },
+        {
+          "title": "GitHub issue editor",
+          "text": "Press ⌃⌥⌘G from anywhere to file a GitHub issue with repository, assignee, and label pickers. Set a default repository in Settings → Issues.",
+          "pr": 33
+        },
+        {
+          "title": "Settings, redesigned",
+          "text": "A System Settings-style window with a sidebar and search across every option — General, Accounts, Calendar, Issues, Notes, and Shortcuts. Dayline now shows a Dock icon while any of its windows is open.",
+          "pr": 33
+        },
+        {
+          "title": "Menu sections",
+          "text": "Hide the calendar, issues, or notes sections from the menu with the “Show … in menu” toggles in Settings.",
+          "pr": 33
+        },
+        {
+          "title": "Public changelog",
+          "text": "Every release, explained, at dayline.robin.build/changelog — also linked from Settings → About.",
+          "pr": 23
+        }
+      ],
+      "fixed": [
+        {
+          "text": "The Linear issue creator now offers the states, estimates, projects, and labels of the team you picked.",
+          "pr": 23
+        },
+        {
+          "text": "Behind the scenes: release-pipeline hardening, repository security defaults, and automated code review.",
+          "pr": 20
+        }
+      ]
+    },
+    {
       "version": "0.1.10",
       "date": "2026-07-21",
       "new": [
