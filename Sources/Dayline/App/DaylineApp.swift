@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// Configures the app as an accessory process so it intentionally has no Dock icon.
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
+    DockIconVisibilityController.shared.start()
   }
 
   /// Forwards OAuth redirect URLs from the system browser back into the auth flow.
@@ -62,12 +63,19 @@ struct DaylineApp: App {
     .defaultSize(width: 620, height: 600)
     .handlesExternalEvents(matching: [])
 
+    Window("New GitHub Issue", id: "githubIssueCreator") {
+      GitHubIssueEditorView()
+        .environmentObject(store)
+    }
+    .defaultSize(width: 620, height: 520)
+    .handlesExternalEvents(matching: [])
+
     Window("\(appDisplayName) Settings", id: "settings") {
       SettingsView()
         .environmentObject(store)
         .environmentObject(updateService)
     }
-    .defaultSize(width: 640, height: 800)
+    .defaultSize(width: 800, height: 720)
     .windowResizability(.contentMinSize)
     .handlesExternalEvents(matching: [])
   }
@@ -100,6 +108,21 @@ private struct MenuBarLabelView: View {
     .onChange(of: store.linearIssueCreationRequestID) {
       openWindow(id: "linearIssueCreator")
       LinearIssueEditorWindowPresenter.bringIssueWindowToFront()
+    }
+    .onChange(of: store.githubIssueCreationRequestID) {
+      openWindow(id: "githubIssueCreator")
+      GitHubIssueEditorWindowPresenter.bringIssueWindowToFront()
+    }
+    .onChange(of: store.meetingAlertEvent, initial: true) {
+      if let event = store.meetingAlertEvent {
+        MeetingAlertWindowController.shared.show(
+          event: event,
+          onJoin: { store.joinMeetingAlert() },
+          onDismiss: { store.dismissMeetingAlert() }
+        )
+      } else {
+        MeetingAlertWindowController.shared.dismiss()
+      }
     }
   }
 }

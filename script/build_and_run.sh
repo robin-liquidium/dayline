@@ -42,7 +42,11 @@ cp "$WORDMARK_SOURCE" "$APP_RESOURCES/$WORDMARK_FILE"
 GOOGLE_CLIENT_ID="${DAYLINE_GOOGLE_CLIENT_ID:-551177930544-9sl0govp6ok205csb939j4p2dhckrgbk.apps.googleusercontent.com}"
 GOOGLE_URL_SCHEME="com.googleusercontent.apps.${GOOGLE_CLIENT_ID%.apps.googleusercontent.com}"
 LINEAR_CLIENT_ID="${DAYLINE_LINEAR_CLIENT_ID:-00c88957100199ecb91362294a3f6e55}"
-LINEAR_URL_SCHEME="dayline"
+GITHUB_CLIENT_ID="${DAYLINE_GITHUB_CLIENT_ID:-Ov23litV6nyANcKL6p4l}"
+# Dev builds use a distinct callback scheme so OAuth redirects reach this app
+# instead of an installed production build. Requires dayline-dev://oauth/callback
+# to be registered as a redirect URI in the Linear OAuth app.
+LINEAR_URL_SCHEME="${DAYLINE_LINEAR_CALLBACK_SCHEME:-dayline-dev}"
 
 VERSION="$(git describe --tags --exact-match 2>/dev/null | sed 's/^v//' || true)"
 VERSION="${VERSION:-0.1.0-dev}"
@@ -65,6 +69,10 @@ cat >"$INFO_PLIST" <<PLIST
   <string>$GOOGLE_CLIENT_ID</string>
   <key>DaylineLinearClientID</key>
   <string>$LINEAR_CLIENT_ID</string>
+  <key>DaylineGitHubClientID</key>
+  <string>$GITHUB_CLIENT_ID</string>
+  <key>DaylineLinearCallbackScheme</key>
+  <string>$LINEAR_URL_SCHEME</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -92,6 +100,8 @@ cat >"$INFO_PLIST" <<PLIST
   </array>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
+  <key>LSMultipleInstancesProhibited</key>
+  <true/>
   <key>LSUIElement</key>
   <true/>
   <key>NSPrincipalClass</key>
@@ -117,7 +127,7 @@ if [[ -n "$DEV_SIGNING_IDENTITY" ]]; then
 fi
 
 open_app() {
-  /usr/bin/open -n "$APP_BUNDLE"
+  /usr/bin/open "$APP_BUNDLE"
 }
 
 case "$MODE" in

@@ -36,38 +36,37 @@ struct StatusMenuView: View {
             )
           }
 
-          CalendarSection(
-            events: store.events,
-            tomorrowEvents: store.tomorrowEvents,
-            warnings: store.calendarWarnings,
-            hoveredEventID: store.hoveredEventID,
-            isTomorrowExpanded: store.isTomorrowExpanded,
-            now: store.calendarHighlightDate
-          )
-          LinearSection(
-            issues: store.issues,
-            error: store.linearError,
-            hoveredIssueID: store.hoveredIssueID,
-            copiedIssueID: store.copiedIssueID,
-            updatingStatusIssueID: store.updatingStatusIssueID,
-            updatingPriorityIssueID: store.updatingPriorityIssueID,
-            updatingDueDateIssueID: store.updatingDueDateIssueID,
-            openNewIssue: {
-              openLinearIssueCreator()
-            }
-          )
+          if store.isCalendarSectionVisible {
+            CalendarSection(
+              events: store.events,
+              tomorrowEvents: store.tomorrowEvents,
+              warnings: store.calendarWarnings,
+              hoveredEventID: store.hoveredEventID,
+              isTomorrowExpanded: store.isTomorrowExpanded,
+              now: store.calendarHighlightDate
+            )
+          }
+          if store.isIssuesSectionVisible, let activeSource = store.activeIssueSource {
+            IssuesSection(
+              activeSource: activeSource,
+              openNewIssue: { openLinearIssueCreator() },
+              openNewGitHubIssue: { openGitHubIssueCreator() }
+            )
+          }
 
-          NotesSection(
-            notes: store.notes,
-            error: store.notesError,
-            hoveredNoteID: store.hoveredNoteID,
-            openNewNote: {
-              openNoteEditor(.new)
-            },
-            openNote: { note in
-              openNoteEditor(.existing(note.id))
-            }
-          )
+          if store.showsNotesSection {
+            NotesSection(
+              notes: store.notes,
+              error: store.notesError,
+              hoveredNoteID: store.hoveredNoteID,
+              openNewNote: {
+                openNoteEditor(.new)
+              },
+              openNote: { note in
+                openNoteEditor(.existing(note.id))
+              }
+            )
+          }
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 10)
@@ -215,12 +214,17 @@ struct StatusMenuView: View {
     let setupItemCount = store.connectionSetupItems.count + store.googleAccountsNeedingAttention.count
     let setupRows = store.hasConnectionSetupItems ? CGFloat(max(setupItemCount, 1)) * 64 + 44 : 0
     let eventRowEstimate: CGFloat = store.showsCalendarSourceNames ? 48 : compactEventRowHeight
-    let eventRows = CGFloat(max(store.events.count, 1)) * eventRowEstimate
-    let tomorrowRows = store.isTomorrowExpanded ? CGFloat(max(store.tomorrowEvents.count, 1)) * eventRowEstimate + 34 : 0
-    let issueRows = CGFloat(max(store.issues.count, 1)) * workItemRowHeight
-    let issueMoreRow: CGFloat = store.hasMoreIssues || store.hasExpandedIssues ? 34 : 0
-    let noteRows = CGFloat(max(store.notes.count, 1)) * workItemRowHeight
-    let noteMoreRow: CGFloat = store.hasMoreNotes || store.hasExpandedNotes ? 34 : 0
+    let eventRows = store.isCalendarSectionVisible ? CGFloat(max(store.events.count, 1)) * eventRowEstimate : 0
+    let tomorrowRows = store.isCalendarSectionVisible && store.isTomorrowExpanded
+      ? CGFloat(max(store.tomorrowEvents.count, 1)) * eventRowEstimate + 34 : 0
+    let bothIssueSourcesAvailable = store.availableIssueSources.count > 1
+    let visibleIssueCount = bothIssueSourcesAvailable
+      ? max(store.issues.count, store.githubIssues.count)
+      : (store.activeIssueSource == .github ? store.githubIssues.count : store.issues.count)
+    let issueRows = store.isIssuesSectionVisible ? CGFloat(max(visibleIssueCount, 1)) * workItemRowHeight : 0
+    let issueMoreRow: CGFloat = store.isIssuesSectionVisible && store.availableIssueSources.contains(.linear) && (store.hasMoreIssues || store.hasExpandedIssues) ? 34 : 0
+    let noteRows = store.showsNotesSection ? CGFloat(max(store.notes.count, 1)) * workItemRowHeight : 0
+    let noteMoreRow: CGFloat = store.showsNotesSection && (store.hasMoreNotes || store.hasExpandedNotes) ? 34 : 0
     return 108 + setupRows + eventRows + tomorrowRows + issueRows + issueMoreRow + noteRows + noteMoreRow
   }
 
@@ -236,6 +240,14 @@ struct StatusMenuView: View {
 
     if store.matchesDueDatePickerHotkey(characters) {
       return store.presentDueDatePickerForHoveredIssue()
+    }
+
+    if store.matchesLabelPickerHotkey(characters) {
+      return store.presentLabelPickerForHoveredIssue()
+    }
+
+    if store.matchesAssigneePickerHotkey(characters) {
+      return store.presentAssigneePickerForHoveredIssue()
     }
 
     if store.matchesCopyIssueHotkey(characters) {
@@ -255,6 +267,221 @@ struct StatusMenuView: View {
   private func openLinearIssueCreator() {
     openWindow(id: "linearIssueCreator")
     LinearIssueEditorWindowPresenter.bringIssueWindowToFront()
+  }
+
+  /// Opens the GitHub issue creator window and brings the accessory app forward.
+  private func openGitHubIssueCreator() {
+    openWindow(id: "githubIssueCreator")
+    GitHubIssueEditorWindowPresenter.bringIssueWindowToFront()
+  }
+}
+
+/// Small icon button that hides one provider's setup prompt and menu content.
+private struct DismissProviderButton: View {
+  @EnvironmentObject private var store: StatusStore
+  @State private var isHovered = false
+
+  /// Provider dismissed when the button is pressed.
+  let provider: AuthProvider
+
+  var body: some View {
+    Button {
+      store.dismissProvider(provider)
+    } label: {
+      Image(systemName: "xmark")
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(5)
+        .contentShape(Rectangle())
+        .hoverHighlight(isHovered: isHovered)
+    }
+    .buttonStyle(.plain)
+    .help("Hide \(provider.title) from the menu")
+    .accessibilityLabel("Dismiss \(provider.title)")
+    .accessibilityHint("Hides \(provider.title) from the menu until you connect it from Settings")
+    .accessibilityIdentifier("setup.\(provider.id).dismiss")
+    .onHover { isHovered = $0 }
+  }
+}
+
+/// Issues section with a tab switcher when both providers are connected.
+private struct IssuesSection: View {
+  @EnvironmentObject private var store: StatusStore
+
+  /// Issue source currently displayed.
+  let activeSource: IssueSource
+
+  /// Action run when the user creates a new Linear issue.
+  let openNewIssue: () -> Void
+
+  /// Action run when the user creates a new GitHub issue.
+  let openNewGitHubIssue: () -> Void
+
+  /// Builds the issues section.
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(spacing: 10) {
+        if store.availableIssueSources.count > 1 {
+          IssueSourceTabSwitcher(activeSource: activeSource)
+        } else {
+          SectionTitle(title: activeSource.label)
+        }
+
+        Spacer(minLength: 0)
+
+        if activeSource == .linear {
+          newIssueButton(
+            action: openNewIssue,
+            controlID: .newLinearIssue,
+            help: "New Linear issue",
+            identifier: "linear.new"
+          )
+        } else {
+          newIssueButton(
+            action: openNewGitHubIssue,
+            controlID: .newGitHubIssue,
+            help: "New GitHub issue",
+            identifier: "github.new"
+          )
+        }
+      }
+
+      ZStack(alignment: .topLeading) {
+        if activeSource == .github {
+          GitHubSection(
+            issues: store.githubIssues,
+            error: store.githubError,
+            hoveredIssueTarget: store.hoveredIssueTarget,
+            copiedIssueTarget: store.copiedIssueTarget
+          )
+          .transition(.opacity)
+        } else {
+          LinearSection(
+            issues: store.issues,
+            error: store.linearError,
+            hoveredIssueTarget: store.hoveredIssueTarget,
+            copiedIssueTarget: store.copiedIssueTarget,
+            updatingIssueTarget: store.updatingIssueTarget,
+            updatingPriorityIssueID: store.updatingPriorityIssueID,
+            updatingDueDateIssueID: store.updatingDueDateIssueID
+          )
+          .transition(.opacity)
+        }
+      }
+    }
+    .animation(.smooth(duration: 0.2), value: activeSource)
+  }
+
+  /// Plus button that opens the issue creator for the active source.
+  private func newIssueButton(
+    action: @escaping () -> Void,
+    controlID: MenuControlID,
+    help: String,
+    identifier: String
+  ) -> some View {
+    Button(action: action) {
+      Image(systemName: "plus")
+        .padding(5)
+        .contentShape(Rectangle())
+        .hoverHighlight(isHovered: store.hoveredControlID == controlID)
+    }
+    .buttonStyle(.plain)
+    .help(help)
+    .accessibilityLabel(help)
+    .accessibilityHint("Create an issue")
+    .accessibilityIdentifier(identifier)
+    .onHover { isHovered in
+      store.setHoveredControl(isHovered ? controlID : nil)
+    }
+  }
+}
+
+/// Spinner row shown in an issue section while a refresh is in flight.
+private struct LoadingIssuesRow: View {
+  var body: some View {
+    HStack(spacing: 8) {
+      ProgressView()
+        .controlSize(.small)
+      Text("Loading issues...")
+        .font(.callout)
+        .foregroundStyle(.secondary)
+    }
+    .frame(maxWidth: .infinity, alignment: .center)
+    .padding(.vertical, 8)
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel("Loading issues")
+    .accessibilityIdentifier("issues.loading")
+  }
+}
+
+/// Liquid Glass switcher between connected issue providers.
+private struct IssueSourceTabSwitcher: View {
+  @EnvironmentObject private var store: StatusStore
+  @Namespace private var selectionGlass
+
+  /// Issue source currently displayed.
+  let activeSource: IssueSource
+
+  var body: some View {
+    ZStack {
+      pillLayer
+      segmentButtons
+    }
+    .padding(2)
+    .background {
+      Capsule(style: .continuous)
+        .fill(Color.primary.opacity(0.05))
+    }
+  }
+
+  /// Hidden layout replicas that carry the glass selection pill as it slides between segments.
+  private var pillLayer: some View {
+    GlassEffectContainer(spacing: 2) {
+      HStack(spacing: 2) {
+        ForEach(store.availableIssueSources) { source in
+          segmentLabel(for: source)
+            .hidden()
+            .background {
+              if source == activeSource {
+                Color.clear
+                  .glassEffect(.regular.interactive(), in: .capsule)
+                  .matchedGeometryEffect(id: "selection", in: selectionGlass)
+              }
+            }
+        }
+      }
+    }
+    .accessibilityHidden(true)
+    .allowsHitTesting(false)
+  }
+
+  /// Visible, static segment labels that handle taps above the sliding pill.
+  private var segmentButtons: some View {
+    HStack(spacing: 2) {
+      ForEach(store.availableIssueSources) { source in
+        Button {
+          withAnimation(.smooth(duration: 0.25)) {
+            store.setIssueSource(source)
+          }
+        } label: {
+          segmentLabel(for: source)
+            .foregroundStyle(source == activeSource ? .primary : .secondary)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Show \(source.label) issues")
+        .accessibilityAddTraits(source == activeSource ? [.isSelected] : [])
+        .accessibilityIdentifier("issues.source.\(source.id)")
+      }
+    }
+  }
+
+  /// Shared label metrics so the pill layer and the button layer stay aligned.
+  private func segmentLabel(for source: IssueSource) -> some View {
+    Text(source.label)
+      .font(.caption.weight(.medium))
+      .padding(.horizontal, 12)
+      .padding(.vertical, 4)
   }
 }
 
@@ -331,16 +558,29 @@ private struct GoogleAccountSetupRow: View {
       Spacer(minLength: 8)
 
       if status.state == .connecting {
-        ProgressView()
+        HStack(spacing: 6) {
+          ProgressView()
+            .controlSize(.small)
+
+          Button("Cancel") {
+            store.cancelConnect(.google)
+          }
+          .buttonStyle(.bordered)
           .controlSize(.small)
-      } else {
-        Button("Reconnect") {
-          Task { await store.reconnectGoogleAccount(status.id) }
+          .accessibilityIdentifier("setup.google.\(status.id.uuidString).cancel")
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .disabled(store.isGoogleAuthorizationInProgress)
-        .accessibilityIdentifier("setup.google.\(status.id.uuidString).reconnect")
+      } else {
+        HStack(spacing: 2) {
+          Button("Reconnect") {
+            Task { await store.reconnectGoogleAccount(status.id) }
+          }
+          .buttonStyle(.bordered)
+          .controlSize(.small)
+          .disabled(store.isGoogleAuthorizationInProgress)
+          .accessibilityIdentifier("setup.google.\(status.id.uuidString).reconnect")
+
+          DismissProviderButton(provider: .google)
+        }
       }
     }
     .padding(.horizontal, 16)
@@ -386,7 +626,8 @@ private struct ConnectionSetupRow: View {
 
       actionButton
     }
-    .padding(.horizontal, 16)
+    .padding(.leading, 16)
+    .padding(.trailing, 11)
     .padding(.vertical, 7)
     .background {
       RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -400,18 +641,41 @@ private struct ConnectionSetupRow: View {
   @ViewBuilder
   private var actionButton: some View {
     switch status.state {
-    case .checking, .connecting:
+    case .checking:
       ProgressView()
         .controlSize(.small)
-        .accessibilityLabel(status.state == .connecting ? "Connecting" : "Checking")
-    case .disconnected:
-      Button("Connect") {
-        Task { await store.connect(status.provider) }
+        .accessibilityLabel("Checking")
+    case .connecting:
+      HStack(spacing: 6) {
+        if status.provider == .github, let code = store.githubDeviceUserCode {
+          CopyCodeButton(code: code, accessibilityIdentifier: "setup.\(status.provider.id).copyCode")
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+
+        ProgressView()
+          .controlSize(.small)
+          .accessibilityLabel("Connecting")
+
+        Button("Cancel") {
+          store.cancelConnect(status.provider)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .accessibilityIdentifier("setup.\(status.provider.id).cancel")
       }
-      .buttonStyle(.bordered)
-      .controlSize(.small)
-      .disabled(!status.provider.isConfigured)
-      .accessibilityIdentifier("setup.\(status.provider.id).connect")
+    case .disconnected:
+      HStack(spacing: 2) {
+        Button("Connect") {
+          Task { await store.connect(status.provider) }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(!status.provider.isConfigured)
+        .accessibilityIdentifier("setup.\(status.provider.id).connect")
+
+        DismissProviderButton(provider: status.provider)
+      }
     case .connected:
       EmptyView()
     }
@@ -481,6 +745,127 @@ private struct PickerOptionRow<Content: View>: View {
   }
 }
 
+/// Shared checkbox picker for provider-specific labels or assignees.
+private struct IssueMultiValuePickerPopover: View {
+  enum Kind { case labels, assignees }
+
+  @EnvironmentObject private var store: StatusStore
+  let target: IssueActionTarget
+  let title: String
+  let kind: Kind
+  @State private var labels: [IssueLabelOption] = []
+  @State private var assignees: [IssueAssigneeOption] = []
+  @State private var error: String?
+  @State private var isLoading = true
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text(pickerTitle)
+        .font(.headline)
+      Text(title).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+      Divider()
+      if let error {
+        Text(error).font(.caption).foregroundStyle(.secondary)
+      } else if isLoading {
+        ProgressView().controlSize(.small).frame(maxWidth: .infinity)
+      } else if labels.isEmpty && assignees.isEmpty {
+        Text(kind == .labels ? "No labels available" : "No assignees available")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      } else {
+        ScrollView {
+          VStack(alignment: .leading, spacing: 0) {
+            if kind == .labels {
+              ForEach(labels) { option in
+                let isSelected = store.selectedLabelIDs(for: target).contains(option.id)
+                PickerOptionRow(isDisabled: store.updatingIssueTarget == target) {
+                  Task { await store.toggleLabel(target: target, option: option) }
+                } content: {
+                  HStack(spacing: 8) {
+                    Image(systemName: "circle.fill")
+                      .foregroundStyle(Color(linearHex: option.color))
+                    Text(option.name)
+                    Spacer(minLength: 0)
+                    if isSelected {
+                      Image(systemName: "checkmark")
+                        .foregroundStyle(.secondary)
+                    }
+                  }
+                }
+                .accessibilityIdentifier("issue.label.\(option.id)")
+              }
+            } else {
+              ForEach(assignees) { option in
+                let isSelected = store.selectedAssigneeIDs(for: target).contains(option.id)
+                PickerOptionRow(isDisabled: store.updatingIssueTarget == target) {
+                  Task { await store.toggleAssignee(target: target, option: option) }
+                } content: {
+                  HStack(spacing: 8) {
+                    Image(systemName: "person")
+                      .foregroundStyle(.secondary)
+                    Text(option.name)
+                    Spacer(minLength: 0)
+                    if isSelected {
+                      Image(systemName: "checkmark")
+                        .foregroundStyle(.secondary)
+                    }
+                  }
+                }
+                .accessibilityIdentifier("issue.assignee.\(option.id)")
+              }
+            }
+          }
+        }
+        .frame(height: min(CGFloat(optionCount) * 32, 280))
+      }
+    }
+    .padding(12)
+    .frame(width: 250)
+    .task {
+      defer { isLoading = false }
+      do {
+        if kind == .labels { labels = try await store.labelOptions(for: target) }
+        else { assignees = try await store.assigneeOptions(for: target) }
+      } catch { self.error = error.localizedDescription }
+    }
+  }
+
+  private var pickerTitle: String {
+    if kind == .labels { return "Change Labels" }
+    if case .linear = target { return "Change Assignee" }
+    return "Change Assignees"
+  }
+
+  private var optionCount: Int {
+    kind == .labels ? labels.count : assignees.count
+  }
+}
+
+/// Compact status selector for GitHub's open/closed states.
+private struct GitHubStatusPickerPopover: View {
+  @EnvironmentObject private var store: StatusStore
+  let issue: GitHubIssueItem
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Change Status").font(.headline)
+      Text(issue.title).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+      Divider()
+      PickerOptionRow(isDisabled: true, action: {}) {
+        Label("Open", systemImage: "checkmark")
+      }
+      PickerOptionRow(isDisabled: store.updatingIssueTarget == .github(issue.id)) {
+        Task { await store.changeGitHubIssueState(issueID: issue.id, isOpen: false) }
+      } content: {
+        Label("Closed", systemImage: "checkmark.circle")
+      }
+      .accessibilityIdentifier("github.status.closed")
+    }
+    .padding(12)
+    .frame(width: 240)
+  }
+}
+
 /// Native popover for changing the status of a hovered Linear issue.
 private struct StatusPickerPopover: View {
   @EnvironmentObject private var store: StatusStore
@@ -505,7 +890,7 @@ private struct StatusPickerPopover: View {
       VStack(alignment: .leading, spacing: 0) {
         ForEach(issue.workflowStates) { state in
           PickerOptionRow(
-            isDisabled: state.id == issue.stateID || store.updatingStatusIssueID == issue.id,
+            isDisabled: state.id == issue.stateID || store.updatingIssueTarget == .linear(issue.id),
             action: {
               Task {
                 await store.changeIssueStatus(issueID: issue.id, state: state)
@@ -722,7 +1107,28 @@ private struct CalendarSection: View {
   /// Builds the calendar section.
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
-      SectionTitle(title: "Up Next")
+      HStack {
+        SectionTitle(title: "Up Next")
+
+        Spacer(minLength: 0)
+
+        Button {
+          store.openGoogleCalendar()
+        } label: {
+          Image(systemName: "plus")
+            .padding(5)
+            .contentShape(Rectangle())
+            .hoverHighlight(isHovered: store.hoveredControlID == .openGoogleCalendar)
+        }
+        .buttonStyle(.plain)
+        .help("Open Google Calendar")
+        .accessibilityLabel("Open Google Calendar")
+        .accessibilityHint("Open Google Calendar's week view to create an event")
+        .accessibilityIdentifier("calendar.new")
+        .onHover { isHovered in
+          store.setHoveredControl(isHovered ? .openGoogleCalendar : nil)
+        }
+      }
 
       ForEach(Array(warnings.prefix(2).enumerated()), id: \.offset) { _, warning in
         MessageRow(title: "Calendar issue", detail: warning)
@@ -837,13 +1243,13 @@ private struct LinearSection: View {
   let error: String?
 
   /// Identifier for the issue currently under the pointer.
-  let hoveredIssueID: LinearIssueItem.ID?
+  let hoveredIssueTarget: IssueActionTarget?
 
   /// Identifier for the issue whose link was just copied.
-  let copiedIssueID: LinearIssueItem.ID?
+  let copiedIssueTarget: IssueActionTarget?
 
   /// Identifier for the issue whose status is being updated.
-  let updatingStatusIssueID: LinearIssueItem.ID?
+  let updatingIssueTarget: IssueActionTarget?
 
   /// Identifier for the issue whose priority is being updated.
   let updatingPriorityIssueID: LinearIssueItem.ID?
@@ -851,57 +1257,42 @@ private struct LinearSection: View {
   /// Identifier for the issue whose due date is being updated.
   let updatingDueDateIssueID: LinearIssueItem.ID?
 
-  /// Action run when the user creates a new Linear issue.
-  let openNewIssue: () -> Void
-
   /// Builds the Linear section.
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
-      HStack {
-        SectionTitle(title: "Linear")
-
-        Spacer(minLength: 0)
-
-        Button(action: openNewIssue) {
-          Image(systemName: "plus")
-            .padding(5)
-            .contentShape(Rectangle())
-            .hoverHighlight(isHovered: store.hoveredControlID == .newLinearIssue)
-        }
-        .buttonStyle(.plain)
-        .help("New Linear issue")
-        .accessibilityLabel("New Linear issue")
-        .accessibilityHint("Create a Linear issue")
-        .accessibilityIdentifier("linear.new")
-        .onHover { isHovered in
-          store.setHoveredControl(isHovered ? .newLinearIssue : nil)
-        }
-      }
-
       if let error {
         MessageRow(title: "Linear unavailable", detail: error)
+          .transition(.opacity)
       } else if issues.isEmpty {
-        MessageRow(title: "No active issues", detail: nil)
+        if store.isRefreshing {
+          LoadingIssuesRow()
+            .transition(.opacity)
+        } else {
+          MessageRow(title: "No active issues", detail: nil)
+            .transition(.opacity)
+        }
       } else {
         VStack(alignment: .leading, spacing: 0) {
           ForEach(issues) { issue in
             IssueRow(
               issue: issue,
-              isHovered: hoveredIssueID == issue.id,
-              isCopied: copiedIssueID == issue.id,
-              isUpdating: updatingStatusIssueID == issue.id
+              isHovered: hoveredIssueTarget == .linear(issue.id),
+              isCopied: copiedIssueTarget == .linear(issue.id),
+              isUpdating: updatingIssueTarget == .linear(issue.id)
                 || updatingPriorityIssueID == issue.id
                 || updatingDueDateIssueID == issue.id,
               copyHotkey: store.copyIssueHotkey,
               statusHotkey: store.statusPickerHotkey,
               priorityHotkey: store.priorityPickerHotkey,
               dueDateHotkey: store.dueDatePickerHotkey,
+              labelHotkey: store.labelPickerHotkey,
+              assigneeHotkey: store.assigneePickerHotkey,
               cancel: {
                 Task { await store.cancelLinearIssue(issueID: issue.id) }
               }
             )
             .onHover { isHovered in
-              store.setHoveredIssue(isHovered ? issue.id : nil)
+              store.setHoveredIssue(isHovered ? .linear(issue.id) : nil)
             }
             .popover(isPresented: statusPickerBinding(for: issue.id), arrowEdge: .trailing) {
               StatusPickerPopover(issue: issue)
@@ -913,6 +1304,14 @@ private struct LinearSection: View {
             }
             .popover(isPresented: dueDatePickerBinding(for: issue.id), arrowEdge: .trailing) {
               DueDatePickerPopover(issue: issue)
+                .environmentObject(store)
+            }
+            .popover(isPresented: labelPickerBinding(for: .linear(issue.id)), arrowEdge: .trailing) {
+              IssueMultiValuePickerPopover(target: .linear(issue.id), title: issue.title, kind: .labels)
+                .environmentObject(store)
+            }
+            .popover(isPresented: assigneePickerBinding(for: .linear(issue.id)), arrowEdge: .trailing) {
+              IssueMultiValuePickerPopover(target: .linear(issue.id), title: issue.title, kind: .assignees)
                 .environmentObject(store)
             }
           }
@@ -932,14 +1331,16 @@ private struct LinearSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
       }
     }
+    .animation(.smooth(duration: 0.2), value: issues.isEmpty)
+    .animation(.smooth(duration: 0.2), value: store.isRefreshing)
   }
 
   /// Binding that anchors the status chooser to its selected issue row.
   private func statusPickerBinding(for issueID: LinearIssueItem.ID) -> Binding<Bool> {
     Binding(
-      get: { store.statusPickerIssueID == issueID },
+      get: { store.statusPickerTarget == .linear(issueID) },
       set: { isPresented in
-        if !isPresented, store.statusPickerIssueID == issueID {
+        if !isPresented, store.statusPickerTarget == .linear(issueID) {
           store.dismissStatusPicker()
         }
       }
@@ -969,34 +1370,163 @@ private struct LinearSection: View {
       }
     )
   }
-}
 
-/// Fixed Dayline wordmark rendered from Instrument Serif vector outlines.
-private struct DaylineWordmark: View {
-  private static let image: NSImage? = {
-    guard
-      let url = Bundle.main.url(forResource: "DaylineWordmark", withExtension: "pdf"),
-      let image = NSImage(contentsOf: url)
-    else {
-      return nil
-    }
-    image.isTemplate = true
-    return image
-  }()
+  private func labelPickerBinding(for target: IssueActionTarget) -> Binding<Bool> {
+    Binding(get: { store.labelPickerTarget == target }, set: { if !$0 { store.dismissLabelPicker() } })
+  }
 
-  var body: some View {
-    if let image = Self.image {
-      Image(nsImage: image)
-        .resizable()
-        .renderingMode(.template)
-        .scaledToFit()
-        .frame(height: 22)
-        .foregroundStyle(.primary)
-    } else {
-      Text("Dayline")
-    }
+  private func assigneePickerBinding(for target: IssueActionTarget) -> Binding<Bool> {
+    Binding(get: { store.assigneePickerTarget == target }, set: { if !$0 { store.dismissAssigneePicker() } })
   }
 }
+
+/// GitHub issues section of the menu popover.
+private struct GitHubSection: View {
+  @EnvironmentObject private var store: StatusStore
+
+  /// Assigned open GitHub issues to display.
+  let issues: [GitHubIssueItem]
+
+  /// Optional GitHub loading error.
+  let error: String?
+
+  /// Identifier for the issue currently under the pointer.
+  let hoveredIssueTarget: IssueActionTarget?
+
+  /// Identifier for the issue whose link was just copied.
+  let copiedIssueTarget: IssueActionTarget?
+
+  /// Builds the GitHub section.
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      if let error {
+        MessageRow(title: "GitHub unavailable", detail: error)
+          .transition(.opacity)
+      } else if issues.isEmpty {
+        if store.isRefreshing {
+          LoadingIssuesRow()
+            .transition(.opacity)
+        } else {
+          MessageRow(title: "No open issues", detail: nil)
+            .transition(.opacity)
+        }
+      } else {
+        VStack(alignment: .leading, spacing: 0) {
+          ForEach(issues) { issue in
+            GitHubIssueRow(
+              issue: issue,
+              isHovered: hoveredIssueTarget == .github(issue.id),
+              isCopied: copiedIssueTarget == .github(issue.id)
+            )
+            .onHover { isHovered in
+              store.setHoveredIssue(isHovered ? .github(issue.id) : nil)
+            }
+            .popover(isPresented: statusPickerBinding(for: issue.id), arrowEdge: .trailing) {
+              GitHubStatusPickerPopover(issue: issue).environmentObject(store)
+            }
+            .popover(isPresented: labelPickerBinding(for: .github(issue.id)), arrowEdge: .trailing) {
+              IssueMultiValuePickerPopover(target: .github(issue.id), title: issue.title, kind: .labels)
+                .environmentObject(store)
+            }
+            .popover(isPresented: assigneePickerBinding(for: .github(issue.id)), arrowEdge: .trailing) {
+              IssueMultiValuePickerPopover(target: .github(issue.id), title: issue.title, kind: .assignees)
+                .environmentObject(store)
+            }
+          }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+    }
+    .animation(.smooth(duration: 0.2), value: issues.isEmpty)
+    .animation(.smooth(duration: 0.2), value: store.isRefreshing)
+  }
+
+  private func statusPickerBinding(for issueID: String) -> Binding<Bool> {
+    Binding(get: { store.statusPickerTarget == .github(issueID) }, set: { if !$0 { store.dismissStatusPicker() } })
+  }
+
+  private func labelPickerBinding(for target: IssueActionTarget) -> Binding<Bool> {
+    Binding(get: { store.labelPickerTarget == target }, set: { if !$0 { store.dismissLabelPicker() } })
+  }
+
+  private func assigneePickerBinding(for target: IssueActionTarget) -> Binding<Bool> {
+    Binding(get: { store.assigneePickerTarget == target }, set: { if !$0 { store.dismissAssigneePicker() } })
+  }
+}
+
+/// One compact GitHub issue row that opens the issue in the browser.
+private struct GitHubIssueRow: View {
+  @EnvironmentObject private var store: StatusStore
+  /// Issue represented by the row.
+  let issue: GitHubIssueItem
+
+  /// Whether the pointer is currently over the row.
+  let isHovered: Bool
+
+  /// Whether this row should show a recent copy confirmation.
+  let isCopied: Bool
+
+  /// Builds the issue row.
+  var body: some View {
+    Button {
+      if let url = issue.url {
+        NSWorkspace.shared.open(url)
+      }
+    } label: {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(issue.title.compactLine(limit: 72))
+          .font(.callout.weight(.semibold))
+          .foregroundStyle(.primary)
+          .lineLimit(1)
+          .multilineTextAlignment(.leading)
+
+        HStack(spacing: 6) {
+          MetadataPill(
+            title: issue.reference,
+            systemImage: "smallcircle.filled.circle",
+            color: .green
+          )
+
+          if let updatedAt = issue.updatedAt {
+            MetadataPill(
+              title: "Updated \(DisplayFormatters.relative.localizedString(fromTimeInterval: updatedAt.timeIntervalSinceNow))",
+              systemImage: "clock",
+              color: .secondary
+            )
+          }
+
+          if isCopied {
+            Spacer(minLength: 0)
+
+            Label("Copied", systemImage: "checkmark")
+              .font(.caption)
+              .foregroundStyle(.green)
+              .transition(.opacity)
+          }
+        }
+      }
+      .padding(.horizontal, 16)
+      .padding(.vertical, 3)
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+      .background {
+        if isHovered {
+          RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(Color.primary.opacity(0.06))
+        }
+      }
+      .animation(.easeOut(duration: 0.12), value: isHovered)
+      .animation(.easeOut(duration: 0.12), value: isCopied)
+    }
+    .buttonStyle(.plain)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("\(issue.title), \(issue.reference)")
+    .accessibilityHint("Opens the GitHub issue. Press \(store.copyIssueHotkey.uppercased()) to copy, \(store.statusPickerHotkey.uppercased()) for status, \(store.labelPickerHotkey.uppercased()) for labels, or \(store.assigneePickerHotkey.uppercased()) for assignees while hovering.")
+    .accessibilityIdentifier("github.issue.\(issue.id)")
+    .disabled(issue.url == nil)
+    .frame(height: workItemRowHeight)
+  }
+}
+
 
 /// Local section listing recent notes.
 private struct NotesSection: View {
@@ -1383,6 +1913,10 @@ private struct IssueRow: View {
   /// Keyboard character that opens the due date picker while hovering.
   let dueDateHotkey: String
 
+  let labelHotkey: String
+
+  let assigneeHotkey: String
+
   /// Action run when the issue is canceled.
   let cancel: () -> Void
 
@@ -1500,7 +2034,7 @@ private struct IssueRow: View {
       return "No Linear link is available"
     }
 
-    return "Open Linear issue. Press \(copyHotkey.uppercased()) to copy, \(statusHotkey.uppercased()) to change status, \(priorityHotkey.uppercased()) to change priority, or \(dueDateHotkey.uppercased()) to change the due date while hovering."
+    return "Open Linear issue. Press \(copyHotkey.uppercased()) to copy, \(statusHotkey.uppercased()) for status, \(priorityHotkey.uppercased()) for priority, \(dueDateHotkey.uppercased()) for due date, \(labelHotkey.uppercased()) for labels, or \(assigneeHotkey.uppercased()) for assignee while hovering."
   }
 
   /// Visual style for the Linear workflow state.

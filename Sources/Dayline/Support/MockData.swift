@@ -9,6 +9,7 @@ struct MockData {
   let notes: [LocalNoteItem]
   let connectionStatuses: [ConnectionStatus]
   let googleAccounts: [GoogleAccountStatus]
+  let githubIssues: [GitHubIssueItem]
   let teams: [LinearTeamOption]
   let users: [LinearUserOption]
   let projects: [LinearProjectOption]
@@ -74,6 +75,9 @@ struct MockData {
         stateID: stateID,
         stateType: stateType,
         workflowStates: workflowStates,
+        teamID: "mock-team",
+        labels: [],
+        assignee: nil,
         dueDate: dueDate,
         branchName: "alex/\(id.lowercased())-\(title.lowercased().replacingOccurrences(of: " ", with: "-"))",
         url: URL(string: "https://linear.app/dayline/issue/\(id.lowercased())")
@@ -151,11 +155,44 @@ struct MockData {
       ],
       connectionStatuses: [
         ConnectionStatus(provider: .google, state: .connected, detail: nil, accountLabel: "2 accounts"),
-        ConnectionStatus(provider: .linear, state: .connected, detail: nil, accountLabel: "Alex Morgan")
+        ConnectionStatus(provider: .linear, state: .connected, detail: nil, accountLabel: "Dayline"),
+        ConnectionStatus(provider: .github, state: .connected, detail: nil, accountLabel: "alex")
       ],
       googleAccounts: [
         GoogleAccountStatus(account: workAccount, state: .connected, detail: nil),
         GoogleAccountStatus(account: personalAccount, state: .connected, detail: nil)
+      ],
+      githubIssues: [
+        GitHubIssueItem(
+          id: "mock-gh-1",
+          title: "Add GitHub issues as a Linear alternative",
+          repoFullName: "robin-liquidium/dayline",
+          number: 24,
+          url: URL(string: "https://github.com/robin-liquidium/dayline/issues/24"),
+          updatedAt: calendar.date(byAdding: .hour, value: -2, to: now),
+          labels: [GitHubLabelOption(name: "feature", color: "5E6AD2")],
+          assignees: [GitHubAssigneeOption(login: "alex")]
+        ),
+        GitHubIssueItem(
+          id: "mock-gh-2",
+          title: "Fix flaky menu bar countdown on wake",
+          repoFullName: "robin-liquidium/dayline",
+          number: 31,
+          url: URL(string: "https://github.com/robin-liquidium/dayline/issues/31"),
+          updatedAt: calendar.date(byAdding: .day, value: -1, to: now),
+          labels: [GitHubLabelOption(name: "bug", color: "EB5757")],
+          assignees: [GitHubAssigneeOption(login: "alex")]
+        ),
+        GitHubIssueItem(
+          id: "mock-gh-3",
+          title: "Polish empty states",
+          repoFullName: "robin-liquidium/website",
+          number: 12,
+          url: URL(string: "https://github.com/robin-liquidium/website/issues/12"),
+          updatedAt: calendar.date(byAdding: .day, value: -3, to: now),
+          labels: [],
+          assignees: [GitHubAssigneeOption(login: "alex")]
+        )
       ],
       teams: teams,
       users: [

@@ -5,7 +5,7 @@
 <h1 align="center">Dayline</h1>
 
 <p align="center">
-  Your calendar, Linear issues, and local notes in one quiet macOS menu.
+  Your calendar, Linear or GitHub issues, and local notes in one quiet macOS menu.
 </p>
 
 <p align="center">
@@ -22,15 +22,15 @@
 
 Dayline is a small, native SwiftUI menu bar app built for the information you
 check throughout the day. It keeps upcoming Google Calendar events, active
-Linear issues, and quick local notes together without adding another dashboard
+Linear or GitHub issues, and quick local notes together without adding another dashboard
 or Dock icon.
 
 ## Highlights
 
 - **Calendar at a glance:** see remaining timed events today and optionally expand tomorrow.
-- **Linear without the tab:** review assigned issues, create work, change status or priority, and copy issue links.
+- **Issues without the tab:** review assigned Linear or GitHub issues and update their status, labels, or assignee.
 - **Local notes:** capture quick notes on this Mac; the first line becomes the title.
-- **Keyboard-first actions:** hover an issue and use configurable shortcuts for copy, status, and priority.
+- **Keyboard-first actions:** hover an issue and use configurable shortcuts for copy, status, labels, assignee, and Linear-specific fields.
 - **Super lightweight:** native and menu-bar-only, using next to no system resources in the background.
 - **Quiet by design:** menu-bar-only, background refresh, launch at login, and configurable ordering.
 - **Direct and private:** Dayline has no backend, account system, analytics, or tracking.
@@ -49,7 +49,8 @@ tomorrow when you want a head start.
 ### Keep Linear close
 
 Assigned issues stay within reach. Hover a row and press `C` to copy its URL,
-`S` to change status, or `P` to change priority. The shortcuts are configurable.
+`S` to change status, `L` to change labels, or `A` to change the assignee.
+Linear issues also support `P` for priority and `D` for due date. The shortcuts are configurable.
 
 <p align="center">
   <img src="website/public/images/linear-issue-list.webp" width="720" alt="Dayline showing active Linear issues with their status, priority, and due date">
@@ -125,16 +126,21 @@ On first launch, connect either or both integrations from the menu:
 - **Google Calendar:** link any number of Google accounts, then choose the readable
   calendars Dayline should merge into one agenda. Calendars currently visible in
   Google Calendar are enabled by default.
-- **Linear:** read/write access for assigned issues and issue actions.
+- **Linear:** read/write access for assigned issues and issue actions, filtered by user-selected teams.
+- **GitHub:** assigned issues from user-selected repositories, with status, label, and assignee actions.
 
-Both providers use OAuth 2.0 with PKCE. Tokens are stored in the macOS
+Google and Linear use OAuth 2.0 with PKCE; GitHub uses OAuth's device flow.
+GitHub's OAuth `repo` scope grants Dayline access to every repository the
+signed-in user can access; the selected repositories only filter what Dayline
+displays and acts on.
+Tokens are stored in the macOS
 Keychain, and disconnecting a Google account revokes and removes only that
 account's token. Shared meeting occurrences are shown once, with their source
 calendar names visible in the agenda.
 
 Official builds include the public OAuth client IDs needed for sign-in. Custom
 builds can override them with `DAYLINE_GOOGLE_CLIENT_ID` and
-`DAYLINE_LINEAR_CLIENT_ID`.
+`DAYLINE_LINEAR_CLIENT_ID`, or `DAYLINE_GITHUB_CLIENT_ID`.
 
 <details>
 <summary><strong>Configure different OAuth applications</strong></summary>
@@ -158,17 +164,31 @@ Dayline derives automatically.
 
 Dayline requests the `read,write` scopes.
 
+Source builds run through `script/build_and_run.sh` sign in with the
+`dayline-dev://oauth/callback` scheme instead, so installed production builds
+are not hijacked. Register that callback URL in the same Linear OAuth
+application, or override the scheme with `DAYLINE_LINEAR_CALLBACK_SCHEME`.
+
+### GitHub
+
+1. Create a GitHub OAuth app and enable Device Flow.
+2. Put the client ID in `Sources/Dayline/Auth/AuthConfig.swift` or provide `DAYLINE_GITHUB_CLIENT_ID` at launch.
+
+Dayline requests `repo read:user` so it can read and update assigned issues in
+public and private repositories. GitHub's classic OAuth scopes do not offer a
+read-only private-repository permission.
+
 </details>
 
 ## Privacy
 
-Dayline talks directly from your Mac to Google Calendar and Linear over HTTPS.
+Dayline talks directly from your Mac to Google Calendar, Linear, and GitHub over HTTPS.
 There is no Dayline server between them.
 
 - OAuth tokens live in the macOS Keychain.
-- Linked Google account labels and calendar selections live in local app preferences.
+- Linked account labels, calendar selections, and GitHub repository selections live in local app preferences.
 - Notes live in `~/Library/Application Support/Dayline/notes.json`.
-- Calendar and Linear data is held in memory for display.
+- Calendar, Linear, and GitHub data is held in memory for display.
 - Dayline does not include analytics, tracking, advertising, or an account system.
 
 ## Build from Source

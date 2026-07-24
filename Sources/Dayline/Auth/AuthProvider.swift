@@ -8,6 +8,9 @@ enum AuthProvider: String, CaseIterable, Identifiable, Sendable {
   /// Linear workspace account.
   case linear
 
+  /// GitHub account used as an alternative issue source.
+  case github
+
   /// Stable identity.
   var id: String {
     rawValue
@@ -20,6 +23,8 @@ enum AuthProvider: String, CaseIterable, Identifiable, Sendable {
       "Google Calendar"
     case .linear:
       "Linear"
+    case .github:
+      "GitHub"
     }
   }
 
@@ -30,6 +35,8 @@ enum AuthProvider: String, CaseIterable, Identifiable, Sendable {
       AuthConfig.googleClientID
     case .linear:
       AuthConfig.linearClientID
+    case .github:
+      AuthConfig.githubClientID
     }
   }
 
@@ -50,6 +57,8 @@ enum AuthProvider: String, CaseIterable, Identifiable, Sendable {
       "https://www.googleapis.com/auth/calendar.readonly"
     case .linear:
       "read,write"
+    case .github:
+      "repo read:user"
     }
   }
 
@@ -59,7 +68,10 @@ enum AuthProvider: String, CaseIterable, Identifiable, Sendable {
     case .google:
       Self.googleReversedClientIDScheme(from: clientID)
     case .linear:
-      "dayline"
+      AuthConfig.linearCallbackScheme
+    case .github:
+      // GitHub uses the device authorization grant, which has no redirect.
+      AuthConfig.linearCallbackScheme
     }
   }
 
@@ -69,7 +81,9 @@ enum AuthProvider: String, CaseIterable, Identifiable, Sendable {
     case .google:
       "\(callbackScheme):/oauth/callback"
     case .linear:
-      "dayline://oauth/callback"
+      "\(callbackScheme)://oauth/callback"
+    case .github:
+      "\(callbackScheme)://oauth/github/callback"
     }
   }
 
@@ -80,6 +94,8 @@ enum AuthProvider: String, CaseIterable, Identifiable, Sendable {
       URL(string: "https://accounts.google.com/o/oauth2/v2/auth")!
     case .linear:
       URL(string: "https://linear.app/oauth/authorize")!
+    case .github:
+      URL(string: "https://github.com/login/oauth/authorize")!
     }
   }
 
@@ -90,6 +106,8 @@ enum AuthProvider: String, CaseIterable, Identifiable, Sendable {
       URL(string: "https://oauth2.googleapis.com/token")!
     case .linear:
       URL(string: "https://api.linear.app/oauth/token")!
+    case .github:
+      URL(string: "https://github.com/login/oauth/access_token")!
     }
   }
 
@@ -100,6 +118,8 @@ enum AuthProvider: String, CaseIterable, Identifiable, Sendable {
       URL(string: "https://oauth2.googleapis.com/revoke")!
     case .linear:
       URL(string: "https://api.linear.app/oauth/revoke")!
+    case .github:
+      URL(string: "https://github.com/login/oauth/revoke")!
     }
   }
 

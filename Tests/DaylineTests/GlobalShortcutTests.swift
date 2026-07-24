@@ -6,13 +6,33 @@ import Testing
 
 struct GlobalShortcutTests {
   @Test func defaultsDoNotConflictWithEachOther() {
-    #expect(GlobalShortcut.newNoteDefault != GlobalShortcut.newLinearIssueDefault)
+    let defaults = [
+      GlobalShortcut.newNoteDefault,
+      GlobalShortcut.newLinearIssueDefault,
+      GlobalShortcut.openGoogleCalendarDefault,
+      GlobalShortcut.newGitHubIssueDefault
+    ]
+    #expect(Set(defaults.map { "\($0.keyCode)-\($0.carbonModifiers)" }).count == defaults.count)
+    #expect(GlobalShortcut.newGitHubIssueFallbacks.allSatisfy { $0 != GlobalShortcut.newNoteDefault })
+    #expect(GlobalShortcut.newGitHubIssueFallbacks.allSatisfy { $0 != GlobalShortcut.newLinearIssueDefault })
+    #expect(GlobalShortcut.newGitHubIssueFallbacks.allSatisfy { $0 != GlobalShortcut.openGoogleCalendarDefault })
+  }
+
+  @Test func allDefaultsAndFallbacksArePairwiseUnique() {
+    // Both fallback lists lead with their own default, so they cover all four defaults.
+    let shortcuts = [
+      GlobalShortcut.newNoteDefault,
+      GlobalShortcut.newLinearIssueDefault
+    ] + GlobalShortcut.newGitHubIssueFallbacks + GlobalShortcut.openGoogleCalendarFallbacks
+    #expect(Set(shortcuts.map { "\($0.keyCode)-\($0.carbonModifiers)" }).count == shortcuts.count)
   }
 
   @Test func defaultsUseControlOptionCommand() {
     let expectedModifiers = UInt32(controlKey | optionKey | cmdKey)
     #expect(GlobalShortcut.newNoteDefault.carbonModifiers == expectedModifiers)
     #expect(GlobalShortcut.newLinearIssueDefault.carbonModifiers == expectedModifiers)
+    #expect(GlobalShortcut.openGoogleCalendarDefault.carbonModifiers == expectedModifiers)
+    #expect(GlobalShortcut.newGitHubIssueDefault.carbonModifiers == expectedModifiers)
   }
 
   @Test func codableRoundTrip() throws {
@@ -25,6 +45,8 @@ struct GlobalShortcutTests {
     #expect(GlobalShortcut.newNoteDefault.displayString.hasPrefix("⌃⌥⌘"))
     #expect(GlobalShortcut.newNoteDefault.displayString.hasSuffix("N"))
     #expect(GlobalShortcut.newLinearIssueDefault.displayString.hasSuffix("L"))
+    #expect(GlobalShortcut.openGoogleCalendarDefault.displayString.hasSuffix("C"))
+    #expect(GlobalShortcut.newGitHubIssueDefault.displayString.hasSuffix("G"))
   }
 
   @Test func eventWithoutCommandControlOrOptionIsRejected() {
@@ -51,11 +73,20 @@ struct GlobalShortcutTests {
       copy: "c",
       status: "d",
       priority: "p",
-      dueDate: "d"
+      dueDate: "d",
+      label: "c",
+      assignee: "a"
     )
 
-    #expect(repaired == ["c", "d", "p", "e"])
-    #expect(Set(repaired).count == 4)
+    #expect(repaired == ["c", "d", "p", "e", "l", "a"])
+    #expect(Set(repaired).count == 6)
+  }
+
+  @MainActor
+  @Test func emptyHoverShortcutInputNeverMatchesAnAction() {
+    #expect(!StatusStore.hotkeyMatches("", configured: "c"))
+    #expect(!StatusStore.hotkeyMatches("   ", configured: "s"))
+    #expect(StatusStore.hotkeyMatches("L", configured: "l"))
   }
 
   /// Builds a synthetic key event for recorder tests.

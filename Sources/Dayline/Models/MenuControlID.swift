@@ -8,8 +8,14 @@ enum MenuControlID {
   /// Calendar tomorrow disclosure row.
   case tomorrowEvents
 
+  /// Opens Google Calendar in the browser.
+  case openGoogleCalendar
+
   /// Linear issue creation button.
   case newLinearIssue
+
+  /// GitHub issue creation button.
+  case newGitHubIssue
 
   /// Linear issue reveal-more row.
   case moreIssues
