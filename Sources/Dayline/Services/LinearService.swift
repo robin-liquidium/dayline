@@ -260,7 +260,7 @@ struct LinearService {
     let query = """
     query IssueAppliedLabels($id: String!, $after: String) {
       issue(id: $id) {
-        labels(first: 250, after: $after) {
+        labels(first: 250, after: $after, includeArchived: true) {
           nodes { id }
           pageInfo { hasNextPage endCursor }
         }
