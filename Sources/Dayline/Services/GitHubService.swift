@@ -105,8 +105,16 @@ struct GitHubService: Sendable {
       let chunkIssues = try await withThrowingTaskGroup(of: [GitHubIssueItem].self) { group in
         for repo in chunk {
           group.addTask {
-            // A failing repository must not take down the whole feed.
-            (try? await self.fetchRepoIssues(repoFullName: repo)) ?? []
+            // A failing repository must not take down the whole feed, but
+            // auth and cancellation errors must still propagate.
+            do {
+              return try await self.fetchRepoIssues(repoFullName: repo)
+            } catch {
+              if error is OAuthError || error is CancellationError {
+                throw error
+              }
+              return []
+            }
           }
         }
         var batch: [GitHubIssueItem] = []

@@ -2635,7 +2635,7 @@ final class StatusStore: ObservableObject {
         // Skip all-day style events that would fire the alert at midnight.
         guard event.endDate.timeIntervalSince(event.startDate) < 24 * 60 * 60 else { return false }
         return now >= event.startDate.addingTimeInterval(-lead)
-          && now < event.startDate.addingTimeInterval(Self.meetingAlertPostStartGrace)
+          && now < min(event.endDate, event.startDate.addingTimeInterval(Self.meetingAlertPostStartGrace))
           && !dismissedMeetingAlertEventIDs.contains(event.deduplicationKey ?? event.id)
       }
       .min { $0.startDate < $1.startDate }
