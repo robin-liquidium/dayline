@@ -113,6 +113,9 @@ struct GitHubService: Sendable {
               if error is OAuthError || error is CancellationError {
                 throw error
               }
+              if let urlError = error as? URLError, urlError.code == .cancelled {
+                throw error
+              }
               return []
             }
           }
