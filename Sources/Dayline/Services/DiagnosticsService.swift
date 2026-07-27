@@ -161,11 +161,17 @@ struct DiagnosticsExporter {
     }
 
     DaylineDiagnostics.record("Diagnostic export started", category: .feedback)
-    let stagedArchiveURL = destination.deletingLastPathComponent()
-      .appendingPathComponent(".dayline-diagnostics-\(UUID().uuidString).zip")
     try await Task.detached(priority: .userInitiated) {
       let fileManager = FileManager.default
-      defer { try? fileManager.removeItem(at: stagedArchiveURL) }
+      let replacementDirectory = try fileManager.url(
+        for: .itemReplacementDirectory,
+        in: .userDomainMask,
+        appropriateFor: destination,
+        create: true
+      )
+      defer { try? fileManager.removeItem(at: replacementDirectory) }
+      let stagedArchiveURL = replacementDirectory
+        .appendingPathComponent("Dayline-Diagnostics-\(UUID().uuidString).zip")
       try Self.createArchive(at: stagedArchiveURL, purpose: .manualExport)
       if fileManager.fileExists(atPath: destination.path) {
         _ = try fileManager.replaceItemAt(destination, withItemAt: stagedArchiveURL)
@@ -513,7 +519,7 @@ struct DiagnosticsExporter {
   /// Replaces an existing archive only after a complete new ZIP has been produced.
   private static func replaceZip(from directory: URL, at destination: URL) throws {
     let fileManager = FileManager.default
-    let replacement = destination.deletingLastPathComponent()
+    let replacement = fileManager.temporaryDirectory
       .appendingPathComponent(".dayline-zip-\(UUID().uuidString).zip")
     defer { try? fileManager.removeItem(at: replacement) }
     try createZip(from: directory, at: replacement)

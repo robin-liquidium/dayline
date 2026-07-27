@@ -284,16 +284,16 @@ create_dmg() {
 # create_debug_symbols preserves the exact dSYM whose UUID matches this release binary.
 create_debug_symbols() {
   local source_dsym="$1"
-  local binary_uuid dsym_uuid
+  local binary_uuids dsym_uuids
 
   if [[ ! -d "$source_dsym" ]]; then
     echo "Missing Dayline dSYM: $source_dsym" >&2
     exit 2
   fi
-  binary_uuid="$(dwarfdump --uuid "$APP_BINARY" | awk '{print $2; exit}')"
-  dsym_uuid="$(dwarfdump --uuid "$source_dsym" | awk '{print $2; exit}')"
-  if [[ -z "$binary_uuid" || "$binary_uuid" != "$dsym_uuid" ]]; then
-    echo "Dayline binary/dSYM UUID mismatch: binary=$binary_uuid dSYM=$dsym_uuid" >&2
+  binary_uuids="$(dwarfdump --uuid "$APP_BINARY" | awk '{print $2}' | sort -u)"
+  dsym_uuids="$(dwarfdump --uuid "$source_dsym" | awk '{print $2}' | sort -u)"
+  if [[ -z "$binary_uuids" || "$binary_uuids" != "$dsym_uuids" ]]; then
+    echo "Dayline binary/dSYM UUID mismatch: binary=$binary_uuids dSYM=$dsym_uuids" >&2
     exit 2
   fi
 
