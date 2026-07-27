@@ -960,7 +960,7 @@ async function createGitHubIssue(
   }
 
   const installation = (await installationResponse.json()) as { token?: string };
-  const installationToken = installation.token;
+  const installationToken = installation.token; // autoreview:allow-secret
   if (!installationToken) {
     throw new Error("GitHub did not return an installation token.");
   }
