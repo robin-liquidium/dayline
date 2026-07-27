@@ -71,6 +71,7 @@ fi
 TAG="v$VERSION"
 DMG_PATH="$ARTIFACT_DIR/$APP_NAME-$VERSION.dmg"
 ZIP_PATH="$ARTIFACT_DIR/$APP_NAME-$VERSION.app.zip"
+SYMBOLS_PATH="$ARTIFACT_DIR/$APP_NAME-$VERSION.dSYM.zip"
 # Stable asset name so /releases/latest/download/Dayline.dmg always works.
 STABLE_DMG_PATH="$ARTIFACT_DIR/$APP_NAME.dmg"
 
@@ -78,12 +79,14 @@ require_remote
 require_release_source
 require_artifact "$DMG_PATH"
 require_artifact "$ZIP_PATH"
+require_artifact "$SYMBOLS_PATH"
 
 cp "$DMG_PATH" "$STABLE_DMG_PATH"
 
 gh release create "$TAG" \
   "$DMG_PATH" \
   "$ZIP_PATH" \
+  "$SYMBOLS_PATH" \
   "$STABLE_DMG_PATH" \
   --verify-tag \
   --latest \

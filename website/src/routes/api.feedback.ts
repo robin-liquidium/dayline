@@ -15,6 +15,7 @@ export const Route = createFileRoute("/api/feedback")({
           env as unknown as FeedbackEnvironment,
           undefined,
           (context as unknown as FeedbackRequestContext).feedbackRateLimiter,
+          (context as unknown as FeedbackRequestContext).feedbackAttachmentStore,
         ),
     },
   },

@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 /// Presents a borderless full-screen meeting alert above all other content.
+@MainActor
 final class MeetingAlertWindowController {
   static let shared = MeetingAlertWindowController()
 
@@ -16,14 +17,18 @@ final class MeetingAlertWindowController {
 
   /// Shows the alert for a meeting, updating the content in place when already visible.
   func show(event: CalendarEventItem, onJoin: @escaping () -> Void, onDismiss: @escaping () -> Void) {
+    guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
     let rootView = MeetingAlertView(event: event, onJoin: onJoin, onDismiss: onDismiss)
 
     if let window, let hostingView = window.contentView as? NSHostingView<MeetingAlertView> {
       hostingView.rootView = rootView
+      window.setFrame(screen.frame, display: true)
+      window.makeKeyAndOrderFront(nil)
+      NSApp.activate()
+      DaylineDiagnostics.record("Meeting alert window appeared", category: .lifecycle)
       return
     }
 
-    guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
     let alertWindow = AlertWindow(
       contentRect: screen.frame,
       styleMask: .borderless,
@@ -39,11 +44,15 @@ final class MeetingAlertWindowController {
     alertWindow.makeKeyAndOrderFront(nil)
     NSApp.activate()
     window = alertWindow
+    DaylineDiagnostics.record("Meeting alert window appeared", category: .lifecycle)
   }
 
-  /// Closes the alert window if it is visible.
+  /// Hides the alert while retaining its SwiftUI hierarchy for safe reuse.
   func dismiss() {
-    window?.close()
-    window = nil
+    guard let window, window.isVisible else {
+      return
+    }
+    window.orderOut(nil)
+    DaylineDiagnostics.record("Meeting alert window disappeared", category: .lifecycle)
   }
 }

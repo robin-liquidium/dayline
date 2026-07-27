@@ -42,6 +42,24 @@ export class FeedbackRateLimiter extends DurableObject {
     return true;
   }
 
+  /** Returns one failed submission reservation without affecting a newer hour. */
+  async release(hour: number): Promise<void> {
+    const state = this.ctx.storage.sql
+      .exec<RateLimitState>("SELECT hour, count FROM rate_limit WHERE id = 1")
+      .toArray()[0];
+    if (state?.hour !== hour || state.count < 1) {
+      return;
+    }
+    if (state.count === 1) {
+      this.ctx.storage.sql.exec("DELETE FROM rate_limit WHERE id = 1");
+      await this.ctx.storage.deleteAlarm();
+      return;
+    }
+    this.ctx.storage.sql.exec(
+      "UPDATE rate_limit SET count = count - 1 WHERE id = 1",
+    );
+  }
+
   /** Releases storage once this rate-limit window can no longer be used. */
   async alarm(): Promise<void> {
     await this.ctx.storage.deleteAll();

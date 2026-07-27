@@ -21,7 +21,7 @@ struct StatusMenuView: View {
   @EnvironmentObject private var store: StatusStore
   @EnvironmentObject private var updateService: UpdateService
   @Environment(\.openWindow) private var openWindow
-  @FocusState private var isKeyboardTargetFocused: Bool
+  @StateObject private var keyboardMonitor = MenuKeyboardMonitor()
 
   /// Builds the compact menu bar popover content.
   var body: some View {
@@ -79,14 +79,23 @@ struct StatusMenuView: View {
       footerBar
     }
     .frame(width: 400)
-    .focusable()
-    .focusEffectDisabled()
-    .focused($isKeyboardTargetFocused)
-    .onAppear {
-      isKeyboardTargetFocused = true
+    .background {
+      MenuWindowReader { window in
+        guard let window else {
+          keyboardMonitor.stop()
+          return
+        }
+        keyboardMonitor.start(in: window) { characters in
+          handleKeyPress(characters)
+        }
+      }
     }
-    .onKeyPress { keyPress in
-      handleKeyPress(keyPress.characters) ? .handled : .ignored
+    .onAppear {
+      DaylineDiagnostics.record("Menu bar window appeared", category: .menuBar)
+    }
+    .onDisappear {
+      keyboardMonitor.stop()
+      DaylineDiagnostics.record("Menu bar window disappeared", category: .menuBar)
     }
   }
 
@@ -231,30 +240,40 @@ struct StatusMenuView: View {
   /// Handles menu-level keyboard shortcuts.
   private func handleKeyPress(_ characters: String) -> Bool {
     if store.matchesStatusPickerHotkey(characters) {
-      return store.presentStatusPickerForHoveredIssue()
+      return recordHandledShortcut("status", result: store.presentStatusPickerForHoveredIssue())
     }
 
     if store.matchesPriorityPickerHotkey(characters) {
-      return store.presentPriorityPickerForHoveredIssue()
+      return recordHandledShortcut("priority", result: store.presentPriorityPickerForHoveredIssue())
     }
 
     if store.matchesDueDatePickerHotkey(characters) {
-      return store.presentDueDatePickerForHoveredIssue()
+      return recordHandledShortcut("due date", result: store.presentDueDatePickerForHoveredIssue())
     }
 
     if store.matchesLabelPickerHotkey(characters) {
-      return store.presentLabelPickerForHoveredIssue()
+      return recordHandledShortcut("label", result: store.presentLabelPickerForHoveredIssue())
     }
 
     if store.matchesAssigneePickerHotkey(characters) {
-      return store.presentAssigneePickerForHoveredIssue()
+      return recordHandledShortcut("assignee", result: store.presentAssigneePickerForHoveredIssue())
     }
 
     if store.matchesCopyIssueHotkey(characters) {
-      return store.copyHoveredIssueLink() || store.copyHoveredEventLink()
+      return recordHandledShortcut(
+        "copy",
+        result: store.copyHoveredIssueLink() || store.copyHoveredEventLink()
+      )
     }
 
     return false
+  }
+
+  private func recordHandledShortcut(_ action: String, result: Bool) -> Bool {
+    if result {
+      DaylineDiagnostics.record("Handled \(action) menu shortcut", category: .menuBar)
+    }
+    return result
   }
 
   /// Opens a note editor window and brings the accessory app forward.
@@ -273,6 +292,38 @@ struct StatusMenuView: View {
   private func openGitHubIssueCreator() {
     openWindow(id: "githubIssueCreator")
     GitHubIssueEditorWindowPresenter.bringIssueWindowToFront()
+  }
+}
+
+/// Reports the AppKit window hosting the menu content so keyboard handling stays scoped to it.
+private struct MenuWindowReader: NSViewRepresentable {
+  let onWindowChange: (NSWindow?) -> Void
+
+  func makeNSView(context: Context) -> MenuWindowReaderView {
+    MenuWindowReaderView(onWindowChange: onWindowChange)
+  }
+
+  func updateNSView(_ nsView: MenuWindowReaderView, context: Context) {
+    nsView.onWindowChange = onWindowChange
+  }
+}
+
+private final class MenuWindowReaderView: NSView {
+  var onWindowChange: (NSWindow?) -> Void
+
+  init(onWindowChange: @escaping (NSWindow?) -> Void) {
+    self.onWindowChange = onWindowChange
+    super.init(frame: .zero)
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    onWindowChange(window)
   }
 }
 

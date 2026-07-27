@@ -18,6 +18,7 @@ interface DurableObjectSqlStorage {
 interface DurableObjectStorage {
   sql: DurableObjectSqlStorage;
   setAlarm(scheduledTime: number | Date): Promise<void>;
+  deleteAlarm(): Promise<void>;
   deleteAll(): Promise<void>;
 }
 

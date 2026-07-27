@@ -100,7 +100,10 @@ actor OAuthSession {
   private let credentialAccount: String
 
   /// Logger for OAuth diagnostics.
-  private let logger = Logger(subsystem: "build.local.Dayline", category: "oauth")
+  private let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "de.obermaier.dayline",
+    category: "oauth"
+  )
 
   /// In-memory token cache avoiding repeated Keychain reads.
   private var cachedTokens: OAuthTokens?

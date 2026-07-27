@@ -16,6 +16,7 @@ Commands:
   screenshot [path]            Open the popover and capture a cropped screenshot.
   press <button-index>         Press a button inside the popover scroll area.
   press-id <identifier>        Press an element by AXIdentifier.
+  hover-id <identifier>        Move the pointer over an element by AXIdentifier.
   hover <refresh|settings|quit> Move the pointer over a common chrome control.
   scroll <up|down> [steps]     Scroll the open popover.
 
@@ -217,7 +218,7 @@ APPLESCRIPT
       usage
       exit 2
     fi
-    osascript <<APPLESCRIPT
+    osascript - "$APP_NAME" "$identifier" <<'APPLESCRIPT'
 on findByIdentifier(rootElement, targetIdentifier)
   tell application "System Events"
     try
@@ -237,14 +238,70 @@ on findByIdentifier(rootElement, targetIdentifier)
   return missing value
 end findByIdentifier
 
-tell application "System Events"
-  tell process "$APP_NAME"
-    set targetElement to my findByIdentifier(window 1, "$identifier")
-    if targetElement is missing value then error "No element with AXIdentifier $identifier"
-    perform action "AXPress" of targetElement
+on run arguments
+  set appName to item 1 of arguments
+  set targetIdentifier to item 2 of arguments
+  tell application "System Events"
+    tell process appName
+      set targetElement to my findByIdentifier(window 1, targetIdentifier)
+      if targetElement is missing value then error "No element with AXIdentifier " & targetIdentifier
+      perform action "AXPress" of targetElement
+    end tell
   end tell
-end tell
+end run
 APPLESCRIPT
+    ;;
+  hover-id)
+    open_popover
+    identifier="${2:-}"
+    if [[ -z "$identifier" ]]; then
+      usage
+      exit 2
+    fi
+    if ! bounds="$(osascript - "$APP_NAME" "$identifier" <<'APPLESCRIPT'
+on findByIdentifier(rootElement, targetIdentifier)
+  tell application "System Events"
+    try
+      if value of attribute "AXIdentifier" of rootElement is targetIdentifier then
+        return rootElement
+      end if
+    end try
+
+    repeat with childElement in UI elements of rootElement
+      set foundElement to my findByIdentifier(childElement, targetIdentifier)
+      if foundElement is not missing value then
+        return foundElement
+      end if
+    end repeat
+  end tell
+  return missing value
+end findByIdentifier
+
+on run arguments
+  set appName to item 1 of arguments
+  set targetIdentifier to item 2 of arguments
+  tell application "System Events"
+    tell process appName
+      set targetElement to my findByIdentifier(window 1, targetIdentifier)
+      if targetElement is missing value then error "No element with AXIdentifier " & targetIdentifier
+      set p to position of targetElement
+      set s to size of targetElement
+      return ((item 1 of p) as text) & " " & ((item 2 of p) as text) & " " & ((item 1 of s) as text) & " " & ((item 2 of s) as text)
+    end tell
+  end tell
+end run
+APPLESCRIPT
+    )"; then
+      echo "Failed to find element with AXIdentifier $identifier." >&2
+      exit 1
+    fi
+    read -r x y w h extra <<<"$bounds"
+    if [[ ! "$x" =~ ^-?[0-9]+$ || ! "$y" =~ ^-?[0-9]+$ ||
+          ! "$w" =~ ^[0-9]+$ || ! "$h" =~ ^[0-9]+$ || -n "$extra" ]]; then
+      echo "Invalid element bounds for AXIdentifier $identifier: $bounds" >&2
+      exit 1
+    fi
+    move_pointer "$((x + w / 2))" "$((y + h / 2))"
     ;;
   hover)
     open_popover

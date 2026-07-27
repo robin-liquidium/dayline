@@ -9,7 +9,10 @@ final class BrowserOAuthCoordinator {
   static let shared = BrowserOAuthCoordinator()
 
   /// Logger for OAuth browser flow diagnostics.
-  private let logger = Logger(subsystem: "build.local.Dayline", category: "oauth")
+  private let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "de.obermaier.dayline",
+    category: "oauth"
+  )
 
   /// In-flight browser authorization waiting for a redirect.
   private var pending: PendingAuthorization?

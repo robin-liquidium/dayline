@@ -8,12 +8,19 @@ struct FeedbackService {
   func submit(
     category: FeedbackCategory,
     message: String,
-    includeAnonymousSystemInformation: Bool
+    includeAnonymousSystemInformation: Bool,
+    diagnosticsArchiveURL: URL? = nil
   ) async throws -> FeedbackIssue {
+    let diagnosticsArchive = try diagnosticsArchiveURL.map { try Data(contentsOf: $0) }
+    if let diagnosticsArchive,
+       diagnosticsArchive.count > FeedbackDiagnosticsContract.maximumArchiveBytes {
+      throw FeedbackServiceError.diagnosticsTooLarge
+    }
     let submission = FeedbackSubmission(
       category: category,
       message: message.trimmingCharacters(in: .whitespacesAndNewlines),
-      metadata: includeAnonymousSystemInformation ? .current : nil
+      metadata: includeAnonymousSystemInformation ? .current : nil,
+      diagnosticsArchive: diagnosticsArchive
     )
 
     var request = URLRequest(url: endpoint)
@@ -78,6 +85,7 @@ private struct FeedbackSubmission: Encodable {
   let category: FeedbackCategory
   let message: String
   let metadata: FeedbackMetadata?
+  let diagnosticsArchive: Data?
 }
 
 /// Public issue details returned by the feedback relay.
@@ -94,6 +102,7 @@ private struct FeedbackErrorResponse: Decodable {
 enum FeedbackServiceError: LocalizedError {
   case invalidResponse
   case rejected(String)
+  case diagnosticsTooLarge
 
   var errorDescription: String? {
     switch self {
@@ -101,6 +110,8 @@ enum FeedbackServiceError: LocalizedError {
       "Feedback could not be submitted. Please try again."
     case .rejected(let message):
       message
+    case .diagnosticsTooLarge:
+      "The diagnostic archive is too large to attach. Export it manually from Settings instead."
     }
   }
 }

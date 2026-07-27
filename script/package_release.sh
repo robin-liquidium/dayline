@@ -56,6 +56,7 @@ usage: $0 [--install] [--notarize] [--prepare-notarization | --package-existing]
 Builds a release Dayline.app bundle plus GitHub-release-ready artifacts:
   dist/artifacts/Dayline-<version>.dmg
   dist/artifacts/Dayline-<version>.app.zip
+  dist/artifacts/Dayline-<version>.dSYM.zip
 
 Environment:
   BUNDLE_ID               Bundle identifier. Defaults to $DEFAULT_BUNDLE_ID.
@@ -280,6 +281,26 @@ create_dmg() {
   fi
 }
 
+# create_debug_symbols preserves the exact dSYM whose UUID matches this release binary.
+create_debug_symbols() {
+  local source_dsym="$1"
+  local binary_uuids dsym_uuids
+
+  if [[ ! -d "$source_dsym" ]]; then
+    echo "Missing Dayline dSYM: $source_dsym" >&2
+    exit 2
+  fi
+  binary_uuids="$(dwarfdump --uuid "$APP_BINARY" | awk '{print $2}' | sort -u)"
+  dsym_uuids="$(dwarfdump --uuid "$source_dsym" | awk '{print $2}' | sort -u)"
+  if [[ -z "$binary_uuids" || "$binary_uuids" != "$dsym_uuids" ]]; then
+    echo "Dayline binary/dSYM UUID mismatch: binary=$binary_uuids dSYM=$dsym_uuids" >&2
+    exit 2
+  fi
+
+  rm -f "$SYMBOLS_PATH"
+  /usr/bin/ditto -c -k --keepParent "$source_dsym" "$SYMBOLS_PATH"
+}
+
 # Runs notarytool with local or CI credentials.
 notarytool_with_credentials() {
   if [[ -n "${NOTARY_PROFILE:-}" ]]; then
@@ -379,6 +400,7 @@ SIGNING_IDENTITY="$(detect_codesign_identity)"
 ARTIFACT_BASE="$APP_NAME-$VERSION"
 DMG_PATH="$ARTIFACT_DIR/$ARTIFACT_BASE.dmg"
 ZIP_PATH="$ARTIFACT_DIR/$ARTIFACT_BASE.app.zip"
+SYMBOLS_PATH="$ARTIFACT_DIR/$ARTIFACT_BASE.dSYM.zip"
 
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && ! ( "$NOTARIZE" == false && "$VERSION" == "0.1.0-dev" ) ]]; then
   echo "Invalid MARKETING_VERSION: $VERSION" >&2
@@ -432,6 +454,7 @@ BUILD_PRODUCTS="$(swift build -c release --show-bin-path)"
 BUILD_BINARY="$BUILD_PRODUCTS/$APP_NAME"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
+create_debug_symbols "$BUILD_PRODUCTS/$APP_NAME.dSYM"
 
 write_info_plist
 copy_app_icon
@@ -444,6 +467,7 @@ if [[ "$PREPARE_NOTARIZATION" == true ]]; then
   rm -f "$NOTARY_ZIP"
   /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$NOTARY_ZIP"
   echo "Prepared signed app for asynchronous notarization: $NOTARY_ZIP"
+  echo "Preserved matching debug symbols: $SYMBOLS_PATH"
   exit 0
 fi
 
@@ -467,6 +491,7 @@ Built $APP_BUNDLE
 Signed with: $SIGNING_IDENTITY
 Created $DMG_PATH
 Created $ZIP_PATH
+Created $SYMBOLS_PATH
 SUMMARY
 
 if [[ "$SIGNING_IDENTITY" != Developer\ ID\ Application:* ]]; then

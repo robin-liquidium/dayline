@@ -8,6 +8,7 @@ struct FeedbackView: View {
   @State private var category = FeedbackCategory.bug
   @State private var message = ""
   @State private var includesAnonymousSystemInformation = true
+  @State private var includesDiagnostics = false
   @State private var isSubmitting = false
   @State private var errorMessage: String?
   @State private var submittedIssue: FeedbackIssue?
@@ -27,7 +28,7 @@ struct FeedbackView: View {
     }
     .padding(20)
     .frame(width: 500)
-    .frame(minHeight: 420)
+    .frame(minHeight: 500)
     .interactiveDismissDisabled(isSubmitting)
   }
 
@@ -39,6 +40,7 @@ struct FeedbackView: View {
         }
       }
       .pickerStyle(.segmented)
+      .disabled(isSubmitting)
       .accessibilityIdentifier("feedback.category")
 
       Text("What would you like us to know?")
@@ -58,18 +60,29 @@ struct FeedbackView: View {
             .stroke(Color.primary.opacity(0.08))
         }
         .frame(minHeight: 180)
+        .disabled(isSubmitting)
         .accessibilityIdentifier("feedback.message")
 
       Toggle("Include anonymous app and system information", isOn: $includesAnonymousSystemInformation)
+        .disabled(isSubmitting)
         .accessibilityIdentifier("feedback.includeSystemInformation")
 
-      Text("Includes only the Dayline version, macOS version, and chip type. The feedback report never includes your name, device name, IP address, accounts, calendar, Linear data, notes, tokens, or logs.")
+      Text("This option includes only the Dayline version, macOS version, and chip type. It does not add your name, device name, IP address, accounts, calendar, Linear data, notes, tokens, or logs.")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+
+      Toggle("Include diagnostics (logs and crash reports)", isOn: $includesDiagnostics)
+        .disabled(isSubmitting)
+        .accessibilityIdentifier("feedback.includeDiagnostics")
+
+      Text("Creates and uploads a diagnostic ZIP with Dayline's bounded logs and up to five recent macOS crash reports. A public download link is added to the GitHub issue for 30 days. Native crash reports may contain system and device identifiers, loaded-image information, and process metadata.")
         .font(.caption)
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
 
       Label(
-        "Your feedback and selected system information will be posted publicly in the Dayline GitHub repository. Do not include personal or sensitive information.",
+        "Your feedback and anything you choose to include will be posted publicly in the Dayline GitHub repository. Do not include personal or sensitive information.",
         systemImage: "exclamationmark.triangle"
       )
       .font(.caption)
@@ -140,12 +153,31 @@ struct FeedbackView: View {
 
     isSubmitting = true
     errorMessage = nil
+    let submittedCategory = category
+    let submittedMessage = message
+    let submittedIncludesAnonymousSystemInformation = includesAnonymousSystemInformation
+    let submittedIncludesDiagnostics = includesDiagnostics
 
     do {
+      let diagnosticsArchiveURL = submittedIncludesDiagnostics
+        ? try await DiagnosticsExporter().createFeedbackAttachment()
+        : nil
+      defer {
+        if let diagnosticsArchiveURL {
+          try? FileManager.default.removeItem(at: diagnosticsArchiveURL)
+        }
+      }
       submittedIssue = try await feedbackService.submit(
-        category: category,
-        message: message,
-        includeAnonymousSystemInformation: includesAnonymousSystemInformation
+        category: submittedCategory,
+        message: submittedMessage,
+        includeAnonymousSystemInformation: submittedIncludesAnonymousSystemInformation,
+        diagnosticsArchiveURL: diagnosticsArchiveURL
+      )
+      DaylineDiagnostics.record(
+        submittedIncludesDiagnostics
+          ? "Feedback submitted with diagnostic archive"
+          : "Feedback submitted without diagnostic archive",
+        category: .feedback
       )
     } catch {
       errorMessage = error.localizedDescription
