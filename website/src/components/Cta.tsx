@@ -15,7 +15,7 @@ export function Cta() {
       <div className="mt-9 flex flex-col items-center gap-4">
         <a
           href={site.downloadUrl}
-          className="flex items-center gap-2.5 rounded-full bg-ink px-7 py-3.5 text-base font-medium text-cream shadow-sm transition-all hover:bg-black hover:shadow-md"
+          className="flex items-center gap-2.5 rounded-full bg-ink px-7 py-3.5 text-base font-medium text-cream shadow-sm transition-[background-color,box-shadow] hover:bg-black hover:shadow-md"
         >
           <DownloadIcon className="h-5 w-5" />
           Download Dayline

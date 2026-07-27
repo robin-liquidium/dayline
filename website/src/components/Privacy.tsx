@@ -11,7 +11,7 @@ const rows: Array<Row> = [
   { label: "Direct Google, Linear & GitHub API connections", on: true },
   { label: "Notes stored locally on your Mac", on: true },
   { label: "Analytics and tracking", on: false },
-  { label: "Third-party Dayline servers", on: false },
+  { label: "Calendar or issue data routed through Dayline", on: false },
 ];
 
 function Toggle({ on }: { on: boolean }) {
@@ -40,10 +40,11 @@ export function Privacy() {
             Local first, with you in control
           </h2>
           <p className="mt-5 leading-relaxed text-mute">
-            Dayline has no backend and no account system. Your Mac talks
-            straight to Google, Linear, and GitHub over HTTPS, tokens live in the
-            Keychain, and notes never leave your disk. Disconnect accounts from
-            Settings at any time to remove their local credentials.
+            Dayline has no account system, analytics, or syncing backend. Your
+            Mac talks straight to Google, Linear, and GitHub over HTTPS, tokens
+            live in the Keychain, and notes stay on your disk. Feedback is sent
+            only when you submit it. Diagnostics stay local unless you
+            explicitly attach them; attached archives are deleted after 30 days.
           </p>
           <a
             href={`${site.githubUrl}#readme`}

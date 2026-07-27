@@ -12,7 +12,7 @@ const features: Array<Feature> = [
   {
     number: "01",
     title: "Start your day knowing what’s next",
-    body: "Up Next shows your remaining timed events for today, straight from Google Calendar. Tomorrow’s plan is one click away when you want a head start.",
+    body: "Connect multiple Google accounts, choose the calendars you want, and merge them into one agenda. Today’s timed events stay close, and tomorrow’s plan is one click away.",
     image: "/images/calendar-agenda.avif",
     alt: "Dayline showing upcoming events for today and tomorrow",
     width: 1071,
@@ -20,8 +20,8 @@ const features: Array<Feature> = [
   },
   {
     number: "02",
-    title: "Your Linear issues, minus the tab",
-    body: "Active issues assigned to you, sorted the way you like. Hover for hotkeys — copy the URL, change status, bump priority — or swipe a row to cancel it. New issue? One click.",
+    title: "Your issues, minus the tabs",
+    body: "Switch between Linear and GitHub issues from the teams and repositories you choose. Filter to assigned or all-open work, then create issues or change status, labels, and assignees without a browser detour.",
     image: "/images/linear-status-picker.avif",
     alt: "Dayline showing active Linear issues with the status picker open",
     width: 1552,
@@ -30,7 +30,7 @@ const features: Array<Feature> = [
   {
     number: "03",
     title: "Notes that never leave your Mac",
-    body: "Quick local notes, right next to your day. The first line becomes the title, more notes stay one click away, and everything is stored only on this Mac.",
+    body: "Create a quick note from anywhere with a global shortcut. The first line becomes its title, more notes stay one click away, and everything is stored only on this Mac.",
     image: "/images/local-notes-list.avif",
     alt: "Dayline showing a list of local notes",
     width: 1093,

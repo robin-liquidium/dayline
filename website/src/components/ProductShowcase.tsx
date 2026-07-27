@@ -1,7 +1,7 @@
 const showcases = [
   {
-    title: "Change priority without breaking focus",
-    body: "Hover an issue, tap P, and keep moving. The same quick picker handles status changes with S.",
+    title: "Move work without breaking focus",
+    body: "Change status, labels, and assignees on Linear or GitHub issues with hover shortcuts. Linear also gets quick priority and due-date controls.",
     image: "/images/linear-priority-picker.avif",
     alt: "Dayline Linear priority picker",
     width: 1154,
@@ -11,7 +11,7 @@ const showcases = [
   },
   {
     title: "Create the issue while it is fresh",
-    body: "Capture the title, owner, due date, description, and the advanced details without opening a browser tab.",
+    body: "File a Linear or GitHub issue from anywhere. Choose the team or repository, assignee, labels, and provider-specific details without opening a browser tab.",
     image: "/images/linear-issue-editor.avif",
     alt: "Dayline new Linear issue editor",
     width: 1203,
@@ -21,7 +21,7 @@ const showcases = [
   },
   {
     title: "Tune it once, then forget it",
-    body: "Choose refresh timing, meeting-title behavior, shortcuts, sorting, and launch at login from one small settings window.",
+    body: "Search every setting for accounts, calendars, issues, notes, alerts, shortcuts, updates, and launch at login from one native window.",
     image: "/images/dayline-settings.avif",
     alt: "Dayline settings window",
     width: 1165,
