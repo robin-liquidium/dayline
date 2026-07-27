@@ -6,10 +6,12 @@ import Combine
 final class MenuKeyboardMonitor: ObservableObject {
   private var monitor: Any?
   private weak var window: NSWindow?
+  private var onKeyPress: ((String) -> Bool)?
 
   /// Starts one local key monitor while the menu-bar window is visible.
   func start(in window: NSWindow, onKeyPress: @escaping (String) -> Bool) {
     self.window = window
+    self.onKeyPress = onKeyPress
     guard monitor == nil else {
       return
     }
@@ -20,7 +22,7 @@ final class MenuKeyboardMonitor: ObservableObject {
             event.modifierFlags.intersection(disallowedModifiers).isEmpty,
             !Self.isEditingText,
             let characters = event.charactersIgnoringModifiers,
-            onKeyPress(characters) else {
+            self.onKeyPress?(characters) == true else {
         return event
       }
       return nil
@@ -35,6 +37,7 @@ final class MenuKeyboardMonitor: ObservableObject {
     NSEvent.removeMonitor(monitor)
     self.monitor = nil
     window = nil
+    onKeyPress = nil
   }
 
   deinit {
