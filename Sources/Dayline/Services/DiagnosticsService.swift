@@ -137,6 +137,10 @@ struct CrashReportCandidate: Sendable {
   let observedBytes: Int
 }
 
+enum FeedbackDiagnosticsContract {
+  static let maximumArchiveBytes = 1_500_000
+}
+
 /// Builds and saves a user-reviewed ZIP containing bounded logs and recent native crash reports.
 struct DiagnosticsExporter {
   private static let maximumCrashReportBytes = 8 * 1024 * 1024
@@ -190,7 +194,12 @@ struct DiagnosticsExporter {
     }.value
   }
 
-  private static func createArchive(at archiveURL: URL, purpose: DiagnosticArchivePurpose) throws {
+  static func createArchive(
+    at archiveURL: URL,
+    purpose: DiagnosticArchivePurpose,
+    crashReportCandidates: [CrashReportCandidate]? = nil,
+    recorder: DiagnosticLogRecorder = DaylineDiagnostics.recorder
+  ) throws {
     let fileManager = FileManager.default
     let workingRoot = fileManager.temporaryDirectory
       .appendingPathComponent("dayline-diagnostics-\(UUID().uuidString)", isDirectory: true)
@@ -199,9 +208,25 @@ struct DiagnosticsExporter {
 
     try fileManager.createDirectory(at: bundleRoot, withIntermediateDirectories: true)
     try Self.writeSummary(to: bundleRoot, purpose: purpose)
-    try Self.copyLogs(to: bundleRoot)
-    try Self.copyCrashReports(to: bundleRoot)
-    try Self.createZip(from: bundleRoot, at: archiveURL)
+    try Self.copyLogs(to: bundleRoot, recorder: recorder)
+    var stagedCrashReports = try Self.copyCrashReports(
+      to: bundleRoot,
+      candidates: crashReportCandidates
+    )
+    try Self.replaceZip(from: bundleRoot, at: archiveURL)
+
+    if let maximumArchiveBytes = purpose.maximumArchiveBytes {
+      while try Self.fileSize(of: archiveURL) > maximumArchiveBytes {
+        guard let oldestReport = stagedCrashReports.popLast() else {
+          throw DiagnosticsExportError.archiveTooLarge
+        }
+        try fileManager.removeItem(at: oldestReport)
+        if stagedCrashReports.isEmpty {
+          try? fileManager.removeItem(at: oldestReport.deletingLastPathComponent())
+        }
+        try Self.replaceZip(from: bundleRoot, at: archiveURL)
+      }
+    }
   }
 
   private static func writeSummary(to bundleRoot: URL, purpose: DiagnosticArchivePurpose) throws {
@@ -240,21 +265,29 @@ struct DiagnosticsExporter {
     )
   }
 
-  private static func copyLogs(to bundleRoot: URL) throws {
+  private static func copyLogs(
+    to bundleRoot: URL,
+    recorder: DiagnosticLogRecorder
+  ) throws {
     let logsRoot = bundleRoot.appendingPathComponent("Logs", isDirectory: true)
-    try DaylineDiagnostics.recorder.copyAvailableLogs(to: logsRoot)
+    try recorder.copyAvailableLogs(to: logsRoot)
   }
 
-  private static func copyCrashReports(to bundleRoot: URL) throws {
-    let candidates = Self.recentCrashReportCandidates(
+  private static func copyCrashReports(
+    to bundleRoot: URL,
+    candidates suppliedCandidates: [CrashReportCandidate]?
+  ) throws -> [URL] {
+    let candidates = suppliedCandidates ?? Self.recentCrashReportCandidates(
       bundleIdentifier: Bundle.main.bundleIdentifier,
-      displayName: Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Dayline"
+      displayName: Bundle.main.object(
+        forInfoDictionaryKey: "CFBundleDisplayName"
+      ) as? String ?? "Dayline"
     )
     guard !candidates.isEmpty else {
-      return
+      return []
     }
     let crashRoot = bundleRoot.appendingPathComponent("Crash Reports", isDirectory: true)
-    try Self.stageCrashReports(candidates, to: crashRoot)
+    return try Self.stageCrashReports(candidates, to: crashRoot)
   }
 
   /// Discovers matching recent reports in newest-first order without snapshotting them.
@@ -472,6 +505,27 @@ struct DiagnosticsExporter {
     }
   }
 
+  /// Replaces an existing archive only after a complete new ZIP has been produced.
+  private static func replaceZip(from directory: URL, at destination: URL) throws {
+    let fileManager = FileManager.default
+    let replacement = destination.deletingLastPathComponent()
+      .appendingPathComponent(".dayline-zip-\(UUID().uuidString).zip")
+    defer { try? fileManager.removeItem(at: replacement) }
+    try createZip(from: directory, at: replacement)
+    if fileManager.fileExists(atPath: destination.path) {
+      _ = try fileManager.replaceItemAt(destination, withItemAt: replacement)
+    } else {
+      try fileManager.moveItem(at: replacement, to: destination)
+    }
+  }
+
+  private static func fileSize(of url: URL) throws -> Int {
+    guard let fileSize = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize else {
+      throw DiagnosticsExportError.archiveFailed
+    }
+    return fileSize
+  }
+
   private static var defaultArchiveName: String {
     let formatter = DateFormatter()
     formatter.dateFormat = "yyyy-MM-dd-HHmm"
@@ -485,7 +539,7 @@ struct DiagnosticsExporter {
   }
 }
 
-private enum DiagnosticArchivePurpose: Sendable {
+enum DiagnosticArchivePurpose: Sendable {
   case manualExport
   case feedbackAttachment
 
@@ -497,12 +551,27 @@ private enum DiagnosticArchivePurpose: Sendable {
       "This archive was created and uploaded because Include diagnostics was explicitly selected when submitting public feedback. Its public download link expires after 30 days."
     }
   }
+
+  var maximumArchiveBytes: Int? {
+    switch self {
+    case .manualExport:
+      nil
+    case .feedbackAttachment:
+      FeedbackDiagnosticsContract.maximumArchiveBytes
+    }
+  }
 }
 
 enum DiagnosticsExportError: LocalizedError {
   case archiveFailed
+  case archiveTooLarge
 
   var errorDescription: String? {
-    "Dayline could not create the diagnostic archive."
+    switch self {
+    case .archiveFailed:
+      "Dayline could not create the diagnostic archive."
+    case .archiveTooLarge:
+      "Dayline could not reduce the diagnostic archive to the feedback attachment limit."
+    }
   }
 }

@@ -3,7 +3,6 @@ import Foundation
 /// Submits intentionally entered feedback to Dayline's public issue relay.
 struct FeedbackService {
   private let endpoint = URL(string: "https://dayline.robin.build/api/feedback")!
-  private static let maximumDiagnosticsBytes = 1_500_000
 
   /// Sends feedback and returns the public GitHub issue that was created.
   func submit(
@@ -13,7 +12,8 @@ struct FeedbackService {
     diagnosticsArchiveURL: URL? = nil
   ) async throws -> FeedbackIssue {
     let diagnosticsArchive = try diagnosticsArchiveURL.map { try Data(contentsOf: $0) }
-    if let diagnosticsArchive, diagnosticsArchive.count > Self.maximumDiagnosticsBytes {
+    if let diagnosticsArchive,
+       diagnosticsArchive.count > FeedbackDiagnosticsContract.maximumArchiveBytes {
       throw FeedbackServiceError.diagnosticsTooLarge
     }
     let submission = FeedbackSubmission(

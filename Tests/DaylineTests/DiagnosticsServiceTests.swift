@@ -327,6 +327,128 @@ struct DiagnosticsServiceTests {
     #expect(readme.contains("public download link expires after 30 days"))
   }
 
+  @Test func feedbackArchiveTrimsOldestReportsWhileManualExportKeepsAll() throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("dayline-crash-compression-test-\(UUID().uuidString)", isDirectory: true)
+    let logRoot = FileManager.default.temporaryDirectory
+      .appendingPathComponent("dayline-empty-log-test-\(UUID().uuidString)", isDirectory: true)
+    let outputRoot = FileManager.default.temporaryDirectory
+      .appendingPathComponent("dayline-archive-size-test-\(UUID().uuidString)", isDirectory: true)
+    let feedbackArchive = outputRoot.appendingPathComponent("feedback.zip")
+    let manualArchive = outputRoot.appendingPathComponent("manual.zip")
+    let feedbackExtraction = FileManager.default.temporaryDirectory
+      .appendingPathComponent("dayline-feedback-size-extract-\(UUID().uuidString)", isDirectory: true)
+    let manualExtraction = FileManager.default.temporaryDirectory
+      .appendingPathComponent("dayline-manual-size-extract-\(UUID().uuidString)", isDirectory: true)
+    defer {
+      for url in [
+        root,
+        logRoot,
+        outputRoot,
+        feedbackExtraction,
+        manualExtraction,
+      ] {
+        try? FileManager.default.removeItem(at: url)
+      }
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outputRoot, withIntermediateDirectories: true)
+    let now = try #require(ISO8601DateFormatter().date(from: "2026-07-27T10:00:00Z"))
+    let reports = (0..<3).map { root.appendingPathComponent("Dayline-\($0).ips") }
+    for (index, report) in reports.enumerated() {
+      try writeIncompressibleCrashReport(
+        to: report,
+        payloadBytes: 750_000,
+        seed: UInt64(index + 1)
+      )
+      try FileManager.default.setAttributes(
+        [.modificationDate: now.addingTimeInterval(TimeInterval(-index))],
+        ofItemAtPath: report.path
+      )
+    }
+    let candidates = DiagnosticsExporter.recentCrashReportCandidates(
+      bundleIdentifier: "de.obermaier.dayline",
+      displayName: "Dayline",
+      roots: [root],
+      now: now
+    )
+    let recorder = DiagnosticLogRecorder(directoryURL: logRoot)
+
+    try DiagnosticsExporter.createArchive(
+      at: feedbackArchive,
+      purpose: .feedbackAttachment,
+      crashReportCandidates: candidates,
+      recorder: recorder
+    )
+    try DiagnosticsExporter.createArchive(
+      at: manualArchive,
+      purpose: .manualExport,
+      crashReportCandidates: candidates,
+      recorder: recorder
+    )
+
+    let feedbackBytes = try #require(
+      feedbackArchive.resourceValues(forKeys: [.fileSizeKey]).fileSize
+    )
+    let manualBytes = try #require(
+      manualArchive.resourceValues(forKeys: [.fileSizeKey]).fileSize
+    )
+    #expect(feedbackBytes <= FeedbackDiagnosticsContract.maximumArchiveBytes)
+    #expect(manualBytes > FeedbackDiagnosticsContract.maximumArchiveBytes)
+
+    try extractArchive(feedbackArchive, to: feedbackExtraction)
+    try extractArchive(manualArchive, to: manualExtraction)
+    let feedbackNames = try crashReportNames(in: feedbackExtraction)
+    let manualNames = try crashReportNames(in: manualExtraction)
+    let newestNames = candidates.map(\.sourceURL.lastPathComponent)
+    #expect(!feedbackNames.isEmpty)
+    #expect(feedbackNames.count < newestNames.count)
+    #expect(Set(feedbackNames) == Set(newestNames.prefix(feedbackNames.count)))
+    #expect(Set(manualNames) == Set(newestNames))
+    #expect(
+      Set(try FileManager.default.contentsOfDirectory(atPath: outputRoot.path)) ==
+        ["feedback.zip", "manual.zip"]
+    )
+  }
+
+  private func extractArchive(_ archive: URL, to destination: URL) throws {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+    process.arguments = ["-x", "-k", archive.path, destination.path]
+    try process.run()
+    process.waitUntilExit()
+    try #require(process.terminationStatus == 0)
+  }
+
+  private func crashReportNames(in extractionRoot: URL) throws -> [String] {
+    let crashRoot = extractionRoot
+      .appendingPathComponent("Dayline Diagnostics/Crash Reports", isDirectory: true)
+    return try FileManager.default.contentsOfDirectory(atPath: crashRoot.path)
+  }
+
+  private func writeIncompressibleCrashReport(
+    to url: URL,
+    payloadBytes: Int,
+    seed: UInt64
+  ) throws {
+    let header = try JSONSerialization.data(withJSONObject: [
+      "bundleID": "de.obermaier.dayline",
+      "app_name": "Dayline",
+    ])
+    var payload = Data(count: payloadBytes)
+    var state = seed
+    payload.withUnsafeMutableBytes { (buffer: UnsafeMutableRawBufferPointer) in
+      for index in buffer.indices {
+        state = state &* 6_364_136_223_846_793_005 &+ 1
+        buffer[index] = UInt8(32 + (state >> 32) % 95)
+      }
+    }
+    var report = header
+    report.append(0x0a)
+    report.append(payload)
+    try report.write(to: url)
+  }
+
   private func writeCrashHeader(
     bundleID: String,
     appName: String,
