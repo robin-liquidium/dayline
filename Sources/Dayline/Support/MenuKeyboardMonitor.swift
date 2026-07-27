@@ -5,15 +5,19 @@ import Combine
 @MainActor
 final class MenuKeyboardMonitor: ObservableObject {
   private var monitor: Any?
+  private weak var window: NSWindow?
 
   /// Starts one local key monitor while the menu-bar window is visible.
-  func start(onKeyPress: @escaping (String) -> Bool) {
+  func start(in window: NSWindow, onKeyPress: @escaping (String) -> Bool) {
+    self.window = window
     guard monitor == nil else {
       return
     }
-    monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+    monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
       let disallowedModifiers: NSEvent.ModifierFlags = [.command, .control, .option, .function]
-      guard event.modifierFlags.intersection(disallowedModifiers).isEmpty,
+      guard let self,
+            event.window === self.window,
+            event.modifierFlags.intersection(disallowedModifiers).isEmpty,
             !Self.isEditingText,
             let characters = event.charactersIgnoringModifiers,
             onKeyPress(characters) else {
@@ -30,6 +34,7 @@ final class MenuKeyboardMonitor: ObservableObject {
     }
     NSEvent.removeMonitor(monitor)
     self.monitor = nil
+    window = nil
   }
 
   deinit {

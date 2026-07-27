@@ -357,16 +357,21 @@ struct DiagnosticsExporter {
         continue
       }
       let partial = crashRoot.appendingPathComponent(".partial-\(UUID().uuidString)")
-      defer { try? fileManager.removeItem(at: partial) }
       guard let copiedBytes = boundedCrashReportSnapshot(
         candidate,
         to: partial,
         maximumBytes: remainingBytes
       ) else {
+        try? fileManager.removeItem(at: partial)
         continue
       }
 
-      try fileManager.moveItem(at: partial, to: destination)
+      do {
+        try fileManager.moveItem(at: partial, to: destination)
+      } catch {
+        try? fileManager.removeItem(at: partial)
+        throw error
+      }
       accepted.append(destination)
       acceptedBytes += copiedBytes
       if accepted.count >= maximumCount {

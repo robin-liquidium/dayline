@@ -79,11 +79,19 @@ struct StatusMenuView: View {
       footerBar
     }
     .frame(width: 400)
+    .background {
+      MenuWindowReader { window in
+        guard let window else {
+          keyboardMonitor.stop()
+          return
+        }
+        keyboardMonitor.start(in: window) { characters in
+          handleKeyPress(characters)
+        }
+      }
+    }
     .onAppear {
       DaylineDiagnostics.record("Menu bar window appeared", category: .menuBar)
-      keyboardMonitor.start { characters in
-        handleKeyPress(characters)
-      }
     }
     .onDisappear {
       keyboardMonitor.stop()
@@ -284,6 +292,38 @@ struct StatusMenuView: View {
   private func openGitHubIssueCreator() {
     openWindow(id: "githubIssueCreator")
     GitHubIssueEditorWindowPresenter.bringIssueWindowToFront()
+  }
+}
+
+/// Reports the AppKit window hosting the menu content so keyboard handling stays scoped to it.
+private struct MenuWindowReader: NSViewRepresentable {
+  let onWindowChange: (NSWindow?) -> Void
+
+  func makeNSView(context: Context) -> MenuWindowReaderView {
+    MenuWindowReaderView(onWindowChange: onWindowChange)
+  }
+
+  func updateNSView(_ nsView: MenuWindowReaderView, context: Context) {
+    nsView.onWindowChange = onWindowChange
+  }
+}
+
+private final class MenuWindowReaderView: NSView {
+  var onWindowChange: (NSWindow?) -> Void
+
+  init(onWindowChange: @escaping (NSWindow?) -> Void) {
+    self.onWindowChange = onWindowChange
+    super.init(frame: .zero)
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    onWindowChange(window)
   }
 }
 
