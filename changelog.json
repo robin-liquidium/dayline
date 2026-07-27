@@ -1,6 +1,27 @@
 {
   "releases": [
     {
+      "version": "0.1.12",
+      "date": "2026-07-27",
+      "new": [
+        {
+          "title": "Crash diagnostics",
+          "text": "Export a privacy-conscious diagnostics ZIP from Settings → General, or optionally attach one when reporting a bug. Shared diagnostics are linked from the public GitHub issue and automatically deleted after 30 days.",
+          "pr": 35
+        }
+      ],
+      "fixed": [
+        {
+          "text": "Fixed full-screen meeting alerts sometimes crashing Dayline after being dismissed, particularly on macOS 27 beta.",
+          "pr": 35
+        },
+        {
+          "text": "Improved status-menu keyboard handling and added release debug symbols so future crash reports are easier to diagnose.",
+          "pr": 35
+        }
+      ]
+    },
+    {
       "version": "0.1.11",
       "date": "2026-07-24",
       "new": [
