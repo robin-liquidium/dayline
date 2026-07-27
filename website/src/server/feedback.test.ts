@@ -999,7 +999,7 @@ describe("GitHub issue creation outcome", () => {
     ["GitHub server failure", async () => new Response(null, { status: 503 })],
     ["malformed success", async () => Response.json({}, { status: 201 })],
   ])("classifies %s as ambiguous", async (_name, send) => {
-    expect(resolveGitHubIssueCreation(send)).rejects.toBeInstanceOf(
+    await expect(resolveGitHubIssueCreation(send)).rejects.toBeInstanceOf(
       AmbiguousIssueCreationError,
     );
   });
