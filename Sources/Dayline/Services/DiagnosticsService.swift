@@ -94,9 +94,21 @@ final class DiagnosticLogRecorder: @unchecked Sendable {
     }
   }
 
-  /// Existing ring files in newest-first order for diagnostic export.
-  var availableLogURLs: [URL] {
-    [currentLogURL, previousLogURL].filter { fileManager.fileExists(atPath: $0.path) }
+  /// Copies existing ring files while rotation is paused, preserving newest-first names.
+  func copyAvailableLogs(to destinationDirectoryURL: URL) throws {
+    lock.lock()
+    defer { lock.unlock() }
+
+    try fileManager.createDirectory(at: destinationDirectoryURL, withIntermediateDirectories: true)
+    for source in [currentLogURL, previousLogURL] {
+      guard fileManager.fileExists(atPath: source.path) else {
+        continue
+      }
+      try fileManager.copyItem(
+        at: source,
+        to: destinationDirectoryURL.appendingPathComponent(source.lastPathComponent)
+      )
+    }
   }
 
   private func rotateIfNeeded(forAdditionalBytes additionalBytes: Int) {
@@ -120,12 +132,10 @@ final class DiagnosticLogRecorder: @unchecked Sendable {
 }
 
 /// Builds and saves a user-reviewed ZIP containing bounded logs and recent native crash reports.
-@MainActor
 struct DiagnosticsExporter {
-  private let fileManager = FileManager.default
-
   /// Presents a standard save panel and returns the saved archive, or nil when cancelled.
-  func export() throws -> URL? {
+  @MainActor
+  func export() async throws -> URL? {
     let panel = NSSavePanel()
     panel.title = "Export Dayline Diagnostics"
     panel.prompt = "Export"
@@ -139,46 +149,52 @@ struct DiagnosticsExporter {
     DaylineDiagnostics.record("Diagnostic export started", category: .feedback)
     let stagedArchiveURL = destination.deletingLastPathComponent()
       .appendingPathComponent(".dayline-diagnostics-\(UUID().uuidString).zip")
-    defer { try? fileManager.removeItem(at: stagedArchiveURL) }
-    try createArchive(at: stagedArchiveURL, purpose: .manualExport)
-
-    if fileManager.fileExists(atPath: destination.path) {
-      _ = try fileManager.replaceItemAt(destination, withItemAt: stagedArchiveURL)
-    } else {
-      try fileManager.moveItem(at: stagedArchiveURL, to: destination)
-    }
+    try await Task.detached(priority: .userInitiated) {
+      let fileManager = FileManager.default
+      defer { try? fileManager.removeItem(at: stagedArchiveURL) }
+      try Self.createArchive(at: stagedArchiveURL, purpose: .manualExport)
+      if fileManager.fileExists(atPath: destination.path) {
+        _ = try fileManager.replaceItemAt(destination, withItemAt: stagedArchiveURL)
+      } else {
+        try fileManager.moveItem(at: stagedArchiveURL, to: destination)
+      }
+    }.value
     DaylineDiagnostics.record("Diagnostic export completed", category: .feedback)
     return destination
   }
 
   /// Creates an archive for an explicitly opted-in feedback submission.
   /// The caller owns and must remove the returned temporary file.
-  func createFeedbackAttachment() throws -> URL {
-    let archiveURL = fileManager.temporaryDirectory
-      .appendingPathComponent("Dayline-Diagnostics-\(UUID().uuidString).zip")
-    do {
-      try createArchive(at: archiveURL, purpose: .feedbackAttachment)
-      return archiveURL
-    } catch {
-      try? fileManager.removeItem(at: archiveURL)
-      throw error
-    }
+  func createFeedbackAttachment() async throws -> URL {
+    try await Task.detached(priority: .userInitiated) {
+      let fileManager = FileManager.default
+      let archiveURL = fileManager.temporaryDirectory
+        .appendingPathComponent("Dayline-Diagnostics-\(UUID().uuidString).zip")
+      do {
+        try Self.createArchive(at: archiveURL, purpose: .feedbackAttachment)
+        return archiveURL
+      } catch {
+        try? fileManager.removeItem(at: archiveURL)
+        throw error
+      }
+    }.value
   }
 
-  private func createArchive(at archiveURL: URL, purpose: DiagnosticArchivePurpose) throws {
+  private static func createArchive(at archiveURL: URL, purpose: DiagnosticArchivePurpose) throws {
+    let fileManager = FileManager.default
     let workingRoot = fileManager.temporaryDirectory
       .appendingPathComponent("dayline-diagnostics-\(UUID().uuidString)", isDirectory: true)
     let bundleRoot = workingRoot.appendingPathComponent("Dayline Diagnostics", isDirectory: true)
     defer { try? fileManager.removeItem(at: workingRoot) }
 
     try fileManager.createDirectory(at: bundleRoot, withIntermediateDirectories: true)
-    try writeSummary(to: bundleRoot, purpose: purpose)
-    try copyLogs(to: bundleRoot)
-    try copyCrashReports(to: bundleRoot)
-    try createZip(from: bundleRoot, at: archiveURL)
+    try Self.writeSummary(to: bundleRoot, purpose: purpose)
+    try Self.copyLogs(to: bundleRoot)
+    try Self.copyCrashReports(to: bundleRoot)
+    try Self.createZip(from: bundleRoot, at: archiveURL)
   }
 
-  private func writeSummary(to bundleRoot: URL, purpose: DiagnosticArchivePurpose) throws {
+  private static func writeSummary(to bundleRoot: URL, purpose: DiagnosticArchivePurpose) throws {
     let info = Bundle.main.infoDictionary
     let version = info?["CFBundleShortVersionString"] as? String ?? "Unknown"
     let build = info?["CFBundleVersion"] as? String ?? "Unknown"
@@ -214,15 +230,12 @@ struct DiagnosticsExporter {
     )
   }
 
-  private func copyLogs(to bundleRoot: URL) throws {
+  private static func copyLogs(to bundleRoot: URL) throws {
     let logsRoot = bundleRoot.appendingPathComponent("Logs", isDirectory: true)
-    try fileManager.createDirectory(at: logsRoot, withIntermediateDirectories: true)
-    for source in DaylineDiagnostics.recorder.availableLogURLs {
-      try fileManager.copyItem(at: source, to: logsRoot.appendingPathComponent(source.lastPathComponent))
-    }
+    try DaylineDiagnostics.recorder.copyAvailableLogs(to: logsRoot)
   }
 
-  private func copyCrashReports(to bundleRoot: URL) throws {
+  private static func copyCrashReports(to bundleRoot: URL) throws {
     let reports = Self.recentCrashReports(
       bundleIdentifier: Bundle.main.bundleIdentifier,
       displayName: Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Dayline"
@@ -231,6 +244,7 @@ struct DiagnosticsExporter {
       return
     }
     let crashRoot = bundleRoot.appendingPathComponent("Crash Reports", isDirectory: true)
+    let fileManager = FileManager.default
     try fileManager.createDirectory(at: crashRoot, withIntermediateDirectories: true)
     for source in reports {
       try fileManager.copyItem(at: source, to: crashRoot.appendingPathComponent(source.lastPathComponent))
@@ -295,7 +309,7 @@ struct DiagnosticsExporter {
     return object["app_name"] as? String == displayName
   }
 
-  private func createZip(from directory: URL, at destination: URL) throws {
+  private static func createZip(from directory: URL, at destination: URL) throws {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
     process.arguments = [
@@ -322,7 +336,7 @@ struct DiagnosticsExporter {
   }
 }
 
-private enum DiagnosticArchivePurpose {
+private enum DiagnosticArchivePurpose: Sendable {
   case manualExport
   case feedbackAttachment
 

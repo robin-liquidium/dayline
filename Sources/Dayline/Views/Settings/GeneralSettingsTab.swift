@@ -54,7 +54,7 @@ struct GeneralSettingsTab: View {
         .accessibilityIdentifier("settings.submitFeedback")
 
         Button("Export Diagnostics...") {
-          exportDiagnostics()
+          Task { await exportDiagnostics() }
         }
         .accessibilityIdentifier("settings.exportDiagnostics")
 
@@ -141,11 +141,11 @@ struct GeneralSettingsTab: View {
     minutes == 60 ? "Every hour" : "Every \(minutes) minutes"
   }
 
-  private func exportDiagnostics() {
+  private func exportDiagnostics() async {
     diagnosticExportStatus = nil
     diagnosticExportError = nil
     do {
-      if let destination = try DiagnosticsExporter().export() {
+      if let destination = try await DiagnosticsExporter().export() {
         diagnosticExportStatus = "Saved \(destination.lastPathComponent)"
       }
     } catch {

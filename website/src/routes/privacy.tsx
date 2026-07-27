@@ -80,7 +80,10 @@ function PrivacyPolicy() {
           to a Dayline-operated server. If
           you submit feedback, the feedback is sent through Dayline&apos;s
           Cloudflare Worker and posted as a public issue in Dayline&apos;s GitHub
-          repository. The Worker does not retain the feedback.
+          repository. The Worker does not retain the feedback message or
+          anonymous app and system information. If you explicitly include a
+          diagnostic archive, the Worker stores that archive behind the public,
+          unguessable link added to the issue for up to 30 days.
         </p>
         <p>
           Cloudflare necessarily processes the connection&apos;s IP address. To

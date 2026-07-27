@@ -20,7 +20,34 @@ struct DiagnosticsServiceTests {
     #expect(previous.contains("[lifecycle]"))
   }
 
-  @MainActor
+  @Test func diagnosticLogCopiesTheStableRingNames() throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("dayline-log-copy-test-\(UUID().uuidString)", isDirectory: true)
+    let destination = FileManager.default.temporaryDirectory
+      .appendingPathComponent("dayline-log-copy-destination-\(UUID().uuidString)", isDirectory: true)
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: destination)
+    }
+    let recorder = DiagnosticLogRecorder(directoryURL: root, maximumBytes: 110)
+    let date = try #require(ISO8601DateFormatter().date(from: "2026-07-27T10:00:00Z"))
+    recorder.append(String(repeating: "a", count: 70), category: .lifecycle, date: date)
+    recorder.append("newest", category: .menuBar, date: date.addingTimeInterval(1))
+
+    try recorder.copyAvailableLogs(to: destination)
+
+    let current = try String(
+      contentsOf: destination.appendingPathComponent("dayline.log"),
+      encoding: .utf8
+    )
+    let previous = try String(
+      contentsOf: destination.appendingPathComponent("dayline.previous.log"),
+      encoding: .utf8
+    )
+    #expect(current.contains("[menuBar] newest"))
+    #expect(previous.contains("[lifecycle]"))
+  }
+
   @Test func crashReportDiscoveryUsesBundleIdentifierAndRecency() throws {
     let root = FileManager.default.temporaryDirectory
       .appendingPathComponent("dayline-crash-test-\(UUID().uuidString)", isDirectory: true)
@@ -54,9 +81,8 @@ struct DiagnosticsServiceTests {
     #expect(reports.map { $0.resolvingSymlinksInPath() } == [matching.resolvingSymlinksInPath()])
   }
 
-  @MainActor
-  @Test func feedbackAttachmentDisclosesThePublicUpload() throws {
-    let archive = try DiagnosticsExporter().createFeedbackAttachment()
+  @Test func feedbackAttachmentDisclosesThePublicUpload() async throws {
+    let archive = try await DiagnosticsExporter().createFeedbackAttachment()
     let extractionRoot = FileManager.default.temporaryDirectory
       .appendingPathComponent("dayline-feedback-archive-test-\(UUID().uuidString)", isDirectory: true)
     defer {

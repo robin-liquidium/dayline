@@ -548,21 +548,21 @@ ensure_symbols_asset() {
   local state_json="$2"
   local symbols_asset symbols_sha symbols_id verification_path
 
-  symbols_asset="$(jq -r '.symbols_asset // empty' <<< "$state_json")"
-  symbols_sha="$(jq -r '.symbols_sha256 // empty' <<< "$state_json")"
+  symbols_asset="$(jq -r '.symbols_asset // empty' <<< "$state_json")" || return 1
+  symbols_sha="$(jq -r '.symbols_sha256 // empty' <<< "$state_json")" || return 1
   # Drafts created before symbol preservation was introduced remain resumable.
   [[ -n "$symbols_asset" && -n "$symbols_sha" ]] || return 0
 
-  symbols_id="$(jq -r --arg name "$symbols_asset" '.assets[]? | select(.name == $name) | .id' <<< "$release_json")"
+  symbols_id="$(jq -r --arg name "$symbols_asset" '.assets[]? | select(.name == $name) | .id' <<< "$release_json")" || return 1
   if [[ -z "$symbols_id" ]]; then
     echo "Draft release is missing required debug symbols: $symbols_asset" >&2
     return 1
   fi
-  mkdir -p "$WORK_DIR"
+  mkdir -p "$WORK_DIR" || return 1
   verification_path="$WORK_DIR/verify-$symbols_asset"
   download_asset "$release_json" "$symbols_asset" "$verification_path" || return 1
   verify_sha256 "$verification_path" "$symbols_sha" || return 1
-  rm -f "$verification_path"
+  rm -f "$verification_path" || return 1
 }
 
 continue_release() {

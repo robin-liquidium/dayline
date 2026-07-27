@@ -154,7 +154,7 @@ struct FeedbackView: View {
 
     do {
       let diagnosticsArchiveURL = includesDiagnostics
-        ? try DiagnosticsExporter().createFeedbackAttachment()
+        ? try await DiagnosticsExporter().createFeedbackAttachment()
         : nil
       defer {
         if let diagnosticsArchiveURL {
