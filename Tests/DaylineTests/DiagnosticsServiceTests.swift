@@ -224,9 +224,12 @@ struct DiagnosticsServiceTests {
       .appendingPathComponent("dayline-crash-count-test-\(UUID().uuidString)", isDirectory: true)
     let stagingRoot = FileManager.default.temporaryDirectory
       .appendingPathComponent("dayline-crash-count-staging-\(UUID().uuidString)", isDirectory: true)
+    let emptyCleanupRoot = FileManager.default.temporaryDirectory
+      .appendingPathComponent("dayline-crash-empty-staging-\(UUID().uuidString)", isDirectory: true)
     defer {
       try? FileManager.default.removeItem(at: root)
       try? FileManager.default.removeItem(at: stagingRoot)
+      try? FileManager.default.removeItem(at: emptyCleanupRoot)
     }
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     let now = try #require(ISO8601DateFormatter().date(from: "2026-07-27T10:00:00Z"))
@@ -252,10 +255,52 @@ struct DiagnosticsServiceTests {
       to: stagingRoot,
       maximumCount: -1
     )
+    let skipped = try DiagnosticsExporter.stageCrashReports(
+      candidates,
+      to: emptyCleanupRoot,
+      maximumIndividualBytes: 1
+    )
 
     #expect(reports.isEmpty)
     #expect(staged.isEmpty)
+    #expect(skipped.isEmpty)
     #expect(!FileManager.default.fileExists(atPath: stagingRoot.path))
+    #expect(!FileManager.default.fileExists(atPath: emptyCleanupRoot.path))
+  }
+
+  @Test func skippedReportsNeverRemoveAPreexistingCrashDirectory() throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("dayline-crash-owned-test-\(UUID().uuidString)", isDirectory: true)
+    let stagingRoot = FileManager.default.temporaryDirectory
+      .appendingPathComponent("dayline-crash-owned-staging-\(UUID().uuidString)", isDirectory: true)
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: stagingRoot)
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: stagingRoot, withIntermediateDirectories: true)
+    let sentinel = stagingRoot.appendingPathComponent("sentinel.txt")
+    try Data("keep me".utf8).write(to: sentinel)
+    let now = try #require(ISO8601DateFormatter().date(from: "2026-07-27T10:00:00Z"))
+    let report = root.appendingPathComponent("Dayline-current.ips")
+    try writeCrashHeader(bundleID: "de.obermaier.dayline", appName: "Dayline", to: report)
+    try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: report.path)
+    let candidates = DiagnosticsExporter.recentCrashReportCandidates(
+      bundleIdentifier: "de.obermaier.dayline",
+      displayName: "Dayline",
+      roots: [root],
+      now: now
+    )
+
+    let staged = try DiagnosticsExporter.stageCrashReports(
+      candidates,
+      to: stagingRoot,
+      maximumIndividualBytes: 1
+    )
+
+    #expect(staged.isEmpty)
+    #expect(FileManager.default.fileExists(atPath: stagingRoot.path))
+    #expect(try Data(contentsOf: sentinel) == Data("keep me".utf8))
   }
 
   @Test func feedbackAttachmentDisclosesThePublicUpload() async throws {

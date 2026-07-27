@@ -295,7 +295,19 @@ struct DiagnosticsExporter {
     }
 
     let fileManager = FileManager.default
-    try fileManager.createDirectory(at: crashRoot, withIntermediateDirectories: true)
+    var createdCrashRoot = false
+    if !fileManager.fileExists(atPath: crashRoot.path) {
+      do {
+        try fileManager.createDirectory(at: crashRoot, withIntermediateDirectories: false)
+        createdCrashRoot = true
+      } catch {
+        var isDirectory = ObjCBool(false)
+        guard fileManager.fileExists(atPath: crashRoot.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+          throw error
+        }
+      }
+    }
     var accepted: [URL] = []
     var acceptedBytes = 0
     for candidate in candidates {
@@ -328,7 +340,7 @@ struct DiagnosticsExporter {
         break
       }
     }
-    if accepted.isEmpty {
+    if accepted.isEmpty && createdCrashRoot {
       try? fileManager.removeItem(at: crashRoot)
     }
     return accepted
