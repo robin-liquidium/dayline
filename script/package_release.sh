@@ -301,6 +301,13 @@ create_debug_symbols() {
   /usr/bin/ditto -c -k --keepParent "$source_dsym" "$SYMBOLS_PATH"
 }
 
+# `ditto --sequesterRsrc` mutates signed app contents on macOS 27 beta and
+# invalidates the bundle signature. Dayline does not require resource forks.
+create_app_zip() {
+  local destination="$1"
+  /usr/bin/ditto -c -k --keepParent "$APP_BUNDLE" "$destination"
+}
+
 # Runs notarytool with local or CI credentials.
 notarytool_with_credentials() {
   if [[ -n "${NOTARY_PROFILE:-}" ]]; then
@@ -368,7 +375,7 @@ submit_for_notarization() {
 # notarize_app submits a temporary ZIP, then staples the ticket to the app.
 notarize_app() {
   rm -f "$NOTARY_ZIP"
-  /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$NOTARY_ZIP"
+  create_app_zip "$NOTARY_ZIP"
   submit_for_notarization "$NOTARY_ZIP"
   xcrun stapler staple "$APP_BUNDLE"
   xcrun stapler validate "$APP_BUNDLE"
@@ -435,7 +442,7 @@ if [[ "$PACKAGE_EXISTING" == true ]]; then
   xcrun stapler validate "$APP_BUNDLE"
   rm -rf "$ARTIFACT_DIR"
   mkdir -p "$ARTIFACT_DIR"
-  /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$ZIP_PATH"
+  create_app_zip "$ZIP_PATH"
   create_dmg
 
   cat <<SUMMARY
@@ -465,7 +472,7 @@ sign_path "$APP_BUNDLE"
 
 if [[ "$PREPARE_NOTARIZATION" == true ]]; then
   rm -f "$NOTARY_ZIP"
-  /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$NOTARY_ZIP"
+  create_app_zip "$NOTARY_ZIP"
   echo "Prepared signed app for asynchronous notarization: $NOTARY_ZIP"
   echo "Preserved matching debug symbols: $SYMBOLS_PATH"
   exit 0
@@ -475,7 +482,7 @@ if [[ "$NOTARIZE" == true ]]; then
   notarize_app
 fi
 
-/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$ZIP_PATH"
+create_app_zip "$ZIP_PATH"
 create_dmg
 
 if [[ "$NOTARIZE" == true ]]; then
