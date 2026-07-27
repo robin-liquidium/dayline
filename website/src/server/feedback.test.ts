@@ -6,6 +6,7 @@ import {
   handleFeedbackAttachmentRequest,
   handleFeedbackRequest,
   makeGitHubIssueDraft,
+  resolveGitHubIssueCreation,
 } from "./feedback";
 
 function environment(
@@ -975,5 +976,40 @@ describe("feedback endpoint", () => {
     });
     expect(burstKeys).toHaveLength(1);
     expect(createdIssue).toBe(false);
+  });
+});
+
+describe("GitHub issue creation outcome", () => {
+  test("returns a valid created issue", async () => {
+    const issue = await resolveGitHubIssueCreation(async () =>
+      Response.json(
+        { html_url: "https://github.com/example/issues/42", number: 42 },
+        { status: 201 },
+      ),
+    );
+
+    expect(issue).toEqual({
+      html_url: "https://github.com/example/issues/42",
+      number: 42,
+    });
+  });
+
+  test.each([
+    ["network failure", async () => Promise.reject(new Error("network lost"))],
+    ["GitHub server failure", async () => new Response(null, { status: 503 })],
+    ["malformed success", async () => Response.json({}, { status: 201 })],
+  ])("classifies %s as ambiguous", async (_name, send) => {
+    expect(resolveGitHubIssueCreation(send)).rejects.toBeInstanceOf(
+      AmbiguousIssueCreationError,
+    );
+  });
+
+  test("classifies a GitHub client failure as definite", async () => {
+    const error = await resolveGitHubIssueCreation(async () =>
+      new Response(null, { status: 422 }),
+    ).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(AmbiguousIssueCreationError);
   });
 });

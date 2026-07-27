@@ -960,23 +960,32 @@ async function createGitHubIssue(
   }
 
   const installation = (await installationResponse.json()) as { token?: string };
-  if (!installation.token) {
+  const installationToken = installation.token;
+  if (!installationToken) {
     throw new Error("GitHub did not return an installation token.");
   }
 
-  let issueResponse: Response;
-  try {
-    issueResponse = await fetch(
+  return resolveGitHubIssueCreation(() =>
+    fetch(
       `https://api.github.com/repos/${githubOwner}/${githubRepository}/issues`,
       {
         method: "POST",
         headers: {
-          ...githubHeaders(installation.token),
+          ...githubHeaders(installationToken),
           "Content-Type": "application/json",
         },
         body: JSON.stringify(makeGitHubIssueDraft(submission)),
       },
-    );
+    ),
+  );
+}
+
+export async function resolveGitHubIssueCreation(
+  send: () => Promise<Response>,
+): Promise<GitHubIssue> {
+  let issueResponse: Response;
+  try {
+    issueResponse = await send();
   } catch {
     throw new AmbiguousIssueCreationError(
       "GitHub issue request outcome is unknown.",
