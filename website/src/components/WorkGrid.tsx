@@ -19,23 +19,23 @@ type Item = {
 const items: Array<Item> = [
   {
     icon: CalendarIcon,
-    title: "Menu-bar only, on purpose",
-    body: "No dock icon, no windows vying for attention. One click on the menu bar and your day unfolds; click away and it’s gone.",
+    title: "Menu-bar first, on purpose",
+    body: "Your day lives behind one menu bar click. Editors and searchable settings open as focused native windows, then Dayline slips out of the Dock when you close them.",
   },
   {
     icon: RefreshIcon,
     title: "Always quietly fresh",
-    body: "Dayline refreshes your calendar, issues, and notes in the background on a cadence you choose.",
+    body: "Dayline refreshes calendars and issues in the background on a cadence you choose, and can install new versions automatically.",
   },
   {
     icon: KeyboardIcon,
     title: "Keyboard first",
-    body: "Hover an issue and press C to copy its URL, S for status, P for priority. Remap them to whatever your fingers prefer.",
+    body: "Create notes or Linear and GitHub issues from anywhere. Hover an issue for configurable shortcuts to copy, change status, labels, assignees, and more.",
   },
   {
     icon: SwipeIcon,
     title: "Swipe to act",
-    body: "A horizontal swipe across an issue reveals Cancel; across a note, Delete. No confirmation dialogs, no fuss.",
+    body: "Swipe a Linear issue to cancel it or a note to delete it. Dayline asks before it commits the destructive action.",
   },
   {
     icon: PowerIcon,
@@ -44,8 +44,8 @@ const items: Array<Item> = [
   },
   {
     icon: SortIcon,
-    title: "Sorted your way",
-    body: "Order Linear issues by what matters to you, and notes by updated, created, or title. Your day, your order.",
+    title: "Your menu, your rules",
+    body: "Hide calendar, issues, or notes entirely. Pick your Linear teams and GitHub repositories, filter assigned or all-open work, and sort the rest your way.",
   },
   {
     icon: FeatherIcon,
@@ -54,8 +54,8 @@ const items: Array<Item> = [
   },
   {
     icon: MenuBarIcon,
-    title: "Your next event, always visible",
-    body: "The next calendar event and its countdown appear directly in the menu bar, so you know what’s coming without opening a thing.",
+    title: "Never miss the meeting",
+    body: "The current or next event stays visible beside the clock. Optional full-screen alerts count down, open the meeting in one click, and dismiss with Esc.",
   },
 ];
 
