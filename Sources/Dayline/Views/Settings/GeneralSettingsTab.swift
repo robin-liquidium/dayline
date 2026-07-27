@@ -6,6 +6,7 @@ struct GeneralSettingsTab: View {
   @EnvironmentObject private var updateService: UpdateService
   @Environment(\.openURL) private var openURL
   @State private var isShowingFeedback = false
+  @State private var isExportingDiagnostics = false
   @State private var diagnosticExportStatus: String?
   @State private var diagnosticExportError: String?
 
@@ -56,6 +57,7 @@ struct GeneralSettingsTab: View {
         Button("Export Diagnostics...") {
           Task { await exportDiagnostics() }
         }
+        .disabled(isExportingDiagnostics)
         .accessibilityIdentifier("settings.exportDiagnostics")
 
         if let diagnosticExportStatus {
@@ -141,7 +143,14 @@ struct GeneralSettingsTab: View {
     minutes == 60 ? "Every hour" : "Every \(minutes) minutes"
   }
 
+  @MainActor
   private func exportDiagnostics() async {
+    guard !isExportingDiagnostics else {
+      return
+    }
+    isExportingDiagnostics = true
+    defer { isExportingDiagnostics = false }
+
     diagnosticExportStatus = nil
     diagnosticExportError = nil
     do {

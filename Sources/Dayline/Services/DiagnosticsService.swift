@@ -133,6 +133,10 @@ final class DiagnosticLogRecorder: @unchecked Sendable {
 
 /// Builds and saves a user-reviewed ZIP containing bounded logs and recent native crash reports.
 struct DiagnosticsExporter {
+  private static let maximumCrashReportBytes = 8 * 1024 * 1024
+  // Leaves more than 1 MiB for the bounded two-file log ring and README.
+  private static let maximumCrashReportTotalBytes = 23 * 1024 * 1024
+
   /// Presents a standard save panel and returns the saved archive, or nil when cancelled.
   @MainActor
   func export() async throws -> URL? {
@@ -256,36 +260,52 @@ struct DiagnosticsExporter {
     bundleIdentifier: String?,
     displayName: String,
     roots: [URL]? = nil,
-    now: Date = Date()
+    now: Date = Date(),
+    maximumIndividualBytes: Int = maximumCrashReportBytes,
+    maximumTotalBytes: Int = maximumCrashReportTotalBytes,
+    maximumCount: Int = 5
   ) -> [URL] {
     let cutoff = now.addingTimeInterval(-14 * 24 * 60 * 60)
-    var matches: [(url: URL, date: Date)] = []
+    var matches: [(url: URL, date: Date, size: Int)] = []
 
     for root in roots ?? defaultCrashReportRoots {
       guard let enumerator = FileManager.default.enumerator(
         at: root,
-        includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+        includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey],
         options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
       ) else {
         continue
       }
       for case let url as URL in enumerator {
         guard url.pathExtension == "ips",
-              let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey]),
+              let values = try? url.resourceValues(
+                forKeys: [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey]
+              ),
               values.isRegularFile == true,
               let modifiedAt = values.contentModificationDate,
+              let fileSize = values.fileSize,
               modifiedAt >= cutoff,
               crashReport(at: url, matchesBundleIdentifier: bundleIdentifier, displayName: displayName) else {
           continue
         }
-        matches.append((url, modifiedAt))
+        matches.append((url, modifiedAt, fileSize))
       }
     }
 
-    return matches
-      .sorted { $0.date > $1.date }
-      .prefix(5)
-      .map(\.url)
+    var selected: [URL] = []
+    var selectedBytes = 0
+    for match in matches.sorted(by: { $0.date > $1.date }) {
+      guard match.size <= maximumIndividualBytes,
+            selectedBytes + match.size <= maximumTotalBytes else {
+        continue
+      }
+      selected.append(match.url)
+      selectedBytes += match.size
+      if selected.count == maximumCount {
+        break
+      }
+    }
+    return selected
   }
 
   private static func crashReport(

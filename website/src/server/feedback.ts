@@ -132,7 +132,9 @@ export async function handleFeedbackRequest(
   let submission: FeedbackSubmission;
   let diagnosticsArchive: ArrayBuffer | undefined;
   try {
-    ({ submission, diagnosticsArchive } = validateSubmission(JSON.parse(rawBody)));
+    ({ submission, diagnosticsArchive } = await validateSubmission(
+      JSON.parse(rawBody),
+    ));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid feedback.";
     return jsonResponse({ error: message }, 400);
@@ -296,10 +298,10 @@ export function makeGitHubIssueDraft(
   };
 }
 
-function validateSubmission(value: unknown): {
+async function validateSubmission(value: unknown): Promise<{
   submission: FeedbackSubmission;
   diagnosticsArchive?: ArrayBuffer;
-} {
+}> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Invalid feedback.");
   }
@@ -323,19 +325,21 @@ function validateSubmission(value: unknown): {
     throw new Error(`Feedback must be ${maximumMessageLength} characters or fewer.`);
   }
 
+  const metadata =
+    candidate.metadata === undefined
+      ? undefined
+      : validateMetadata(candidate.metadata);
+  const diagnosticsArchive =
+    candidate.diagnosticsArchive === undefined
+      ? undefined
+      : await validateDiagnosticsArchive(candidate.diagnosticsArchive);
   return {
     submission: {
       category: candidate.category as FeedbackCategory,
       message,
-      metadata:
-        candidate.metadata === undefined
-          ? undefined
-          : validateMetadata(candidate.metadata),
+      metadata,
     },
-    diagnosticsArchive:
-      candidate.diagnosticsArchive === undefined
-        ? undefined
-        : validateDiagnosticsArchive(candidate.diagnosticsArchive),
+    diagnosticsArchive,
   };
 }
 
@@ -396,7 +400,24 @@ function validateMetadata(value: unknown): FeedbackMetadata {
   return metadata as unknown as FeedbackMetadata;
 }
 
-function validateDiagnosticsArchive(value: unknown): ArrayBuffer {
+interface CentralZipEntry {
+  path: string;
+  flags: number;
+  method: number;
+  expectedCRC32: number;
+  compressedSize: number;
+  uncompressedSize: number;
+  localHeaderOffset: number;
+  isDirectory: boolean;
+}
+
+interface ParsedZipEntry extends CentralZipEntry {
+  dataStart: number;
+  dataEnd: number;
+  localEnd: number;
+}
+
+async function validateDiagnosticsArchive(value: unknown): Promise<ArrayBuffer> {
   const maximumBase64Length = Math.ceil(maximumDiagnosticsBytes / 3) * 4;
   if (
     typeof value !== "string" ||
@@ -419,16 +440,21 @@ function validateDiagnosticsArchive(value: unknown): ArrayBuffer {
   ) {
     throw new Error("Invalid diagnostic archive.");
   }
-  validateDiagnosticsZipStructure(archive);
+  try {
+    const entries = parseDiagnosticsZip(archive);
+    await verifyDiagnosticsZipContents(archive, entries);
+  } catch {
+    throw new Error("Invalid diagnostic archive.");
+  }
   return archive.buffer as ArrayBuffer;
 }
 
 /**
- * Validates the ZIP records we accept without extracting attacker-controlled data.
- * Field offsets follow PKWARE's APPNOTE local header, central directory, and EOCD
- * layouts. Dayline diagnostics use only stored or deflated, non-ZIP64 entries.
+ * Parses the APPNOTE records without trusting entry contents. Central records
+ * define the expected entries; local records must cover the entire local-data
+ * region exactly once with no prefix, hidden record, overlap, or gap.
  */
-function validateDiagnosticsZipStructure(archive: Uint8Array): void {
+function parseDiagnosticsZip(archive: Uint8Array): ParsedZipEntry[] {
   const view = new DataView(archive.buffer, archive.byteOffset, archive.byteLength);
   const endOfCentralDirectory = findEndOfCentralDirectory(view);
   if (endOfCentralDirectory === undefined) {
@@ -460,12 +486,12 @@ function validateDiagnosticsZipStructure(archive: Uint8Array): void {
     throw new Error("Invalid diagnostic archive.");
   }
 
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  const localRanges: Array<{ start: number; end: number }> = [];
+  const centralEntries: CentralZipEntry[] = [];
   let cursor = centralDirectoryOffset;
-  let totalUncompressedBytes = 0;
   let hasReadme = false;
   const paths = new Set<string>();
+  const localOffsets = new Set<number>();
+  let declaredUncompressedBytes = 0;
 
   for (let index = 0; index < entryCount; index += 1) {
     if (
@@ -506,21 +532,16 @@ function validateDiagnosticsZipStructure(archive: Uint8Array): void {
     }
 
     const centralExtraStart = cursor + 46 + nameLength;
-    validateExtraFields(view, centralExtraStart, extraLength);
-
-    let path: string;
-    try {
-      path = decoder.decode(
-        archive.subarray(cursor + 46, cursor + 46 + nameLength),
-      );
-    } catch {
-      throw new Error("Invalid diagnostic archive.");
-    }
+    validateSafeExtraFields(view, centralExtraStart, extraLength, 8);
+    const path = decodeZipPath(
+      archive.subarray(cursor + 46, cursor + 46 + nameLength),
+    );
     validateDiagnosticsPath(path);
-    if (paths.has(path)) {
+    if (paths.has(path) || localOffsets.has(localHeaderOffset)) {
       throw new Error("Invalid diagnostic archive.");
     }
     paths.add(path);
+    localOffsets.add(localHeaderOffset);
 
     const unixMode = madeBy >>> 8 === 3 ? externalAttributes >>> 16 : 0;
     const unixFileType = unixMode & 0xf000;
@@ -538,7 +559,7 @@ function validateDiagnosticsZipStructure(archive: Uint8Array): void {
       (unixFileType === 0x4000 && !isDirectory) ||
       (unixFileType === 0x8000 && isDirectory) ||
       uncompressedSize > maximumDiagnosticsEntryBytes ||
-      totalUncompressedBytes + uncompressedSize >
+      declaredUncompressedBytes + uncompressedSize >
         maximumDiagnosticsUncompressedBytes ||
       (!isDirectory &&
         uncompressedSize > 0 &&
@@ -549,89 +570,180 @@ function validateDiagnosticsZipStructure(archive: Uint8Array): void {
     ) {
       throw new Error("Invalid diagnostic archive.");
     }
-    totalUncompressedBytes += uncompressedSize;
+    declaredUncompressedBytes += uncompressedSize;
     hasReadme ||= path === "Dayline Diagnostics/README.txt";
-
-    if (
-      localHeaderOffset + 30 > centralDirectoryOffset ||
-      readUint32(view, localHeaderOffset) !== 0x04034b50 ||
-      readUint16(view, localHeaderOffset + 4) > 20
-    ) {
-      throw new Error("Invalid diagnostic archive.");
-    }
-    const localFlags = readUint16(view, localHeaderOffset + 6);
-    const localMethod = readUint16(view, localHeaderOffset + 8);
-    const localCRC32 = readUint32(view, localHeaderOffset + 14);
-    const localCompressedSize = readUint32(view, localHeaderOffset + 18);
-    const localUncompressedSize = readUint32(view, localHeaderOffset + 22);
-    const localNameLength = readUint16(view, localHeaderOffset + 26);
-    const localExtraLength = readUint16(view, localHeaderOffset + 28);
-    const localNameStart = localHeaderOffset + 30;
-    const localExtraStart = localNameStart + localNameLength;
-    const dataStart = localExtraStart + localExtraLength;
-    const dataEnd = dataStart + compressedSize;
-    let localRecordEnd = dataEnd;
-
-    if (
-      localFlags !== flags ||
-      localMethod !== method ||
-      localNameLength !== nameLength ||
-      localExtraStart + localExtraLength > centralDirectoryOffset ||
-      dataEnd > centralDirectoryOffset ||
-      !equalBytes(
-        archive.subarray(localNameStart, localNameStart + localNameLength),
-        archive.subarray(cursor + 46, cursor + 46 + nameLength),
-      )
-    ) {
-      throw new Error("Invalid diagnostic archive.");
-    }
-    if ((flags & 0x0008) === 0) {
-      if (
-        localCRC32 !== crc32 ||
-        localCompressedSize !== compressedSize ||
-        localUncompressedSize !== uncompressedSize
-      ) {
-        throw new Error("Invalid diagnostic archive.");
-      }
-    } else {
-      if (
-        (localCRC32 !== 0 && localCRC32 !== crc32) ||
-        (localCompressedSize !== 0 &&
-          localCompressedSize !== compressedSize) ||
-        (localUncompressedSize !== 0 &&
-          localUncompressedSize !== uncompressedSize)
-      ) {
-        throw new Error("Invalid diagnostic archive.");
-      }
-      const hasSignature = readUint32(view, dataEnd) === 0x08074b50;
-      const descriptorStart = dataEnd + (hasSignature ? 4 : 0);
-      if (
-        readUint32(view, descriptorStart) !== crc32 ||
-        readUint32(view, descriptorStart + 4) !== compressedSize ||
-        readUint32(view, descriptorStart + 8) !== uncompressedSize
-      ) {
-        throw new Error("Invalid diagnostic archive.");
-      }
-      localRecordEnd = descriptorStart + 12;
-      if (localRecordEnd > centralDirectoryOffset) {
-        throw new Error("Invalid diagnostic archive.");
-      }
-    }
-    validateExtraFields(view, localExtraStart, localExtraLength);
-    localRanges.push({ start: localHeaderOffset, end: localRecordEnd });
+    centralEntries.push({
+      path,
+      flags,
+      method,
+      expectedCRC32: crc32,
+      compressedSize,
+      uncompressedSize,
+      localHeaderOffset,
+      isDirectory,
+    });
     cursor = recordEnd;
   }
 
-  localRanges.sort((left, right) => left.start - right.start);
+  if (cursor !== endOfCentralDirectory || !hasReadme) {
+    throw new Error("Invalid diagnostic archive.");
+  }
+
+  const entries = centralEntries.map((entry) =>
+    parseLocalZipEntry(archive, view, entry, centralDirectoryOffset),
+  );
+  const localOrder = [...entries].sort(
+    (left, right) => left.localHeaderOffset - right.localHeaderOffset,
+  );
+  let expectedOffset = 0;
+  for (const entry of localOrder) {
+    if (entry.localHeaderOffset !== expectedOffset) {
+      throw new Error("Invalid diagnostic archive.");
+    }
+    expectedOffset = entry.localEnd;
+  }
+  if (expectedOffset !== centralDirectoryOffset) {
+    throw new Error("Invalid diagnostic archive.");
+  }
+  return entries;
+}
+
+function parseLocalZipEntry(
+  archive: Uint8Array,
+  view: DataView,
+  entry: CentralZipEntry,
+  centralDirectoryOffset: number,
+): ParsedZipEntry {
+  const offset = entry.localHeaderOffset;
   if (
-    cursor !== endOfCentralDirectory ||
-    !hasReadme ||
-    localRanges.some(
-      (range, index) =>
-        index > 0 && range.start < (localRanges[index - 1]?.end ?? 0),
-    )
+    offset + 30 > centralDirectoryOffset ||
+    readUint32(view, offset) !== 0x04034b50 ||
+    readUint16(view, offset + 4) > 20
   ) {
     throw new Error("Invalid diagnostic archive.");
+  }
+
+  const localFlags = readUint16(view, offset + 6);
+  const localMethod = readUint16(view, offset + 8);
+  const localCRC32 = readUint32(view, offset + 14);
+  const localCompressedSize = readUint32(view, offset + 18);
+  const localUncompressedSize = readUint32(view, offset + 22);
+  const localNameLength = readUint16(view, offset + 26);
+  const localExtraLength = readUint16(view, offset + 28);
+  const localNameStart = offset + 30;
+  const localExtraStart = localNameStart + localNameLength;
+  const dataStart = localExtraStart + localExtraLength;
+  const dataEnd = dataStart + entry.compressedSize;
+
+  if (
+    localFlags !== entry.flags ||
+    localMethod !== entry.method ||
+    decodeZipPath(
+      archive.subarray(localNameStart, localNameStart + localNameLength),
+    ) !== entry.path ||
+    localExtraStart + localExtraLength > centralDirectoryOffset ||
+    dataEnd > centralDirectoryOffset
+  ) {
+    throw new Error("Invalid diagnostic archive.");
+  }
+  validateSafeExtraFields(view, localExtraStart, localExtraLength, 12);
+
+  let localEnd = dataEnd;
+  if ((entry.flags & 0x0008) === 0) {
+    if (
+      localCRC32 !== entry.expectedCRC32 ||
+      localCompressedSize !== entry.compressedSize ||
+      localUncompressedSize !== entry.uncompressedSize
+    ) {
+      throw new Error("Invalid diagnostic archive.");
+    }
+  } else {
+    if (
+      (localCRC32 !== 0 && localCRC32 !== entry.expectedCRC32) ||
+      (localCompressedSize !== 0 &&
+        localCompressedSize !== entry.compressedSize) ||
+      (localUncompressedSize !== 0 &&
+        localUncompressedSize !== entry.uncompressedSize)
+    ) {
+      throw new Error("Invalid diagnostic archive.");
+    }
+    localEnd = parseDataDescriptor(view, dataEnd, entry);
+    if (localEnd > centralDirectoryOffset) {
+      throw new Error("Invalid diagnostic archive.");
+    }
+  }
+
+  return { ...entry, dataStart, dataEnd, localEnd };
+}
+
+function parseDataDescriptor(
+  view: DataView,
+  start: number,
+  entry: CentralZipEntry,
+): number {
+  const matchesAt = (offset: number) =>
+    readUint32(view, offset) === entry.expectedCRC32 &&
+    readUint32(view, offset + 4) === entry.compressedSize &&
+    readUint32(view, offset + 8) === entry.uncompressedSize;
+  if (readUint32(view, start) === 0x08074b50 && matchesAt(start + 4)) {
+    return start + 16;
+  }
+  if (matchesAt(start)) {
+    return start + 12;
+  }
+  throw new Error("Invalid diagnostic archive.");
+}
+
+async function verifyDiagnosticsZipContents(
+  archive: Uint8Array,
+  entries: readonly ParsedZipEntry[],
+): Promise<void> {
+  let actualTotalBytes = 0;
+  for (const entry of entries) {
+    if (entry.isDirectory) {
+      if (entry.expectedCRC32 !== 0) {
+        throw new Error("Invalid diagnostic archive.");
+      }
+      continue;
+    }
+
+    const compressedData = archive.slice(entry.dataStart, entry.dataEnd);
+    const stream =
+      entry.method === 0
+        ? new Blob([compressedData]).stream()
+        : new Blob([compressedData])
+            .stream()
+            .pipeThrough(new DecompressionStream("deflate-raw"));
+    const reader = stream.getReader();
+    let actualEntryBytes = 0;
+    let checksum = 0xffffffff;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        actualEntryBytes += value.byteLength;
+        actualTotalBytes += value.byteLength;
+        if (
+          actualEntryBytes > maximumDiagnosticsEntryBytes ||
+          actualTotalBytes > maximumDiagnosticsUncompressedBytes
+        ) {
+          await reader.cancel();
+          throw new Error("Invalid diagnostic archive.");
+        }
+        checksum = updateCRC32(checksum, value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    if (
+      actualEntryBytes !== entry.uncompressedSize ||
+      ((checksum ^ 0xffffffff) >>> 0) !== entry.expectedCRC32
+    ) {
+      throw new Error("Invalid diagnostic archive.");
+    }
   }
 }
 
@@ -645,13 +757,15 @@ function findEndOfCentralDirectory(view: DataView): number | undefined {
   return undefined;
 }
 
-function validateExtraFields(
+function validateSafeExtraFields(
   view: DataView,
   start: number,
   length: number,
+  allowedUnixFieldLength: 8 | 12,
 ): void {
   const end = start + length;
   let cursor = start;
+  let foundUnixField = false;
   while (cursor < end) {
     if (cursor + 4 > end) {
       throw new Error("Invalid diagnostic archive.");
@@ -659,10 +773,24 @@ function validateExtraFields(
     const fieldID = readUint16(view, cursor);
     const fieldLength = readUint16(view, cursor + 2);
     cursor += 4;
-    if (fieldID === 0x0001 || cursor + fieldLength > end) {
+    if (
+      fieldID !== 0x5855 ||
+      foundUnixField ||
+      fieldLength !== allowedUnixFieldLength ||
+      cursor + fieldLength > end
+    ) {
       throw new Error("Invalid diagnostic archive.");
     }
+    foundUnixField = true;
     cursor += fieldLength;
+  }
+}
+
+function decodeZipPath(bytes: Uint8Array): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error("Invalid diagnostic archive.");
   }
 }
 
@@ -701,11 +829,20 @@ function readUint32(view: DataView, offset: number): number {
   return view.getUint32(offset, true);
 }
 
-function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
-  return (
-    left.byteLength === right.byteLength &&
-    left.every((value, index) => value === right[index])
-  );
+const crc32Table = Uint32Array.from({ length: 256 }, (_, index) => {
+  let value = index;
+  for (let bit = 0; bit < 8; bit += 1) {
+    value = (value >>> 1) ^ (value & 1 ? 0xedb88320 : 0);
+  }
+  return value >>> 0;
+});
+
+function updateCRC32(checksum: number, bytes: Uint8Array): number {
+  let result = checksum;
+  for (const byte of bytes) {
+    result = (result >>> 8) ^ crc32Table[(result ^ byte) & 0xff]!;
+  }
+  return result >>> 0;
 }
 
 /** Bounds random-read storage amplification while distributing real attachment traffic. */

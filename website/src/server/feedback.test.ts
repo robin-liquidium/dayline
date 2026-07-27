@@ -60,11 +60,22 @@ function feedbackRequest(
 interface TestZipEntry {
   path: string;
   data?: Uint8Array;
+  compressedData?: Uint8Array;
   flags?: number;
   method?: number;
   uncompressedSize?: number;
+  checksum?: number;
   madeBy?: number;
   externalAttributes?: number;
+  localExtra?: Uint8Array;
+  centralExtra?: Uint8Array;
+  dataDescriptor?: "signed" | "unsigned";
+}
+
+interface TestZipOptions {
+  prefix?: Uint8Array;
+  gapBeforeCentral?: Uint8Array;
+  unreferencedEntries?: readonly TestZipEntry[];
 }
 
 function diagnosticsZip(
@@ -74,8 +85,9 @@ function diagnosticsZip(
       data: new TextEncoder().encode("Dayline diagnostics"),
     },
   ],
+  options: TestZipOptions = {},
 ): Uint8Array<ArrayBuffer> {
-  const bytes: number[] = [];
+  const bytes: number[] = [...(options.prefix ?? new Uint8Array())];
   const centralRecords: number[][] = [];
   const write16 = (target: number[], value: number) => {
     target.push(value & 0xff, (value >>> 8) & 0xff);
@@ -90,13 +102,18 @@ function diagnosticsZip(
   };
   const signature = (target: number[], value: number) => write32(target, value);
 
-  for (const entry of entries) {
+  const appendLocalEntry = (entry: TestZipEntry, includeInCentral: boolean) => {
     const name = [...new TextEncoder().encode(entry.path)];
-    const data = [...(entry.data ?? new Uint8Array())];
-    const checksum = crc32(data);
-    const flags = entry.flags ?? 0;
+    const uncompressedData = entry.data ?? new Uint8Array();
+    const compressedData = entry.compressedData ?? uncompressedData;
+    const checksum = entry.checksum ?? crc32(uncompressedData);
+    const flags =
+      (entry.flags ?? 0) | (entry.dataDescriptor === undefined ? 0 : 0x0008);
     const method = entry.method ?? 0;
-    const uncompressedSize = entry.uncompressedSize ?? data.length;
+    const uncompressedSize =
+      entry.uncompressedSize ?? uncompressedData.byteLength;
+    const localExtra = [...(entry.localExtra ?? new Uint8Array())];
+    const centralExtra = [...(entry.centralExtra ?? new Uint8Array())];
     const localOffset = bytes.length;
     signature(bytes, 0x04034b50);
     write16(bytes, 20);
@@ -104,13 +121,24 @@ function diagnosticsZip(
     write16(bytes, method);
     write16(bytes, 0);
     write16(bytes, 0);
-    write32(bytes, checksum);
-    write32(bytes, data.length);
-    write32(bytes, uncompressedSize);
+    write32(bytes, entry.dataDescriptor ? 0 : checksum);
+    write32(bytes, entry.dataDescriptor ? 0 : compressedData.byteLength);
+    write32(bytes, entry.dataDescriptor ? 0 : uncompressedSize);
     write16(bytes, name.length);
-    write16(bytes, 0);
-    bytes.push(...name, ...data);
+    write16(bytes, localExtra.length);
+    bytes.push(...name, ...localExtra, ...compressedData);
+    if (entry.dataDescriptor) {
+      if (entry.dataDescriptor === "signed") {
+        signature(bytes, 0x08074b50);
+      }
+      write32(bytes, checksum);
+      write32(bytes, compressedData.byteLength);
+      write32(bytes, uncompressedSize);
+    }
 
+    if (!includeInCentral) {
+      return;
+    }
     const central: number[] = [];
     signature(central, 0x02014b50);
     write16(central, entry.madeBy ?? 20);
@@ -120,19 +148,27 @@ function diagnosticsZip(
     write16(central, 0);
     write16(central, 0);
     write32(central, checksum);
-    write32(central, data.length);
+    write32(central, compressedData.byteLength);
     write32(central, uncompressedSize);
     write16(central, name.length);
-    write16(central, 0);
+    write16(central, centralExtra.length);
     write16(central, 0);
     write16(central, 0);
     write16(central, 0);
     write32(central, entry.externalAttributes ?? 0);
     write32(central, localOffset);
-    central.push(...name);
+    central.push(...name, ...centralExtra);
     centralRecords.push(central);
+  };
+
+  for (const entry of entries) {
+    appendLocalEntry(entry, true);
+  }
+  for (const entry of options.unreferencedEntries ?? []) {
+    appendLocalEntry(entry, false);
   }
 
+  bytes.push(...(options.gapBeforeCentral ?? new Uint8Array()));
   const centralOffset = bytes.length;
   for (const record of centralRecords) {
     bytes.push(...record);
@@ -149,7 +185,16 @@ function diagnosticsZip(
   return new Uint8Array(bytes);
 }
 
-function crc32(bytes: readonly number[]): number {
+function extraField(fieldID: number, data: Uint8Array): Uint8Array {
+  const bytes = new Uint8Array(4 + data.byteLength);
+  const view = new DataView(bytes.buffer);
+  view.setUint16(0, fieldID, true);
+  view.setUint16(2, data.byteLength, true);
+  bytes.set(data, 4);
+  return bytes;
+}
+
+function crc32(bytes: Iterable<number>): number {
   let checksum = 0xffffffff;
   for (const byte of bytes) {
     checksum ^= byte;
@@ -164,6 +209,16 @@ function crc32(bytes: readonly number[]): number {
 function encodedDiagnosticsZip(entries?: readonly TestZipEntry[]): string {
   return Buffer.from(diagnosticsZip(entries)).toString("base64");
 }
+
+async function deflateRaw(data: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
+  const stream = new Blob([Uint8Array.from(data).buffer])
+    .stream()
+    .pipeThrough(new CompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+const macOS27DittoDiagnosticsFixture =
+  "UEsDBAoAAAAAAM17+1wAAAAAAAAAAAAAAAAUABAARGF5bGluZSBEaWFnbm9zdGljcy9VWAwAcV1nanFdZ2r1AQAAUEsDBBQACAAIAM17+1wAAAAAAAAAAAAAAAAeABAARGF5bGluZSBEaWFnbm9zdGljcy9SRUFETUUudHh0VVgMAHFdZ2pxXWdq9QEAAHNJrMzJzEtVSMlMTM/LLy7JTC5WSMusKCktSuUCAFBLBwjn7tJ0HgAAABwAAABQSwECFQMKAAAAAADNe/tcAAAAAAAAAAAAAAAAFAAMAAAAAAAAAABA7UEAAAAARGF5bGluZSBEaWFnbm9zdGljcy9VWAgAcV1nanFdZ2pQSwECFQMUAAgACADNe/tc5+7SdB4AAAAcAAAAHgAMAAAAAAAAAABApIFCAAAARGF5bGluZSBEaWFnbm9zdGljcy9SRUFETUUudHh0VVgIAHFdZ2pxXWdqUEsFBgAAAAACAAIApgAAALwAAAAAAA==";
 
 function attachmentStorage() {
   const archives = new Map<string, ArrayBuffer>();
@@ -279,6 +334,28 @@ describe("feedback endpoint", () => {
     );
   });
 
+  test("accepts a real macOS 27 ditto archive with Unix extras and signed descriptors", async () => {
+    const { mock } = environment();
+    const attachments = attachmentStorage();
+    const response = await handleFeedbackRequest(
+      feedbackRequest({
+        category: "bug",
+        message: "The menu crashed while navigating with the keyboard.",
+        diagnosticsArchive: macOS27DittoDiagnosticsFixture,
+      }),
+      mock,
+      async () => ({
+        html_url: "https://github.com/example/issues/42",
+        number: 42,
+      }),
+      mock.FEEDBACK_RATE_LIMITER,
+      attachments.namespace,
+    );
+
+    expect(response.status).toBe(200);
+    expect(attachments.archives.size).toBe(1);
+  });
+
   test("uses the canonical website origin for diagnostic links", async () => {
     const { mock } = environment();
     const attachments = attachmentStorage();
@@ -353,6 +430,188 @@ describe("feedback endpoint", () => {
         category: "bug",
         message: "The menu crashed while navigating with the keyboard.",
         diagnosticsArchive: Buffer.from(truncated).toString("base64"),
+      }),
+      mock,
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Invalid diagnostic archive.",
+    });
+  });
+
+  test("rejects path-overriding and unknown ZIP extra fields", async () => {
+    const { mock } = environment();
+    const unicodePathOverride = extraField(
+      0x7075,
+      new TextEncoder().encode("Dayline Diagnostics/README.txt"),
+    );
+    const response = await handleFeedbackRequest(
+      feedbackRequest({
+        category: "bug",
+        message: "The menu crashed while navigating with the keyboard.",
+        diagnosticsArchive: encodedDiagnosticsZip([
+          {
+            path: "Dayline Diagnostics/README.txt",
+            data: new TextEncoder().encode("readme"),
+            centralExtra: unicodePathOverride,
+            localExtra: unicodePathOverride,
+          },
+        ]),
+      }),
+      mock,
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Invalid diagnostic archive.",
+    });
+  });
+
+  test.each([
+    {
+      name: "prefix",
+      archive: diagnosticsZip(undefined, {
+        prefix: new Uint8Array([0]),
+      }),
+    },
+    {
+      name: "gap before the central directory",
+      archive: diagnosticsZip(undefined, {
+        gapBeforeCentral: new Uint8Array([0]),
+      }),
+    },
+    {
+      name: "unreferenced local record",
+      archive: diagnosticsZip(undefined, {
+        unreferencedEntries: [
+          {
+            path: "Dayline Diagnostics/Logs/dayline.log",
+            data: new TextEncoder().encode("hidden"),
+          },
+        ],
+      }),
+    },
+  ])("rejects hidden ZIP data: $name", async ({ archive }) => {
+    const { mock } = environment();
+    const response = await handleFeedbackRequest(
+      feedbackRequest({
+        category: "bug",
+        message: "The menu crashed while navigating with the keyboard.",
+        diagnosticsArchive: Buffer.from(archive).toString("base64"),
+      }),
+      mock,
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Invalid diagnostic archive.",
+    });
+  });
+
+  test("rejects a forged CRC despite matching local and central records", async () => {
+    const { mock } = environment();
+    const response = await handleFeedbackRequest(
+      feedbackRequest({
+        category: "bug",
+        message: "The menu crashed while navigating with the keyboard.",
+        diagnosticsArchive: encodedDiagnosticsZip([
+          {
+            path: "Dayline Diagnostics/README.txt",
+            data: new TextEncoder().encode("readme"),
+            checksum: 0,
+          },
+        ]),
+      }),
+      mock,
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Invalid diagnostic archive.",
+    });
+  });
+
+  test("rejects forged deflate metadata after streaming the real content", async () => {
+    const { mock } = environment();
+    const content = new TextEncoder().encode("Dayline diagnostics");
+    const compressedData = await deflateRaw(content);
+    const archive = diagnosticsZip([
+      {
+        path: "Dayline Diagnostics/README.txt",
+        data: content,
+        compressedData,
+        method: 8,
+        uncompressedSize: content.byteLength - 1,
+      },
+    ]);
+    const response = await handleFeedbackRequest(
+      feedbackRequest({
+        category: "bug",
+        message: "The menu crashed while navigating with the keyboard.",
+        diagnosticsArchive: Buffer.from(archive).toString("base64"),
+      }),
+      mock,
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Invalid diagnostic archive.",
+    });
+  });
+
+  test("aborts an actual deflate bomb beyond the per-entry stream limit", async () => {
+    const { mock } = environment();
+    const expandedContent = new Uint8Array(8 * 1024 * 1024 + 1);
+    const compressedData = await deflateRaw(expandedContent);
+    const archive = diagnosticsZip([
+      {
+        path: "Dayline Diagnostics/README.txt",
+        data: expandedContent,
+        compressedData,
+        method: 8,
+        uncompressedSize: 1,
+      },
+    ]);
+    const response = await handleFeedbackRequest(
+      feedbackRequest({
+        category: "bug",
+        message: "The menu crashed while navigating with the keyboard.",
+        diagnosticsArchive: Buffer.from(archive).toString("base64"),
+      }),
+      mock,
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Invalid diagnostic archive.",
+    });
+  });
+
+  test("aborts deflated content beyond the aggregate stream limit", async () => {
+    const { mock } = environment();
+    const expandedContent = new Uint8Array(7 * 1024 * 1024);
+    const compressedData = await deflateRaw(expandedContent);
+    const entries = [
+      "Dayline Diagnostics/README.txt",
+      ...Array.from(
+        { length: 3 },
+        (_, index) =>
+          `Dayline Diagnostics/Crash Reports/Dayline-${index}.ips`,
+      ),
+    ].map((path) => ({
+      path,
+      data: expandedContent,
+      compressedData,
+      method: 8,
+      uncompressedSize: 1,
+    }));
+    const archive = diagnosticsZip(entries);
+    const response = await handleFeedbackRequest(
+      feedbackRequest({
+        category: "bug",
+        message: "The menu crashed while navigating with the keyboard.",
+        diagnosticsArchive: Buffer.from(archive).toString("base64"),
       }),
       mock,
     );
