@@ -86,6 +86,13 @@ type IssueCreator = (
   environment: FeedbackEnvironment,
 ) => Promise<GitHubIssue>;
 
+export class AmbiguousIssueCreationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AmbiguousIssueCreationError";
+  }
+}
+
 /** Handles one native Dayline feedback submission and any explicitly included attachment. */
 export async function handleFeedbackRequest(
   request: Request,
@@ -192,14 +199,15 @@ export async function handleFeedbackRequest(
       issueNumber: issue.number,
     });
   } catch (error) {
-    if (attachment && attachmentID) {
+    const outcomeIsAmbiguous = error instanceof AmbiguousIssueCreationError;
+    if (!outcomeIsAmbiguous && attachment && attachmentID) {
       try {
         await attachment.remove(attachmentID);
       } catch {
         console.error("Feedback attachment cleanup failed.");
       }
     }
-    if (hourlyReservation) {
+    if (!outcomeIsAmbiguous && hourlyReservation) {
       try {
         await hourlyReservation.limiter.release(hourlyReservation.hour);
       } catch {
@@ -210,6 +218,15 @@ export async function handleFeedbackRequest(
       "Feedback issue creation failed.",
       error instanceof Error ? error.message : "Unknown error",
     );
+    if (outcomeIsAmbiguous) {
+      return jsonResponse(
+        {
+          error:
+            "Feedback may have been submitted. Check GitHub before trying again.",
+        },
+        502,
+      );
+    }
     return jsonResponse(
       { error: "Feedback could not be submitted. Please try again." },
       502,
@@ -253,7 +270,7 @@ export async function handleFeedbackAttachmentRequest(
       key: `diagnostics:${clientKey}`,
     });
     if (!downloadLimit.success) {
-      return rateLimitedResponse();
+      return diagnosticDownloadRateLimitedResponse();
     }
   } catch {
     console.error("Feedback download rate limiter failed.");
@@ -947,22 +964,44 @@ async function createGitHubIssue(
     throw new Error("GitHub did not return an installation token.");
   }
 
-  const issueResponse = await fetch(
-    `https://api.github.com/repos/${githubOwner}/${githubRepository}/issues`,
-    {
-      method: "POST",
-      headers: {
-        ...githubHeaders(installation.token),
-        "Content-Type": "application/json",
+  let issueResponse: Response;
+  try {
+    issueResponse = await fetch(
+      `https://api.github.com/repos/${githubOwner}/${githubRepository}/issues`,
+      {
+        method: "POST",
+        headers: {
+          ...githubHeaders(installation.token),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(makeGitHubIssueDraft(submission)),
       },
-      body: JSON.stringify(makeGitHubIssueDraft(submission)),
-    },
-  );
+    );
+  } catch {
+    throw new AmbiguousIssueCreationError(
+      "GitHub issue request outcome is unknown.",
+    );
+  }
   if (!issueResponse.ok) {
+    if (issueResponse.status >= 500) {
+      throw new AmbiguousIssueCreationError(
+        `GitHub issue request returned ${issueResponse.status}; outcome is unknown.`,
+      );
+    }
     throw new Error(`GitHub issue request returned ${issueResponse.status}.`);
   }
 
-  return (await issueResponse.json()) as GitHubIssue;
+  try {
+    const issue = (await issueResponse.json()) as Partial<GitHubIssue>;
+    if (typeof issue.html_url !== "string" || typeof issue.number !== "number") {
+      throw new Error("Invalid GitHub issue response.");
+    }
+    return issue as GitHubIssue;
+  } catch {
+    throw new AmbiguousIssueCreationError(
+      "GitHub created the issue but returned an unreadable response.",
+    );
+  }
 }
 
 async function createGitHubAppJWT(
@@ -1041,6 +1080,14 @@ function rateLimitedResponse(): Response {
     { error: "Too many feedback submissions. Please try again later." },
     429,
     { "Retry-After": "3600" },
+  );
+}
+
+function diagnosticDownloadRateLimitedResponse(): Response {
+  return jsonResponse(
+    { error: "Too many diagnostic downloads. Please try again in a minute." },
+    429,
+    { "Retry-After": "60" },
   );
 }
 

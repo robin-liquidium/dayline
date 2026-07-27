@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  AmbiguousIssueCreationError,
   type FeedbackAttachmentStoreNamespace,
   type FeedbackEnvironment,
   handleFeedbackAttachmentRequest,
@@ -418,6 +419,10 @@ describe("feedback endpoint", () => {
     );
 
     expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("60");
+    expect(await response.json()).toEqual({
+      error: "Too many diagnostic downloads. Please try again in a minute.",
+    });
     expect(burstKeys).toHaveLength(1);
     expect(burstKeys[0]?.startsWith("diagnostics:")).toBe(true);
     expect(burstKeys[0]).not.toContain("192.0.2.1");
@@ -476,6 +481,34 @@ describe("feedback endpoint", () => {
         key: hourlyReservations[0]?.key,
       },
     ]);
+  });
+
+  test("retains diagnostics and the rate-limit slot when issue creation may have succeeded", async () => {
+    const { hourlyReleases, hourlyReservations, mock } = environment();
+    const attachments = attachmentStorage();
+    const response = await handleFeedbackRequest(
+      feedbackRequest({
+        category: "bug",
+        message: "The menu crashed while navigating with the keyboard.",
+        diagnosticsArchive: encodedDiagnosticsZip(),
+      }),
+      mock,
+      async () => {
+        throw new AmbiguousIssueCreationError(
+          "simulated lost GitHub response",
+        );
+      },
+      mock.FEEDBACK_RATE_LIMITER,
+      attachments.namespace,
+    );
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      error: "Feedback may have been submitted. Check GitHub before trying again.",
+    });
+    expect(attachments.archives.size).toBe(1);
+    expect(hourlyReservations).toHaveLength(1);
+    expect(hourlyReleases).toHaveLength(0);
   });
 
   test("returns 503 without reserving a slot when attachment storage is unavailable", async () => {
