@@ -40,6 +40,7 @@ struct FeedbackView: View {
         }
       }
       .pickerStyle(.segmented)
+      .disabled(isSubmitting)
       .accessibilityIdentifier("feedback.category")
 
       Text("What would you like us to know?")
@@ -59,6 +60,7 @@ struct FeedbackView: View {
             .stroke(Color.primary.opacity(0.08))
         }
         .frame(minHeight: 180)
+        .disabled(isSubmitting)
         .accessibilityIdentifier("feedback.message")
 
       Toggle("Include anonymous app and system information", isOn: $includesAnonymousSystemInformation)
@@ -151,9 +153,13 @@ struct FeedbackView: View {
 
     isSubmitting = true
     errorMessage = nil
+    let submittedCategory = category
+    let submittedMessage = message
+    let submittedIncludesAnonymousSystemInformation = includesAnonymousSystemInformation
+    let submittedIncludesDiagnostics = includesDiagnostics
 
     do {
-      let diagnosticsArchiveURL = includesDiagnostics
+      let diagnosticsArchiveURL = submittedIncludesDiagnostics
         ? try await DiagnosticsExporter().createFeedbackAttachment()
         : nil
       defer {
@@ -162,13 +168,13 @@ struct FeedbackView: View {
         }
       }
       submittedIssue = try await feedbackService.submit(
-        category: category,
-        message: message,
-        includeAnonymousSystemInformation: includesAnonymousSystemInformation,
+        category: submittedCategory,
+        message: submittedMessage,
+        includeAnonymousSystemInformation: submittedIncludesAnonymousSystemInformation,
         diagnosticsArchiveURL: diagnosticsArchiveURL
       )
       DaylineDiagnostics.record(
-        includesDiagnostics
+        submittedIncludesDiagnostics
           ? "Feedback submitted with diagnostic archive"
           : "Feedback submitted without diagnostic archive",
         category: .feedback

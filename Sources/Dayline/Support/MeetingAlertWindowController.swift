@@ -17,17 +17,18 @@ final class MeetingAlertWindowController {
 
   /// Shows the alert for a meeting, updating the content in place when already visible.
   func show(event: CalendarEventItem, onJoin: @escaping () -> Void, onDismiss: @escaping () -> Void) {
+    guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
     let rootView = MeetingAlertView(event: event, onJoin: onJoin, onDismiss: onDismiss)
 
     if let window, let hostingView = window.contentView as? NSHostingView<MeetingAlertView> {
       hostingView.rootView = rootView
+      window.setFrame(screen.frame, display: true)
       window.makeKeyAndOrderFront(nil)
       NSApp.activate()
       DaylineDiagnostics.record("Meeting alert window appeared", category: .lifecycle)
       return
     }
 
-    guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
     let alertWindow = AlertWindow(
       contentRect: screen.frame,
       styleMask: .borderless,
