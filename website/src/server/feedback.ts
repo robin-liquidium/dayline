@@ -2,6 +2,8 @@ const githubOwner = "robin-liquidium";
 const githubRepository = "dayline";
 const githubApiVersion = "2022-11-28";
 const maximumMessageLength = 5_000;
+const maximumRequestBytes = 2_100_000;
+const maximumDiagnosticsBytes = 1_500_000;
 const hourlySubmissionLimit = 3;
 
 type FeedbackCategory = "bug" | "feature" | "other";
@@ -17,6 +19,7 @@ export interface FeedbackSubmission {
   category: FeedbackCategory;
   message: string;
   metadata?: FeedbackMetadata;
+  diagnosticsURL?: string;
 }
 
 interface RateLimitBinding {
@@ -31,8 +34,19 @@ export interface FeedbackRateLimiterNamespace {
   getByName(name: string): FeedbackRateLimiterStub;
 }
 
+interface FeedbackAttachmentStoreStub {
+  save(id: string, archive: ArrayBuffer): Promise<void>;
+  read(id: string): Promise<ArrayBuffer | null>;
+  remove(id: string): Promise<void>;
+}
+
+export interface FeedbackAttachmentStoreNamespace {
+  getByName(name: string): FeedbackAttachmentStoreStub;
+}
+
 export interface FeedbackRequestContext {
   feedbackRateLimiter: FeedbackRateLimiterNamespace;
+  feedbackAttachmentStore: FeedbackAttachmentStoreNamespace;
 }
 
 export interface FeedbackEnvironment {
@@ -61,12 +75,13 @@ type IssueCreator = (
   environment: FeedbackEnvironment,
 ) => Promise<GitHubIssue>;
 
-/** Handles one native Dayline feedback submission without retaining its contents. */
+/** Handles one native Dayline feedback submission and any explicitly included attachment. */
 export async function handleFeedbackRequest(
   request: Request,
   environment: FeedbackEnvironment,
   createIssue: IssueCreator = createGitHubIssue,
   rateLimiter: FeedbackRateLimiterNamespace | undefined = environment.FEEDBACK_RATE_LIMITER,
+  attachmentStore?: FeedbackAttachmentStoreNamespace,
 ): Promise<Response> {
   if (request.method !== "POST") {
     return jsonResponse({ error: "Method not allowed." }, 405, {
@@ -83,7 +98,7 @@ export async function handleFeedbackRequest(
   }
 
   const declaredLength = Number(request.headers.get("Content-Length") ?? "0");
-  if (declaredLength > 16_384) {
+  if (declaredLength > maximumRequestBytes) {
     return jsonResponse({ error: "Feedback is too large." }, 413);
   }
 
@@ -101,7 +116,7 @@ export async function handleFeedbackRequest(
 
   let rawBody: string;
   try {
-    rawBody = await readLimitedText(request, 16_384);
+    rawBody = await readLimitedText(request, maximumRequestBytes);
   } catch (error) {
     if (error instanceof FeedbackBodyTooLargeError) {
       return jsonResponse({ error: "Feedback is too large." }, 413);
@@ -110,8 +125,9 @@ export async function handleFeedbackRequest(
   }
 
   let submission: FeedbackSubmission;
+  let diagnosticsArchive: ArrayBuffer | undefined;
   try {
-    submission = validateSubmission(JSON.parse(rawBody));
+    ({ submission, diagnosticsArchive } = validateSubmission(JSON.parse(rawBody)));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid feedback.";
     return jsonResponse({ error: message }, 400);
@@ -136,13 +152,32 @@ export async function handleFeedbackRequest(
     );
   }
 
+  let attachment: FeedbackAttachmentStoreStub | undefined;
+  let attachmentID: string | undefined;
   try {
+    if (diagnosticsArchive) {
+      if (!attachmentStore) {
+        throw new Error("Feedback attachment storage is unavailable.");
+      }
+      attachmentID = crypto.randomUUID();
+      attachment = attachmentStore.getByName(attachmentStoreShard(attachmentID));
+      await attachment.save(attachmentID, diagnosticsArchive);
+      submission.diagnosticsURL =
+        `${new URL(request.url).origin}/api/feedback/diagnostics/${attachmentID}`;
+    }
     const issue = await createIssue(submission, environment);
     return jsonResponse({
       issueURL: issue.html_url,
       issueNumber: issue.number,
     });
   } catch (error) {
+    if (attachment && attachmentID) {
+      try {
+        await attachment.remove(attachmentID);
+      } catch {
+        console.error("Feedback attachment cleanup failed.");
+      }
+    }
     console.error(
       "Feedback issue creation failed.",
       error instanceof Error ? error.message : "Unknown error",
@@ -152,6 +187,41 @@ export async function handleFeedbackRequest(
       502,
     );
   }
+}
+
+/** Serves one unguessable, explicitly shared diagnostic archive until it expires. */
+export async function handleFeedbackAttachmentRequest(
+  request: Request,
+  attachmentID: string,
+  attachmentStore?: FeedbackAttachmentStoreNamespace,
+): Promise<Response> {
+  if (request.method !== "GET") {
+    return jsonResponse({ error: "Method not allowed." }, 405, { Allow: "GET" });
+  }
+  if (
+    !attachmentStore ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      attachmentID,
+    )
+  ) {
+    return jsonResponse({ error: "Diagnostic archive not found." }, 404);
+  }
+
+  const archive = await attachmentStore
+    .getByName(attachmentStoreShard(attachmentID))
+    .read(attachmentID);
+  if (!archive) {
+    return jsonResponse({ error: "Diagnostic archive not found." }, 404);
+  }
+
+  return new Response(archive, {
+    headers: {
+      "Cache-Control": "no-store",
+      "Content-Disposition": 'attachment; filename="Dayline-Diagnostics.zip"',
+      "Content-Type": "application/zip",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
 }
 
 /** Produces the exact public GitHub issue content for a validated submission. */
@@ -183,6 +253,17 @@ export function makeGitHubIssueDraft(
       ].join("\n")
     : "";
 
+  const diagnostics = submission.diagnosticsURL
+    ? [
+        "## Diagnostics",
+        "",
+        `[Download the explicitly included diagnostic ZIP](${submission.diagnosticsURL})`,
+        "",
+        "The public download link expires after 30 days. Native macOS crash reports may contain system and device identifiers, loaded-image information, and process metadata.",
+        "",
+      ].join("\n")
+    : "";
+
   return {
     title: `[${categoryLabel}] ${summary || "Anonymous Dayline feedback"}`,
     body: [
@@ -191,8 +272,11 @@ export function makeGitHubIssueDraft(
       renderInertGitHubText(submission.message),
       "",
       metadata,
+      diagnostics,
       "---",
-      "Submitted anonymously from Dayline. No account, calendar, Linear, note, device-name, IP-address, token, or log data is included.",
+      submission.diagnosticsURL
+        ? "Submitted anonymously from Dayline. The diagnostic archive was explicitly included by the submitter; no account, calendar, Linear, note, or token contents are collected by Dayline's own log."
+        : "Submitted anonymously from Dayline. No account, calendar, Linear, note, device-name, IP-address, token, or log data is included.",
     ]
       .filter(Boolean)
       .join("\n"),
@@ -207,7 +291,10 @@ export function makeGitHubIssueDraft(
   };
 }
 
-function validateSubmission(value: unknown): FeedbackSubmission {
+function validateSubmission(value: unknown): {
+  submission: FeedbackSubmission;
+  diagnosticsArchive?: ArrayBuffer;
+} {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Invalid feedback.");
   }
@@ -232,12 +319,18 @@ function validateSubmission(value: unknown): FeedbackSubmission {
   }
 
   return {
-    category: candidate.category as FeedbackCategory,
-    message,
-    metadata:
-      candidate.metadata === undefined
+    submission: {
+      category: candidate.category as FeedbackCategory,
+      message,
+      metadata:
+        candidate.metadata === undefined
+          ? undefined
+          : validateMetadata(candidate.metadata),
+    },
+    diagnosticsArchive:
+      candidate.diagnosticsArchive === undefined
         ? undefined
-        : validateMetadata(candidate.metadata),
+        : validateDiagnosticsArchive(candidate.diagnosticsArchive),
   };
 }
 
@@ -296,6 +389,41 @@ function validateMetadata(value: unknown): FeedbackMetadata {
   }
 
   return metadata as unknown as FeedbackMetadata;
+}
+
+function validateDiagnosticsArchive(value: unknown): ArrayBuffer {
+  const maximumBase64Length = Math.ceil(maximumDiagnosticsBytes / 3) * 4;
+  if (
+    typeof value !== "string" ||
+    value.length > maximumBase64Length ||
+    value.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]*={0,2}$/.test(value)
+  ) {
+    throw new Error("Invalid diagnostic archive.");
+  }
+
+  let archive: Uint8Array;
+  try {
+    archive = Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+  } catch {
+    throw new Error("Invalid diagnostic archive.");
+  }
+  if (
+    archive.byteLength === 0 ||
+    archive.byteLength > maximumDiagnosticsBytes ||
+    archive[0] !== 0x50 ||
+    archive[1] !== 0x4b ||
+    archive[2] !== 0x03 ||
+    archive[3] !== 0x04
+  ) {
+    throw new Error("Invalid diagnostic archive.");
+  }
+  return archive.buffer as ArrayBuffer;
+}
+
+/** Bounds random-read storage amplification while distributing real attachment traffic. */
+function attachmentStoreShard(attachmentID: string): string {
+  return `feedback-diagnostics-${attachmentID.slice(0, 2).toLowerCase()}`;
 }
 
 async function anonymousClientKey(

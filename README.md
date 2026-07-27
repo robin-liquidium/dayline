@@ -119,6 +119,22 @@ To create and install a local development build instead:
 ./script/package_release.sh --install
 ```
 
+## Diagnostics
+
+macOS writes native `.ips` reports when Dayline crashes. Dayline also keeps a
+small rotating breadcrumb log with app lifecycle, refresh counts, and actions;
+it never records account identifiers, calendar or issue contents, notes, URLs,
+or authentication data.
+
+Choose **Settings → General → Export Diagnostics…** to save a local ZIP with the
+bounded Dayline log, app/system version information, and up to five recent
+Dayline crash reports. Nothing is uploaded automatically. Native crash reports
+can contain system and device identifiers, so review the ZIP before sharing it.
+
+The feedback sheet has a separate, off-by-default **Include diagnostics** option.
+When selected, Dayline creates the same ZIP, uploads it with the feedback, and
+adds a public download link to the GitHub issue for 30 days.
+
 ## Connect Accounts
 
 On first launch, connect either or both integrations from the menu:
@@ -390,8 +406,9 @@ uniqueness before pushing the tag. The release workflows then:
 6. Checks pending drafts every ten minutes, resuming the saved submission ID.
 7. Staples the accepted app, builds and submits the DMG once, and saves that ID.
 8. Staples and validates the accepted DMG and app, runs Gatekeeper checks, then
-   publishes the versioned DMG, app ZIP, stable `Dayline.dmg`, and signed
-   `appcast.xml` assets, then deploys the appcast through the website.
+   publishes the versioned DMG, app ZIP, matching dSYM archive, stable
+   `Dayline.dmg`, and signed `appcast.xml` assets, then deploys the appcast
+   through the website.
 
 The scheduled continuation is idempotent and verifies preserved artifact hashes
 before contacting Apple. To check one pending release immediately:

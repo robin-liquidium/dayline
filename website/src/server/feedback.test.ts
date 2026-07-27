@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  type FeedbackAttachmentStoreNamespace,
   type FeedbackEnvironment,
+  handleFeedbackAttachmentRequest,
   handleFeedbackRequest,
   makeGitHubIssueDraft,
 } from "./feedback";
@@ -50,6 +52,22 @@ function feedbackRequest(body: unknown) {
     },
     body: JSON.stringify(body),
   });
+}
+
+function attachmentStorage() {
+  const archives = new Map<string, ArrayBuffer>();
+  const namespace: FeedbackAttachmentStoreNamespace = {
+    getByName: () => ({
+      save: async (id, archive) => {
+        archives.set(id, archive);
+      },
+      read: async (id) => archives.get(id) ?? null,
+      remove: async (id) => {
+        archives.delete(id);
+      },
+    }),
+  };
+  return { archives, namespace };
 }
 
 describe("feedback endpoint", () => {
@@ -104,6 +122,89 @@ describe("feedback endpoint", () => {
     expect(draft.body).not.toContain("Anonymous system information");
   });
 
+  test("stores explicitly included diagnostics and links them from the public issue", async () => {
+    const { mock } = environment();
+    const attachments = attachmentStorage();
+    let diagnosticsURL: string | undefined;
+    let capturedDraft: ReturnType<typeof makeGitHubIssueDraft> | undefined;
+    const response = await handleFeedbackRequest(
+      feedbackRequest({
+        category: "bug",
+        message: "The menu crashed while navigating with the keyboard.",
+        diagnosticsArchive: "UEsDBAECAw==",
+      }),
+      mock,
+      async (submission) => {
+        diagnosticsURL = submission.diagnosticsURL;
+        capturedDraft = makeGitHubIssueDraft(submission);
+        return { html_url: "https://github.com/example/issues/42", number: 42 };
+      },
+      mock.FEEDBACK_RATE_LIMITER,
+      attachments.namespace,
+    );
+
+    expect(response.status).toBe(200);
+    expect(diagnosticsURL).toMatch(
+      /^https:\/\/dayline\.robin\.build\/api\/feedback\/diagnostics\/[0-9a-f-]{36}$/,
+    );
+    expect(capturedDraft?.body).toContain("## Diagnostics");
+    expect(capturedDraft?.body).toContain("expires after 30 days");
+    expect(capturedDraft?.body).not.toContain("No account, calendar");
+    expect(attachments.archives.size).toBe(1);
+
+    const download = await handleFeedbackAttachmentRequest(
+      new Request(diagnosticsURL!),
+      diagnosticsURL!.split("/").at(-1)!,
+      attachments.namespace,
+    );
+    expect(download.status).toBe(200);
+    expect(download.headers.get("Content-Type")).toBe("application/zip");
+    expect(download.headers.get("Content-Disposition")).toContain(
+      "Dayline-Diagnostics.zip",
+    );
+    expect(new Uint8Array(await download.arrayBuffer())).toEqual(
+      new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x01, 0x02, 0x03]),
+    );
+  });
+
+  test("deletes a diagnostic attachment when issue creation fails", async () => {
+    const { mock } = environment();
+    const attachments = attachmentStorage();
+    const response = await handleFeedbackRequest(
+      feedbackRequest({
+        category: "bug",
+        message: "The menu crashed while navigating with the keyboard.",
+        diagnosticsArchive: "UEsDBAECAw==",
+      }),
+      mock,
+      async () => {
+        throw new Error("simulated GitHub failure");
+      },
+      mock.FEEDBACK_RATE_LIMITER,
+      attachments.namespace,
+    );
+
+    expect(response.status).toBe(502);
+    expect(attachments.archives.size).toBe(0);
+  });
+
+  test("rejects malformed diagnostic archives", async () => {
+    const { mock } = environment();
+    const response = await handleFeedbackRequest(
+      feedbackRequest({
+        category: "bug",
+        message: "The menu crashed while navigating with the keyboard.",
+        diagnosticsArchive: btoa("not a zip"),
+      }),
+      mock,
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Invalid diagnostic archive.",
+    });
+  });
+
   test("rejects spoofed system information", async () => {
     const { mock } = environment();
     const response = await handleFeedbackRequest(
@@ -152,7 +253,7 @@ describe("feedback endpoint", () => {
       },
       body: new ReadableStream({
         start(controller) {
-          controller.enqueue(encoder.encode("x".repeat(16_385)));
+          controller.enqueue(encoder.encode("x".repeat(2_100_001)));
           controller.close();
         },
       }),

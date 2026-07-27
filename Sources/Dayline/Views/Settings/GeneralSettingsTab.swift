@@ -6,6 +6,8 @@ struct GeneralSettingsTab: View {
   @EnvironmentObject private var updateService: UpdateService
   @Environment(\.openURL) private var openURL
   @State private var isShowingFeedback = false
+  @State private var diagnosticExportStatus: String?
+  @State private var diagnosticExportError: String?
 
   /// Supported refresh cadence choices in minutes.
   private let cadenceOptions = [5, 10, 15, 30, 60]
@@ -50,10 +52,27 @@ struct GeneralSettingsTab: View {
           isShowingFeedback = true
         }
         .accessibilityIdentifier("settings.submitFeedback")
+
+        Button("Export Diagnostics...") {
+          exportDiagnostics()
+        }
+        .accessibilityIdentifier("settings.exportDiagnostics")
+
+        if let diagnosticExportStatus {
+          Text(diagnosticExportStatus)
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier("settings.diagnosticExportStatus")
+        }
+
+        if let diagnosticExportError {
+          Text(diagnosticExportError)
+            .foregroundStyle(.red)
+            .accessibilityIdentifier("settings.diagnosticExportError")
+        }
       } header: {
-        Label("Feedback", systemImage: "text.bubble")
+        Label("Feedback and Diagnostics", systemImage: "text.bubble")
       } footer: {
-        Text("Feedback is submitted anonymously as a public GitHub issue.")
+        Text("Feedback is submitted anonymously as a public GitHub issue. Manual diagnostic exports stay local; diagnostics are uploaded only when you explicitly include them with feedback.")
       }
 
       Section {
@@ -120,5 +139,18 @@ struct GeneralSettingsTab: View {
   /// Returns the menu label for a cadence option.
   private func label(for minutes: Int) -> String {
     minutes == 60 ? "Every hour" : "Every \(minutes) minutes"
+  }
+
+  private func exportDiagnostics() {
+    diagnosticExportStatus = nil
+    diagnosticExportError = nil
+    do {
+      if let destination = try DiagnosticsExporter().export() {
+        diagnosticExportStatus = "Saved \(destination.lastPathComponent)"
+      }
+    } catch {
+      diagnosticExportError = error.localizedDescription
+      DaylineDiagnostics.record("Diagnostic export failed", category: .feedback)
+    }
   }
 }

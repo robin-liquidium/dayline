@@ -7,6 +7,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
     DockIconVisibilityController.shared.start()
+    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
+    let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown"
+    DaylineDiagnostics.record("App launched version \(version) build \(build)", category: .lifecycle)
+  }
+
+  func applicationWillTerminate(_ notification: Notification) {
+    DaylineDiagnostics.record("App will terminate normally", category: .lifecycle)
   }
 
   /// Forwards OAuth redirect URLs from the system browser back into the auth flow.

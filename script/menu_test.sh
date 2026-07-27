@@ -16,6 +16,7 @@ Commands:
   screenshot [path]            Open the popover and capture a cropped screenshot.
   press <button-index>         Press a button inside the popover scroll area.
   press-id <identifier>        Press an element by AXIdentifier.
+  hover-id <identifier>        Move the pointer over an element by AXIdentifier.
   hover <refresh|settings|quit> Move the pointer over a common chrome control.
   scroll <up|down> [steps]     Scroll the open popover.
 
@@ -245,6 +246,45 @@ tell application "System Events"
   end tell
 end tell
 APPLESCRIPT
+    ;;
+  hover-id)
+    open_popover
+    identifier="${2:-}"
+    if [[ -z "$identifier" ]]; then
+      usage
+      exit 2
+    fi
+    read -r x y w h <<<"$(osascript <<APPLESCRIPT
+on findByIdentifier(rootElement, targetIdentifier)
+  tell application "System Events"
+    try
+      if value of attribute "AXIdentifier" of rootElement is targetIdentifier then
+        return rootElement
+      end if
+    end try
+
+    repeat with childElement in UI elements of rootElement
+      set foundElement to my findByIdentifier(childElement, targetIdentifier)
+      if foundElement is not missing value then
+        return foundElement
+      end if
+    end repeat
+  end tell
+  return missing value
+end findByIdentifier
+
+tell application "System Events"
+  tell process "$APP_NAME"
+    set targetElement to my findByIdentifier(window 1, "$identifier")
+    if targetElement is missing value then error "No element with AXIdentifier $identifier"
+    set p to position of targetElement
+    set s to size of targetElement
+    return ((item 1 of p) as text) & " " & ((item 2 of p) as text) & " " & ((item 1 of s) as text) & " " & ((item 2 of s) as text)
+  end tell
+end tell
+APPLESCRIPT
+)"
+    move_pointer "$((x + w / 2))" "$((y + h / 2))"
     ;;
   hover)
     open_popover

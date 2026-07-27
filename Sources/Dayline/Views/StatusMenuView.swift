@@ -21,7 +21,7 @@ struct StatusMenuView: View {
   @EnvironmentObject private var store: StatusStore
   @EnvironmentObject private var updateService: UpdateService
   @Environment(\.openWindow) private var openWindow
-  @FocusState private var isKeyboardTargetFocused: Bool
+  @StateObject private var keyboardMonitor = MenuKeyboardMonitor()
 
   /// Builds the compact menu bar popover content.
   var body: some View {
@@ -79,14 +79,15 @@ struct StatusMenuView: View {
       footerBar
     }
     .frame(width: 400)
-    .focusable()
-    .focusEffectDisabled()
-    .focused($isKeyboardTargetFocused)
     .onAppear {
-      isKeyboardTargetFocused = true
+      DaylineDiagnostics.record("Menu bar window appeared", category: .menuBar)
+      keyboardMonitor.start { characters in
+        handleKeyPress(characters)
+      }
     }
-    .onKeyPress { keyPress in
-      handleKeyPress(keyPress.characters) ? .handled : .ignored
+    .onDisappear {
+      keyboardMonitor.stop()
+      DaylineDiagnostics.record("Menu bar window disappeared", category: .menuBar)
     }
   }
 
@@ -231,30 +232,40 @@ struct StatusMenuView: View {
   /// Handles menu-level keyboard shortcuts.
   private func handleKeyPress(_ characters: String) -> Bool {
     if store.matchesStatusPickerHotkey(characters) {
-      return store.presentStatusPickerForHoveredIssue()
+      return recordHandledShortcut("status", result: store.presentStatusPickerForHoveredIssue())
     }
 
     if store.matchesPriorityPickerHotkey(characters) {
-      return store.presentPriorityPickerForHoveredIssue()
+      return recordHandledShortcut("priority", result: store.presentPriorityPickerForHoveredIssue())
     }
 
     if store.matchesDueDatePickerHotkey(characters) {
-      return store.presentDueDatePickerForHoveredIssue()
+      return recordHandledShortcut("due date", result: store.presentDueDatePickerForHoveredIssue())
     }
 
     if store.matchesLabelPickerHotkey(characters) {
-      return store.presentLabelPickerForHoveredIssue()
+      return recordHandledShortcut("label", result: store.presentLabelPickerForHoveredIssue())
     }
 
     if store.matchesAssigneePickerHotkey(characters) {
-      return store.presentAssigneePickerForHoveredIssue()
+      return recordHandledShortcut("assignee", result: store.presentAssigneePickerForHoveredIssue())
     }
 
     if store.matchesCopyIssueHotkey(characters) {
-      return store.copyHoveredIssueLink() || store.copyHoveredEventLink()
+      return recordHandledShortcut(
+        "copy",
+        result: store.copyHoveredIssueLink() || store.copyHoveredEventLink()
+      )
     }
 
     return false
+  }
+
+  private func recordHandledShortcut(_ action: String, result: Bool) -> Bool {
+    if result {
+      DaylineDiagnostics.record("Handled \(action) menu shortcut", category: .menuBar)
+    }
+    return result
   }
 
   /// Opens a note editor window and brings the accessory app forward.

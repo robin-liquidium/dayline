@@ -677,15 +677,21 @@ final class StatusStore: ObservableObject {
   func refresh() async {
     if let mockData {
       applyMockData(mockData)
+      DaylineDiagnostics.record(
+        "Mock refresh completed events \(events.count) issues \(issues.count) notes \(notes.count)",
+        category: .refresh
+      )
       return
     }
 
     guard !isRefreshing else {
       refreshRequested = true
+      DaylineDiagnostics.record("Refresh coalesced while one was active", category: .refresh)
       return
     }
 
     isRefreshing = true
+    DaylineDiagnostics.record("Refresh started", category: .refresh)
     await refreshConnectionStatus()
     let googleRevision = connectionRevisions[.google, default: 0]
     let linearRevision = connectionRevisions[.linear, default: 0]
@@ -759,6 +765,11 @@ final class StatusStore: ObservableObject {
 
     lastUpdatedAt = Date()
     isRefreshing = false
+    let failureCount = [linearError, githubError].compactMap { $0 }.count + calendarWarnings.count
+    DaylineDiagnostics.record(
+      "Refresh completed events \(events.count) issues \(issues.count) github \(githubIssues.count) notes \(notes.count) failures \(failureCount)",
+      category: .refresh
+    )
     if refreshRequested {
       refreshRequested = false
       await refresh()

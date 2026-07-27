@@ -447,7 +447,7 @@ ensure_prepared_app_asset() {
   local release_json="$2"
   local state_json="$3"
   local tag commit_sha tagged_commit version build_number app_asset app_sha asset_json asset_id asset_state recovered_id
-  local rebuild_root source_dir app_path verification_path now
+  local rebuild_root source_dir app_path symbols_asset symbols_path symbols_sha verification_path now
 
   app_asset="$(jq -r '.app_submission_asset' <<< "$state_json")" || return 1
   app_sha="$(jq -r '.app_submission_sha256' <<< "$state_json")" || return 1
@@ -478,6 +478,7 @@ ensure_prepared_app_asset() {
   commit_sha="$(jq -r '.commit_sha' <<< "$state_json")" || return 1
   version="$(jq -r '.version' <<< "$state_json")" || return 1
   build_number="$(jq -r '.build_number' <<< "$state_json")" || return 1
+  symbols_asset="$(jq -r '.symbols_asset // empty' <<< "$state_json")" || return 1
   git fetch --no-tags origin "refs/tags/$tag:refs/tags/$tag" || return 1
   tagged_commit="$(git rev-parse "${tag}^{commit}")" || return 1
   if [[ "$tagged_commit" != "$commit_sha" ]]; then
@@ -508,16 +509,60 @@ ensure_prepared_app_asset() {
     rmdir "$rebuild_root" || true
     return 1
   fi
+  if [[ -n "$symbols_asset" ]]; then
+    symbols_path="$WORK_DIR/$symbols_asset"
+    if ! mv "$source_dir/dist/artifacts/$APP_NAME-$version.dSYM.zip" "$symbols_path"; then
+      git worktree remove --force "$source_dir" || true
+      rmdir "$rebuild_root" || true
+      return 1
+    fi
+  fi
   git worktree remove --force "$source_dir" || return 1
   rmdir "$rebuild_root" || true
 
   app_sha="$(sha256 "$app_path")" || return 1
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)" || return 1
-  state_json="$(jq -c --arg sha "$app_sha" --arg now "$now" \
-    '.app_submission_sha256 = $sha | .updated_at = $now' <<< "$state_json")" || return 1
+  if [[ -n "$symbols_asset" ]]; then
+    symbols_sha="$(sha256 "$symbols_path")" || return 1
+    state_json="$(jq -c \
+      --arg app_sha "$app_sha" \
+      --arg symbols_sha "$symbols_sha" \
+      --arg now "$now" \
+      '.app_submission_sha256 = $app_sha
+        | .symbols_sha256 = $symbols_sha
+        | .updated_at = $now' <<< "$state_json")" || return 1
+  else
+    state_json="$(jq -c --arg app_sha "$app_sha" --arg now "$now" \
+      '.app_submission_sha256 = $app_sha | .updated_at = $now' <<< "$state_json")" || return 1
+  fi
   save_state "$release_id" "$state_json" || return 1
+  if [[ -n "$symbols_asset" ]]; then
+    upload_asset "$release_id" "$symbols_asset" "$symbols_path" || return 1
+  fi
   upload_asset "$release_id" "$app_asset" "$app_path" || return 1
   echo "Rebuilt and preserved missing app asset for $tag."
+}
+
+ensure_symbols_asset() {
+  local release_json="$1"
+  local state_json="$2"
+  local symbols_asset symbols_sha symbols_id verification_path
+
+  symbols_asset="$(jq -r '.symbols_asset // empty' <<< "$state_json")"
+  symbols_sha="$(jq -r '.symbols_sha256 // empty' <<< "$state_json")"
+  # Drafts created before symbol preservation was introduced remain resumable.
+  [[ -n "$symbols_asset" && -n "$symbols_sha" ]] || return 0
+
+  symbols_id="$(jq -r --arg name "$symbols_asset" '.assets[]? | select(.name == $name) | .id' <<< "$release_json")"
+  if [[ -z "$symbols_id" ]]; then
+    echo "Draft release is missing required debug symbols: $symbols_asset" >&2
+    return 1
+  fi
+  mkdir -p "$WORK_DIR"
+  verification_path="$WORK_DIR/verify-$symbols_asset"
+  download_asset "$release_json" "$symbols_asset" "$verification_path" || return 1
+  verify_sha256 "$verification_path" "$symbols_sha" || return 1
+  rm -f "$verification_path"
 }
 
 continue_release() {
@@ -561,15 +606,23 @@ continue_release() {
       ensure_prepared_app_asset "$release_id" "$release_json" "$state_json" || return 1
       release_json="$(gh api "repos/$REPOSITORY/releases/$release_id")"
       state_json="$(state_from_release "$release_json")"
+      ensure_symbols_asset "$release_json" "$state_json" || return 1
       submit_preserved_asset "$release_id" "$release_json" "$state_json" "app"
       return 0
       ;;
     dmg_prepared)
+      ensure_symbols_asset "$release_json" "$state_json" || return 1
       submit_preserved_asset "$release_id" "$release_json" "$state_json" "dmg"
       return 0
       ;;
-    app_pending) kind="app" ;;
-    dmg_pending) kind="dmg" ;;
+    app_pending)
+      ensure_symbols_asset "$release_json" "$state_json" || return 1
+      kind="app"
+      ;;
+    dmg_pending)
+      ensure_symbols_asset "$release_json" "$state_json" || return 1
+      kind="dmg"
+      ;;
     failed|superseded)
       echo "$tag previously reached terminal stage $stage; leaving its draft intact."
       return 0
@@ -607,7 +660,8 @@ continue_release() {
 
 submit_release() {
   local tag="$1"
-  local version commit_sha build_number release_json release_id app_asset app_path app_sha now state_json latest_tag
+  local version commit_sha build_number release_json release_id app_asset app_path app_sha
+  local symbols_asset symbols_path symbols_sha now state_json latest_tag
 
   if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     echo "Release tag must look like v0.1.6." >&2
@@ -649,6 +703,13 @@ submit_release() {
   app_path="$WORK_DIR/$app_asset"
   mv "$DIST_DIR/$APP_NAME-notary.zip" "$app_path"
   app_sha="$(sha256 "$app_path")"
+  symbols_asset="$APP_NAME-$version.dSYM.zip"
+  symbols_path="$ARTIFACT_DIR/$symbols_asset"
+  if [[ ! -f "$symbols_path" ]]; then
+    echo "Missing matching debug symbols: $symbols_path" >&2
+    return 1
+  fi
+  symbols_sha="$(sha256 "$symbols_path")"
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   state_json="$(jq -n -c \
     --arg marker "$STATE_MARKER" \
@@ -660,15 +721,20 @@ submit_release() {
     --arg build_number "$build_number" \
     --arg app_submission_asset "$app_asset" \
     --arg app_submission_sha256 "$app_sha" \
+    --arg symbols_asset "$symbols_asset" \
+    --arg symbols_sha256 "$symbols_sha" \
     --arg now "$now" \
     '{marker: $marker, schema: $schema, stage: $stage, tag: $tag, version: $version,
       commit_sha: $commit_sha, build_number: $build_number,
       app_submission_asset: $app_submission_asset,
       app_submission_sha256: $app_submission_sha256,
+      symbols_asset: $symbols_asset,
+      symbols_sha256: $symbols_sha256,
       created_at: $now, updated_at: $now}')"
 
   release_json="$(create_draft_release "$tag" "$version" "$commit_sha" "$state_json")"
   release_id="$(jq -r '.id' <<< "$release_json")"
+  upload_asset "$release_id" "$symbols_asset" "$symbols_path"
   upload_asset "$release_id" "$app_asset" "$app_path"
   release_json="$(gh api "repos/$REPOSITORY/releases/$release_id")"
   submit_preserved_asset "$release_id" "$release_json" "$state_json" "app"

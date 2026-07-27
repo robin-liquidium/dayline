@@ -6,6 +6,10 @@
   "main": "src/server.ts",
   "preview_urls": true,
   "exports": {
+    "FeedbackAttachmentStore": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
     "FeedbackRateLimiter": {
       "type": "durable-object",
       "storage": "sqlite",

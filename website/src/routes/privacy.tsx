@@ -19,7 +19,7 @@ function PrivacyPolicy() {
     <LegalPage
       title="Privacy Policy"
       summary="Dayline is local-first software. It has no Dayline account system, advertising, analytics, or tracking. Only feedback you deliberately submit is sent through a Dayline service."
-      updated="July 23, 2026"
+      updated="July 27, 2026"
     >
       <LegalSection title="Google user data Dayline accesses">
         <p>
@@ -69,6 +69,10 @@ function PrivacyPolicy() {
           alerts; Dayline does not persist an event cache to disk. Linear and
           GitHub account selections are also stored in local preferences. Notes
           are stored in Dayline&apos;s local Application Support directory.
+          Dayline also keeps a small, bounded diagnostic log in Application
+          Support containing only app lifecycle, refresh counts, and action
+          breadcrumbs. It does not record account identifiers, calendar or issue
+          contents, notes, URLs, or authentication data.
         </p>
         <p>
           Dayline talks directly from your Mac to Google, Linear, and GitHub over
@@ -113,9 +117,20 @@ function PrivacyPolicy() {
           Feedback may optionally include only the Dayline version and build,
           macOS version, and chip type. It never automatically includes your
           name, device name, IP address, accounts, calendar or Linear data,
-          notes, OAuth tokens, or logs. Feedback and included system information
-          are public on GitHub, so you should not enter personal or sensitive
-          information.
+          notes, OAuth tokens, or logs. A separate Include diagnostics option
+          can explicitly add the diagnostic archive described below. Feedback
+          and anything you choose to include are public on GitHub, so you should
+          not enter personal or sensitive information.
+        </p>
+        <p>
+          If you explicitly choose Export Diagnostics, Dayline creates a ZIP on
+          your Mac containing its bounded diagnostic log, app and system version
+          information, and up to five recent native macOS crash reports. Dayline
+          does not upload a manually exported archive. If you separately select
+          Include diagnostics when submitting feedback, Dayline creates the same
+          ZIP, uploads it with the feedback, and adds a public download link to
+          the GitHub issue for 30 days. Native crash reports can contain system
+          and device identifiers, loaded-image information, and process metadata.
         </p>
       </LegalSection>
 
@@ -140,7 +155,17 @@ function PrivacyPolicy() {
         <p>
           Submitted feedback is retained publicly in the Dayline GitHub
           repository until a maintainer edits or removes it. You can use the
-          contact address below to request removal.
+          contact address below to request removal. An explicitly included
+          diagnostic archive is deleted automatically after 30 days, at which
+          point its download link stops working.
+        </p>
+        <p>
+          Dayline rotates its diagnostic log at approximately 512 KB and keeps
+          at most the current and immediately previous file. You can delete
+          those files from Dayline&apos;s Diagnostics folder in Application
+          Support. Exporting diagnostics creates a separate archive wherever you
+          choose to save it; Dayline does not manage or upload that manually
+          exported copy.
         </p>
       </LegalSection>
 
