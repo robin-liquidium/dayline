@@ -48,6 +48,7 @@ final class DiagnosticLogRecorder: @unchecked Sendable {
   private let maximumBytes: Int
   private let fileManager: FileManager
   private let lock = NSLock()
+  private let timestampFormatter = ISO8601DateFormatter()
 
   init(
     directoryURL: URL = DiagnosticLogRecorder.defaultDirectoryURL,
@@ -68,14 +69,14 @@ final class DiagnosticLogRecorder: @unchecked Sendable {
       .replacingOccurrences(of: "\r", with: " ")
       .replacingOccurrences(of: "\n", with: " ")
       .prefix(500)
-    let timestamp = ISO8601DateFormatter().string(from: date)
-    guard let data = "\(timestamp) [\(category.rawValue)] \(cleanMessage)\n".data(using: .utf8) else {
-      return
-    }
 
     lock.lock()
     defer { lock.unlock() }
 
+    let timestamp = timestampFormatter.string(from: date)
+    guard let data = "\(timestamp) [\(category.rawValue)] \(cleanMessage)\n".data(using: .utf8) else {
+      return
+    }
     try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
     rotateIfNeeded(forAdditionalBytes: data.count)
     if !fileManager.fileExists(atPath: currentLogURL.path) {

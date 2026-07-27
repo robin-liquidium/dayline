@@ -16,6 +16,7 @@ function environment(
 ) {
   const burstKeys: string[] = [];
   const hourlyReservations: Array<{ hour: number; key: string; limit: number }> = [];
+  const hourlyReleases: Array<{ hour: number; key: string }> = [];
   const mock: FeedbackEnvironment = {
     FEEDBACK_RATE_LIMIT: {
       limit: async ({ key }) => {
@@ -32,6 +33,9 @@ function environment(
           }
           return options.hourlyAllowed ?? true;
         },
+        release: async (hour) => {
+          hourlyReleases.push({ hour, key });
+        },
       }),
     },
     FEEDBACK_RATE_LIMIT_SECRET: "x",
@@ -39,7 +43,7 @@ function environment(
     GITHUB_INSTALLATION_ID: "2",
     GITHUB_PRIVATE_KEY: "",
   };
-  return { burstKeys, hourlyReservations, mock };
+  return { burstKeys, hourlyReleases, hourlyReservations, mock };
 }
 
 function feedbackRequest(
@@ -323,9 +327,13 @@ describe("feedback endpoint", () => {
       new Request(diagnosticsURL!),
       diagnosticsURL!.split("/").at(-1)!,
       attachments.namespace,
+      mock,
     );
     expect(download.status).toBe(200);
     expect(download.headers.get("Content-Type")).toBe("application/zip");
+    expect(download.headers.get("Content-Length")).toBe(
+      archive.byteLength.toString(),
+    );
     expect(download.headers.get("Content-Disposition")).toContain(
       "Dayline-Diagnostics.zip",
     );
@@ -354,6 +362,65 @@ describe("feedback endpoint", () => {
 
     expect(response.status).toBe(200);
     expect(attachments.archives.size).toBe(1);
+  });
+
+  test("rejects unsupported and missing diagnostic download routes", async () => {
+    const { mock } = environment();
+    const attachments = attachmentStorage();
+    const attachmentID = crypto.randomUUID();
+
+    const unsupportedMethod = await handleFeedbackAttachmentRequest(
+      new Request(
+        `https://dayline.robin.build/api/feedback/diagnostics/${attachmentID}`,
+        { method: "POST" },
+      ),
+      attachmentID,
+      attachments.namespace,
+      mock,
+    );
+    expect(unsupportedMethod.status).toBe(405);
+    expect(unsupportedMethod.headers.get("Allow")).toBe("GET");
+
+    const invalidID = await handleFeedbackAttachmentRequest(
+      new Request("https://dayline.robin.build/api/feedback/diagnostics/not-an-id"),
+      "not-an-id",
+      attachments.namespace,
+      mock,
+    );
+    expect(invalidID.status).toBe(404);
+
+    const missingStore = await handleFeedbackAttachmentRequest(
+      new Request(
+        `https://dayline.robin.build/api/feedback/diagnostics/${attachmentID}`,
+      ),
+      attachmentID,
+      undefined,
+      mock,
+    );
+    expect(missingStore.status).toBe(404);
+  });
+
+  test("rate limits public diagnostic downloads with a separate anonymous key", async () => {
+    const { burstKeys, mock } = environment({ burstAllowed: false });
+    const attachments = attachmentStorage();
+    const attachmentID = crypto.randomUUID();
+    const archive = diagnosticsZip();
+    attachments.archives.set(attachmentID, Uint8Array.from(archive).buffer);
+
+    const response = await handleFeedbackAttachmentRequest(
+      new Request(
+        `https://dayline.robin.build/api/feedback/diagnostics/${attachmentID}`,
+        { headers: { "CF-Connecting-IP": "192.0.2.1" } },
+      ),
+      attachmentID,
+      attachments.namespace,
+      mock,
+    );
+
+    expect(response.status).toBe(429);
+    expect(burstKeys).toHaveLength(1);
+    expect(burstKeys[0]?.startsWith("diagnostics:")).toBe(true);
+    expect(burstKeys[0]).not.toContain("192.0.2.1");
   });
 
   test("uses the canonical website origin for diagnostic links", async () => {
@@ -385,7 +452,7 @@ describe("feedback endpoint", () => {
   });
 
   test("deletes a diagnostic attachment when issue creation fails", async () => {
-    const { mock } = environment();
+    const { hourlyReleases, hourlyReservations, mock } = environment();
     const attachments = attachmentStorage();
     const response = await handleFeedbackRequest(
       feedbackRequest({
@@ -403,6 +470,37 @@ describe("feedback endpoint", () => {
 
     expect(response.status).toBe(502);
     expect(attachments.archives.size).toBe(0);
+    expect(hourlyReleases).toEqual([
+      {
+        hour: hourlyReservations[0]?.hour,
+        key: hourlyReservations[0]?.key,
+      },
+    ]);
+  });
+
+  test("returns 503 without reserving a slot when attachment storage is unavailable", async () => {
+    const { hourlyReservations, mock } = environment();
+    let createdIssue = false;
+    const response = await handleFeedbackRequest(
+      feedbackRequest({
+        category: "bug",
+        message: "The menu crashed while navigating with the keyboard.",
+        diagnosticsArchive: encodedDiagnosticsZip(),
+      }),
+      mock,
+      async () => {
+        createdIssue = true;
+        return { html_url: "https://github.com/example/issues/42", number: 42 };
+      },
+      mock.FEEDBACK_RATE_LIMITER,
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "Feedback is temporarily unavailable. Please try again.",
+    });
+    expect(hourlyReservations).toHaveLength(0);
+    expect(createdIssue).toBe(false);
   });
 
   test("rejects malformed diagnostic archives", async () => {

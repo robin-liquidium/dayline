@@ -33,6 +33,7 @@ interface RateLimitBinding {
 
 interface FeedbackRateLimiterStub {
   reserve(hour: number, limit: number): Promise<boolean>;
+  release(hour: number): Promise<void>;
 }
 
 export interface FeedbackRateLimiterNamespace {
@@ -62,6 +63,11 @@ export interface FeedbackEnvironment {
   GITHUB_INSTALLATION_ID: string;
   /** PKCS#8 PEM, converted from GitHub's downloaded PKCS#1 key before upload. */
   GITHUB_PRIVATE_KEY: string;
+}
+
+export interface FeedbackAttachmentEnvironment {
+  FEEDBACK_RATE_LIMIT: RateLimitBinding;
+  FEEDBACK_RATE_LIMIT_SECRET: string;
 }
 
 interface GitHubIssue {
@@ -140,17 +146,28 @@ export async function handleFeedbackRequest(
     return jsonResponse({ error: message }, 400);
   }
 
+  if (diagnosticsArchive && !attachmentStore) {
+    console.error("Feedback attachment storage is unavailable.");
+    return jsonResponse(
+      { error: "Feedback is temporarily unavailable. Please try again." },
+      503,
+    );
+  }
+
+  let hourlyReservation:
+    | { limiter: FeedbackRateLimiterStub; hour: number }
+    | undefined;
   try {
     if (!rateLimiter) {
       throw new Error("Feedback rate limiter is unavailable.");
     }
     const hour = Math.floor(Date.now() / 3_600_000);
-    const reserved = await rateLimiter
-      .getByName(clientKey)
-      .reserve(hour, hourlySubmissionLimit);
+    const limiter = rateLimiter.getByName(clientKey);
+    const reserved = await limiter.reserve(hour, hourlySubmissionLimit);
     if (!reserved) {
       return rateLimitedResponse();
     }
+    hourlyReservation = { limiter, hour };
   } catch {
     console.error("Feedback rate limiter failed.");
     return jsonResponse(
@@ -163,11 +180,8 @@ export async function handleFeedbackRequest(
   let attachmentID: string | undefined;
   try {
     if (diagnosticsArchive) {
-      if (!attachmentStore) {
-        throw new Error("Feedback attachment storage is unavailable.");
-      }
       attachmentID = crypto.randomUUID();
-      attachment = attachmentStore.getByName(attachmentStoreShard(attachmentID));
+      attachment = attachmentStore!.getByName(attachmentStoreShard(attachmentID));
       await attachment.save(attachmentID, diagnosticsArchive);
       submission.diagnosticsURL =
         `${canonicalWebsiteOrigin}/api/feedback/diagnostics/${attachmentID}`;
@@ -183,6 +197,13 @@ export async function handleFeedbackRequest(
         await attachment.remove(attachmentID);
       } catch {
         console.error("Feedback attachment cleanup failed.");
+      }
+    }
+    if (hourlyReservation) {
+      try {
+        await hourlyReservation.limiter.release(hourlyReservation.hour);
+      } catch {
+        console.error("Feedback rate-limit rollback failed.");
       }
     }
     console.error(
@@ -201,6 +222,7 @@ export async function handleFeedbackAttachmentRequest(
   request: Request,
   attachmentID: string,
   attachmentStore?: FeedbackAttachmentStoreNamespace,
+  environment?: FeedbackAttachmentEnvironment,
 ): Promise<Response> {
   if (request.method !== "GET") {
     return jsonResponse({ error: "Method not allowed." }, 405, { Allow: "GET" });
@@ -214,6 +236,33 @@ export async function handleFeedbackAttachmentRequest(
     return jsonResponse({ error: "Diagnostic archive not found." }, 404);
   }
 
+  if (!environment) {
+    console.error("Feedback download rate limiter is unavailable.");
+    return jsonResponse(
+      { error: "Diagnostic download is temporarily unavailable." },
+      503,
+    );
+  }
+  try {
+    const clientAddress = request.headers.get("CF-Connecting-IP") ?? "unknown";
+    const clientKey = await anonymousClientKey(
+      clientAddress,
+      environment.FEEDBACK_RATE_LIMIT_SECRET,
+    );
+    const downloadLimit = await environment.FEEDBACK_RATE_LIMIT.limit({
+      key: `diagnostics:${clientKey}`,
+    });
+    if (!downloadLimit.success) {
+      return rateLimitedResponse();
+    }
+  } catch {
+    console.error("Feedback download rate limiter failed.");
+    return jsonResponse(
+      { error: "Diagnostic download is temporarily unavailable." },
+      503,
+    );
+  }
+
   const archive = await attachmentStore
     .getByName(attachmentStoreShard(attachmentID))
     .read(attachmentID);
@@ -224,6 +273,7 @@ export async function handleFeedbackAttachmentRequest(
   return new Response(archive, {
     headers: {
       "Cache-Control": "no-store",
+      "Content-Length": archive.byteLength.toString(),
       "Content-Disposition": 'attachment; filename="Dayline-Diagnostics.zip"',
       "Content-Type": "application/zip",
       "X-Content-Type-Options": "nosniff",
@@ -595,6 +645,7 @@ function parseDiagnosticsZip(archive: Uint8Array): ParsedZipEntry[] {
   const localOrder = [...entries].sort(
     (left, right) => left.localHeaderOffset - right.localHeaderOffset,
   );
+  // Dayline uses `ditto --keepParent`; require its local records to tile the archive prefix exactly.
   let expectedOffset = 0;
   for (const entry of localOrder) {
     if (entry.localHeaderOffset !== expectedOffset) {

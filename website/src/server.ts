@@ -3,6 +3,7 @@ import {
   defaultStreamHandler,
 } from "@tanstack/react-start/server";
 import {
+  type FeedbackAttachmentEnvironment,
   type FeedbackAttachmentStoreNamespace,
   type FeedbackRateLimiterNamespace,
   type FeedbackRequestContext,
@@ -23,7 +24,7 @@ interface CloudflareExecutionContext {
 
 const fetch = (
   request: Request,
-  _environment: unknown,
+  environment: FeedbackAttachmentEnvironment,
   context: CloudflareExecutionContext,
 ) => {
   const attachmentMatch = new URL(request.url).pathname.match(
@@ -34,6 +35,7 @@ const fetch = (
       request,
       attachmentMatch[1],
       context.exports.FeedbackAttachmentStore,
+      environment,
     );
   }
 

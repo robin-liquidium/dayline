@@ -71,8 +71,10 @@ export class FeedbackAttachmentStore extends DurableObject {
         "SELECT MIN(expires_at) AS expires_at FROM attachments",
       )
       .toArray()[0]?.expires_at;
-    if (next) {
+    if (next !== null && next !== undefined) {
       await this.ctx.storage.setAlarm(next);
+    } else {
+      await this.ctx.storage.deleteAlarm();
     }
   }
 }

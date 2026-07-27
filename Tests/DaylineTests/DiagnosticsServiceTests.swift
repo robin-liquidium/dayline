@@ -303,14 +303,26 @@ struct DiagnosticsServiceTests {
     #expect(try Data(contentsOf: sentinel) == Data("keep me".utf8))
   }
 
-  @Test func feedbackAttachmentDisclosesThePublicUpload() async throws {
-    let archive = try await DiagnosticsExporter().createFeedbackAttachment()
+  @Test func feedbackAttachmentDisclosesThePublicUpload() throws {
+    let outputRoot = FileManager.default.temporaryDirectory
+      .appendingPathComponent("dayline-feedback-disclosure-test-\(UUID().uuidString)", isDirectory: true)
+    let logRoot = FileManager.default.temporaryDirectory
+      .appendingPathComponent("dayline-feedback-disclosure-logs-\(UUID().uuidString)", isDirectory: true)
+    let archive = outputRoot.appendingPathComponent("feedback.zip")
     let extractionRoot = FileManager.default.temporaryDirectory
       .appendingPathComponent("dayline-feedback-archive-test-\(UUID().uuidString)", isDirectory: true)
     defer {
-      try? FileManager.default.removeItem(at: archive)
+      try? FileManager.default.removeItem(at: outputRoot)
+      try? FileManager.default.removeItem(at: logRoot)
       try? FileManager.default.removeItem(at: extractionRoot)
     }
+    try FileManager.default.createDirectory(at: outputRoot, withIntermediateDirectories: true)
+    try DiagnosticsExporter.createArchive(
+      at: archive,
+      purpose: .feedbackAttachment,
+      crashReportCandidates: [],
+      recorder: DiagnosticLogRecorder(directoryURL: logRoot)
+    )
 
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
