@@ -81,22 +81,27 @@ struct DiagnosticsServiceTests {
     #expect(reports.map { $0.resolvingSymlinksInPath() } == [matching.resolvingSymlinksInPath()])
   }
 
-  @Test func crashReportDiscoverySkipsOversizedReportsAndPreservesNewestFirstOrder() throws {
+  @Test func crashReportStagingUsesActualBytesAndKeepsOlderEligibleReports() throws {
     let root = FileManager.default.temporaryDirectory
       .appendingPathComponent("dayline-crash-budget-test-\(UUID().uuidString)", isDirectory: true)
-    defer { try? FileManager.default.removeItem(at: root) }
+    let stagingRoot = FileManager.default.temporaryDirectory
+      .appendingPathComponent("dayline-crash-staging-test-\(UUID().uuidString)", isDirectory: true)
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: stagingRoot)
+    }
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     let now = try #require(ISO8601DateFormatter().date(from: "2026-07-27T10:00:00Z"))
 
-    let oversized = root.appendingPathComponent("Dayline-oversized.ips")
+    let growsAfterDiscovery = root.appendingPathComponent("Dayline-growing.ips")
     let newestEligible = root.appendingPathComponent("Dayline-newest-eligible.ips")
     let exceedsRemainingBudget = root.appendingPathComponent("Dayline-over-budget.ips")
     let oldestEligible = root.appendingPathComponent("Dayline-oldest-eligible.ips")
     try writeCrashHeader(
       bundleID: "de.obermaier.dayline",
       appName: "Dayline",
-      to: oversized,
-      paddingBytes: 500
+      to: growsAfterDiscovery,
+      paddingBytes: 10
     )
     try writeCrashHeader(
       bundleID: "de.obermaier.dayline",
@@ -117,7 +122,7 @@ struct DiagnosticsServiceTests {
       paddingBytes: 10
     )
     for (index, url) in [
-      oversized,
+      growsAfterDiscovery,
       newestEligible,
       exceedsRemainingBudget,
       oldestEligible,
@@ -128,8 +133,11 @@ struct DiagnosticsServiceTests {
       )
     }
 
-    let oversizedBytes = try #require(
-      oversized.resourceValues(forKeys: [.fileSizeKey]).fileSize
+    let candidates = DiagnosticsExporter.recentCrashReportCandidates(
+      bundleIdentifier: "de.obermaier.dayline",
+      displayName: "Dayline",
+      roots: [root],
+      now: now
     )
     let newestBytes = try #require(
       newestEligible.resourceValues(forKeys: [.fileSizeKey]).fileSize
@@ -137,19 +145,117 @@ struct DiagnosticsServiceTests {
     let oldestBytes = try #require(
       oldestEligible.resourceValues(forKeys: [.fileSizeKey]).fileSize
     )
+    let grownData = try FileHandle(forWritingTo: growsAfterDiscovery)
+    try grownData.seekToEnd()
+    try grownData.write(contentsOf: Data(repeating: 0x20, count: 500))
+    try grownData.close()
+
+    let staged = try DiagnosticsExporter.stageCrashReports(
+      candidates,
+      to: stagingRoot,
+      maximumIndividualBytes: newestBytes + 50,
+      maximumTotalBytes: newestBytes + oldestBytes
+    )
+
+    #expect(
+      staged.map(\.lastPathComponent) ==
+        [newestEligible, oldestEligible].map(\.lastPathComponent)
+    )
+    let stagedBytes = try staged.reduce(into: 0) { total, url in
+      total += try #require(url.resourceValues(forKeys: [.fileSizeKey]).fileSize)
+    }
+    #expect(stagedBytes == newestBytes + oldestBytes)
+    let stagedNames = try FileManager.default.contentsOfDirectory(atPath: stagingRoot.path)
+    #expect(!stagedNames.contains(where: { $0.hasPrefix(".partial-") }))
+  }
+
+  @Test func crashReportStagingSkipsTruncatedAndUnreadableCandidates() throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("dayline-crash-change-test-\(UUID().uuidString)", isDirectory: true)
+    let stagingRoot = FileManager.default.temporaryDirectory
+      .appendingPathComponent("dayline-crash-change-staging-\(UUID().uuidString)", isDirectory: true)
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: stagingRoot)
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let now = try #require(ISO8601DateFormatter().date(from: "2026-07-27T10:00:00Z"))
+    let truncated = root.appendingPathComponent("Dayline-truncated.ips")
+    let removed = root.appendingPathComponent("Dayline-removed.ips")
+    let stable = root.appendingPathComponent("Dayline-stable.ips")
+    for (index, url) in [truncated, removed, stable].enumerated() {
+      try writeCrashHeader(
+        bundleID: "de.obermaier.dayline",
+        appName: "Dayline",
+        to: url,
+        paddingBytes: 50
+      )
+      try FileManager.default.setAttributes(
+        [.modificationDate: now.addingTimeInterval(TimeInterval(-index))],
+        ofItemAtPath: url.path
+      )
+    }
+
+    let candidates = DiagnosticsExporter.recentCrashReportCandidates(
+      bundleIdentifier: "de.obermaier.dayline",
+      displayName: "Dayline",
+      roots: [root],
+      now: now
+    )
+    try Data().write(to: truncated)
+    try FileManager.default.removeItem(at: removed)
+
+    let staged = try DiagnosticsExporter.stageCrashReports(
+      candidates,
+      to: stagingRoot,
+      maximumIndividualBytes: 1024,
+      maximumTotalBytes: 1024
+    )
+
+    #expect(staged.map(\.lastPathComponent) == [stable.lastPathComponent])
+    #expect(
+      try FileManager.default.contentsOfDirectory(atPath: stagingRoot.path) ==
+        [stable.lastPathComponent]
+    )
+  }
+
+  @Test func nonPositiveCrashReportCountProducesNoReportsOrStagingDirectory() throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("dayline-crash-count-test-\(UUID().uuidString)", isDirectory: true)
+    let stagingRoot = FileManager.default.temporaryDirectory
+      .appendingPathComponent("dayline-crash-count-staging-\(UUID().uuidString)", isDirectory: true)
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: stagingRoot)
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let now = try #require(ISO8601DateFormatter().date(from: "2026-07-27T10:00:00Z"))
+    let report = root.appendingPathComponent("Dayline-current.ips")
+    try writeCrashHeader(bundleID: "de.obermaier.dayline", appName: "Dayline", to: report)
+    try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: report.path)
+
     let reports = DiagnosticsExporter.recentCrashReports(
       bundleIdentifier: "de.obermaier.dayline",
       displayName: "Dayline",
       roots: [root],
       now: now,
-      maximumIndividualBytes: oversizedBytes - 1,
-      maximumTotalBytes: newestBytes + oldestBytes
+      maximumCount: 0
+    )
+    let candidates = DiagnosticsExporter.recentCrashReportCandidates(
+      bundleIdentifier: "de.obermaier.dayline",
+      displayName: "Dayline",
+      roots: [root],
+      now: now
+    )
+    let staged = try DiagnosticsExporter.stageCrashReports(
+      candidates,
+      to: stagingRoot,
+      maximumCount: -1
     )
 
-    #expect(
-      reports.map { $0.resolvingSymlinksInPath() } ==
-        [newestEligible, oldestEligible].map { $0.resolvingSymlinksInPath() }
-    )
+    #expect(reports.isEmpty)
+    #expect(staged.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: stagingRoot.path))
   }
 
   @Test func feedbackAttachmentDisclosesThePublicUpload() async throws {

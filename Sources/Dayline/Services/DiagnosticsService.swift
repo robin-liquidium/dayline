@@ -131,6 +131,12 @@ final class DiagnosticLogRecorder: @unchecked Sendable {
   }
 }
 
+struct CrashReportCandidate: Sendable {
+  let sourceURL: URL
+  let modifiedAt: Date
+  let observedBytes: Int
+}
+
 /// Builds and saves a user-reviewed ZIP containing bounded logs and recent native crash reports.
 struct DiagnosticsExporter {
   private static let maximumCrashReportBytes = 8 * 1024 * 1024
@@ -240,33 +246,103 @@ struct DiagnosticsExporter {
   }
 
   private static func copyCrashReports(to bundleRoot: URL) throws {
-    let reports = Self.recentCrashReports(
+    let candidates = Self.recentCrashReportCandidates(
       bundleIdentifier: Bundle.main.bundleIdentifier,
       displayName: Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Dayline"
     )
-    guard !reports.isEmpty else {
+    guard !candidates.isEmpty else {
       return
     }
     let crashRoot = bundleRoot.appendingPathComponent("Crash Reports", isDirectory: true)
-    let fileManager = FileManager.default
-    try fileManager.createDirectory(at: crashRoot, withIntermediateDirectories: true)
-    for source in reports {
-      try fileManager.copyItem(at: source, to: crashRoot.appendingPathComponent(source.lastPathComponent))
-    }
+    try Self.stageCrashReports(candidates, to: crashRoot)
   }
 
-  /// Finds up to five recent reports belonging to this exact app bundle.
+  /// Discovers matching recent reports in newest-first order without snapshotting them.
   static func recentCrashReports(
     bundleIdentifier: String?,
     displayName: String,
     roots: [URL]? = nil,
     now: Date = Date(),
+    maximumCount: Int = 5
+  ) -> [URL] {
+    guard maximumCount > 0 else {
+      return []
+    }
+    return recentCrashReportCandidates(
+      bundleIdentifier: bundleIdentifier,
+      displayName: displayName,
+      roots: roots,
+      now: now
+    )
+    .prefix(maximumCount)
+    .map(\.sourceURL)
+  }
+
+  /// Streams stable snapshots into the archive staging directory under both byte budgets.
+  @discardableResult
+  static func stageCrashReports(
+    _ candidates: [CrashReportCandidate],
+    to crashRoot: URL,
     maximumIndividualBytes: Int = maximumCrashReportBytes,
     maximumTotalBytes: Int = maximumCrashReportTotalBytes,
     maximumCount: Int = 5
-  ) -> [URL] {
+  ) throws -> [URL] {
+    guard maximumCount > 0,
+          maximumIndividualBytes > 0,
+          maximumTotalBytes > 0,
+          !candidates.isEmpty else {
+      return []
+    }
+
+    let fileManager = FileManager.default
+    try fileManager.createDirectory(at: crashRoot, withIntermediateDirectories: true)
+    var accepted: [URL] = []
+    var acceptedBytes = 0
+    for candidate in candidates {
+      let remainingBytes = min(
+        maximumIndividualBytes,
+        maximumTotalBytes - acceptedBytes
+      )
+      guard remainingBytes > 0 else {
+        break
+      }
+
+      let destination = crashRoot.appendingPathComponent(candidate.sourceURL.lastPathComponent)
+      guard !fileManager.fileExists(atPath: destination.path) else {
+        continue
+      }
+      let partial = crashRoot.appendingPathComponent(".partial-\(UUID().uuidString)")
+      defer { try? fileManager.removeItem(at: partial) }
+      guard let copiedBytes = boundedCrashReportSnapshot(
+        candidate,
+        to: partial,
+        maximumBytes: remainingBytes
+      ) else {
+        continue
+      }
+
+      try fileManager.moveItem(at: partial, to: destination)
+      accepted.append(destination)
+      acceptedBytes += copiedBytes
+      if accepted.count >= maximumCount {
+        break
+      }
+    }
+    if accepted.isEmpty {
+      try? fileManager.removeItem(at: crashRoot)
+    }
+    return accepted
+  }
+
+  /// Discovers every matching candidate; staging applies count and byte limits.
+  static func recentCrashReportCandidates(
+    bundleIdentifier: String?,
+    displayName: String,
+    roots: [URL]? = nil,
+    now: Date = Date()
+  ) -> [CrashReportCandidate] {
     let cutoff = now.addingTimeInterval(-14 * 24 * 60 * 60)
-    var matches: [(url: URL, date: Date, size: Int)] = []
+    var matches: [CrashReportCandidate] = []
 
     for root in roots ?? defaultCrashReportRoots {
       guard let enumerator = FileManager.default.enumerator(
@@ -288,24 +364,65 @@ struct DiagnosticsExporter {
               crashReport(at: url, matchesBundleIdentifier: bundleIdentifier, displayName: displayName) else {
           continue
         }
-        matches.append((url, modifiedAt, fileSize))
+        matches.append(
+          CrashReportCandidate(
+            sourceURL: url,
+            modifiedAt: modifiedAt,
+            observedBytes: fileSize
+          )
+        )
       }
     }
 
-    var selected: [URL] = []
-    var selectedBytes = 0
-    for match in matches.sorted(by: { $0.date > $1.date }) {
-      guard match.size <= maximumIndividualBytes,
-            selectedBytes + match.size <= maximumTotalBytes else {
-        continue
-      }
-      selected.append(match.url)
-      selectedBytes += match.size
-      if selected.count == maximumCount {
-        break
-      }
+    return matches.sorted { $0.modifiedAt > $1.modifiedAt }
+  }
+
+  /// Copies through a bounded temporary file and accepts only an unchanged complete source.
+  private static func boundedCrashReportSnapshot(
+    _ candidate: CrashReportCandidate,
+    to destination: URL,
+    maximumBytes: Int
+  ) -> Int? {
+    let fileManager = FileManager.default
+    guard candidate.observedBytes <= maximumBytes,
+          let source = try? FileHandle(forReadingFrom: candidate.sourceURL) else {
+      return nil
     }
-    return selected
+    defer { try? source.close() }
+
+    guard fileManager.createFile(atPath: destination.path, contents: nil),
+          let output = try? FileHandle(forWritingTo: destination) else {
+      return nil
+    }
+    defer { try? output.close() }
+
+    var copiedBytes = 0
+    do {
+      while true {
+        let readLimit = min(64 * 1024, maximumBytes - copiedBytes + 1)
+        guard let chunk = try source.read(upToCount: readLimit),
+              !chunk.isEmpty else {
+          break
+        }
+        guard copiedBytes + chunk.count <= maximumBytes else {
+          return nil
+        }
+        try output.write(contentsOf: chunk)
+        copiedBytes += chunk.count
+      }
+      try output.synchronize()
+      let finalValues = try candidate.sourceURL.resourceValues(
+        forKeys: [.contentModificationDateKey, .fileSizeKey]
+      )
+      guard copiedBytes == candidate.observedBytes,
+            finalValues.fileSize == candidate.observedBytes,
+            finalValues.contentModificationDate == candidate.modifiedAt else {
+        return nil
+      }
+      return copiedBytes
+    } catch {
+      return nil
+    }
   }
 
   private static func crashReport(
