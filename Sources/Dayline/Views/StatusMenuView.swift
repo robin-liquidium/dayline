@@ -291,12 +291,14 @@ struct StatusMenuView: View {
 
   /// Opens the Linear issue creator window and brings the accessory app forward.
   private func openLinearIssueCreator() {
+    store.requestLinearIssueCreation()
     openWindow(id: "linearIssueCreator")
     LinearIssueEditorWindowPresenter.bringIssueWindowToFront()
   }
 
   /// Opens the GitHub issue creator window and brings the accessory app forward.
   private func openGitHubIssueCreator() {
+    store.requestGitHubIssueCreation()
     openWindow(id: "githubIssueCreator")
     GitHubIssueEditorWindowPresenter.bringIssueWindowToFront()
   }

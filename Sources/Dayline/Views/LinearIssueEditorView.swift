@@ -169,6 +169,11 @@ struct LinearIssueEditorView: View {
       Divider()
 
       HStack {
+        Toggle("Create more", isOn: createMoreBinding)
+          .toggleStyle(.checkbox)
+          .help("Keep this window open and start a fresh issue after creating")
+          .accessibilityIdentifier("linearEditor.createMore")
+
         if draft.isLoadingOptions {
           ProgressView()
             .controlSize(.small)
@@ -196,6 +201,9 @@ struct LinearIssueEditorView: View {
     .frame(minWidth: 560, idealWidth: 600, minHeight: 640, idealHeight: 780)
     .task {
       await loadOptionsIfNeeded()
+    }
+    .onChange(of: store.linearIssueCreationRequestID) { _, _ in
+      resetDraft()
     }
     .onChange(of: draft.issue.team) { _, _ in
       pruneStateSelection()
@@ -287,7 +295,7 @@ struct LinearIssueEditorView: View {
     LinearPriorityOption.allCases
   }
 
-  /// Creates the issue and closes the window when Linear accepts it.
+  /// Creates the issue, then closes or resets the window when Linear accepts it.
   private func createIssue() async {
     guard canCreate else {
       return
@@ -298,12 +306,36 @@ struct LinearIssueEditorView: View {
 
     do {
       try await store.createLinearIssue(draft: draft.issue)
-      dismiss()
+      if store.issueCreateMoreEnabled {
+        resetDraft()
+      } else {
+        dismiss()
+      }
     } catch {
       draft.errorMessage = error.localizedDescription.compactLine(limit: 160)
     }
 
     draft.isCreating = false
+  }
+
+  /// Clears the form back to the configured defaults for a fresh issue.
+  private func resetDraft() {
+    draft.issue = LinearIssueCreateDraft()
+    draft.errorMessage = nil
+    applyCoreDefaults()
+    Task {
+      await loadTeamExtras()
+      await loadMilestones()
+      applyOptionDefaults()
+    }
+  }
+
+  /// Binding for the create-more toggle.
+  private var createMoreBinding: Binding<Bool> {
+    Binding(
+      get: { store.issueCreateMoreEnabled },
+      set: { store.setIssueCreateMoreEnabled($0) }
+    )
   }
 
   /// Loads team/project/user options once per editor lifetime.
@@ -320,24 +352,7 @@ struct LinearIssueEditorView: View {
 
     do {
       draft.teams = try await store.linearIssueCreateTeamOptions()
-      let defaultTeam = draft.teams.first { $0.id == store.linearIssueCreateDefaultTeamID }
-        ?? draft.teams.first
-      if let defaultTeam, store.linearIssueCreateDefaultTeamID != defaultTeam.id {
-        store.setLinearIssueCreateDefaultTeamID(defaultTeam.id)
-      }
-      draft.issue.team = defaultTeam?.id ?? ""
-      let state = defaultState(for: defaultTeam)
-      if let state, store.linearIssueCreateDefaultStateID != state.id {
-        store.setLinearIssueCreateDefaultStateID(state.id)
-      }
-      draft.issue.state = state?.id ?? ""
-      let hasValidPriority = LinearPriorityOption.allCases.contains {
-        $0.value == store.linearIssueCreateDefaultPriority
-      }
-      if !hasValidPriority {
-        store.setLinearIssueCreateDefaultPriority(0)
-      }
-      draft.issue.priority = hasValidPriority ? store.linearIssueCreateDefaultPriority : 0
+      applyCoreDefaults()
     } catch {
       optionLoadError = error.localizedDescription.compactLine(limit: 160)
     }
@@ -350,21 +365,46 @@ struct LinearIssueEditorView: View {
 
     do {
       draft.projects = try await store.linearIssueCreateProjectOptions()
-      if projectOptions.contains(where: { $0.id == store.linearIssueCreateDefaultProjectID }) {
-        draft.issue.project = store.linearIssueCreateDefaultProjectID
-      }
     } catch {
       optionLoadError = optionLoadError ?? error.localizedDescription.compactLine(limit: 160)
     }
 
-    draft.errorMessage = optionLoadError
-
     await loadTeamExtras()
+    await loadMilestones()
+    applyOptionDefaults()
+    draft.errorMessage = optionLoadError
+  }
+
+  /// Applies the configured default team, status, and priority to the draft.
+  private func applyCoreDefaults() {
+    let defaultTeam = draft.teams.first { $0.id == store.linearIssueCreateDefaultTeamID }
+      ?? draft.teams.first
+    if let defaultTeam, store.linearIssueCreateDefaultTeamID != defaultTeam.id {
+      store.setLinearIssueCreateDefaultTeamID(defaultTeam.id)
+    }
+    draft.issue.team = defaultTeam?.id ?? ""
+    let state = defaultState(for: defaultTeam)
+    if let state, store.linearIssueCreateDefaultStateID != state.id {
+      store.setLinearIssueCreateDefaultStateID(state.id)
+    }
+    draft.issue.state = state?.id ?? ""
+    let hasValidPriority = LinearPriorityOption.allCases.contains {
+      $0.value == store.linearIssueCreateDefaultPriority
+    }
+    if !hasValidPriority {
+      store.setLinearIssueCreateDefaultPriority(0)
+    }
+    draft.issue.priority = hasValidPriority ? store.linearIssueCreateDefaultPriority : 0
+  }
+
+  /// Applies the configured default project and label when they are still available.
+  private func applyOptionDefaults() {
+    if projectOptions.contains(where: { $0.id == store.linearIssueCreateDefaultProjectID }) {
+      draft.issue.project = store.linearIssueCreateDefaultProjectID
+    }
     if draft.labels.contains(where: { $0.id == store.linearIssueCreateDefaultLabelID }) {
       draft.issue.label = store.linearIssueCreateDefaultLabelID
     }
-    await loadMilestones()
-
   }
 
   /// Loads cycles and labels for the selected team and prunes stale selections.

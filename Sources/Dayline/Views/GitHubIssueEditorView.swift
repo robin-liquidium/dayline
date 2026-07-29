@@ -80,6 +80,11 @@ struct GitHubIssueEditorView: View {
       Divider()
 
       HStack {
+        Toggle("Create more", isOn: createMoreBinding)
+          .toggleStyle(.checkbox)
+          .help("Keep this window open and start a fresh issue after creating")
+          .accessibilityIdentifier("githubEditor.createMore")
+
         if draft.isLoadingOptions {
           ProgressView()
             .controlSize(.small)
@@ -107,14 +112,13 @@ struct GitHubIssueEditorView: View {
     .frame(minWidth: 560, idealWidth: 600, minHeight: 460, idealHeight: 520)
     .task {
       if draft.repository.isEmpty {
-        let defaultRepo = store.githubIssueCreateDefaultRepo
-        let enabled = enabledRepositories.map(\.fullName)
-        let chosen = enabled.contains(defaultRepo) ? defaultRepo : (enabled.first ?? "")
-        requestedOptionsRepository = chosen
-        draft.repository = chosen
+        seedDefaults()
       }
       draft.assignee = ownLogin ?? ""
       await loadRepositoryOptions()
+    }
+    .onChange(of: store.githubIssueCreationRequestID) { _, _ in
+      resetDraft()
     }
     .onChange(of: draft.repository) { _, _ in
       guard draft.repository != requestedOptionsRepository else { return }
@@ -155,7 +159,7 @@ struct GitHubIssueEditorView: View {
     Binding(get: { draft.selectedLabel }, set: { draft.selectedLabel = $0 })
   }
 
-  /// Creates the issue and closes the window when GitHub accepts it.
+  /// Creates the issue, then closes or resets the window when GitHub accepts it.
   private func createIssue() async {
     guard canCreate else {
       return
@@ -172,12 +176,43 @@ struct GitHubIssueEditorView: View {
         labels: selectedLabels,
         assignees: draft.assignee.isEmpty ? [] : [draft.assignee]
       )
-      dismiss()
+      if store.issueCreateMoreEnabled {
+        resetDraft()
+      } else {
+        dismiss()
+      }
     } catch {
       draft.errorMessage = error.localizedDescription.compactLine(limit: 160)
     }
 
     draft.isCreating = false
+  }
+
+  /// Clears the form back to the configured defaults for a fresh issue.
+  private func resetDraft() {
+    draft.title = ""
+    draft.body = ""
+    draft.selectedLabel = ""
+    draft.errorMessage = nil
+    seedDefaults()
+  }
+
+  /// Seeds the configured default repository and self-assignee.
+  private func seedDefaults() {
+    let defaultRepo = store.githubIssueCreateDefaultRepo
+    let enabled = enabledRepositories.map(\.fullName)
+    let chosen = enabled.contains(defaultRepo) ? defaultRepo : (enabled.first ?? "")
+    requestedOptionsRepository = chosen
+    draft.repository = chosen
+    draft.assignee = ownLogin ?? ""
+  }
+
+  /// Binding for the create-more toggle.
+  private var createMoreBinding: Binding<Bool> {
+    Binding(
+      get: { store.issueCreateMoreEnabled },
+      set: { store.setIssueCreateMoreEnabled($0) }
+    )
   }
 
   /// Loads assignable collaborators and labels for the selected repository.

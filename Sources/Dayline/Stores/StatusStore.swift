@@ -237,6 +237,20 @@ final class StatusStore: ObservableObject {
     }
   }
 
+  /// Whether note editor windows float above other windows.
+  @Published var notesKeepOnTop: Bool {
+    didSet {
+      UserDefaults.standard.set(notesKeepOnTop, forKey: Self.notesKeepOnTopKey)
+    }
+  }
+
+  /// Whether issue creators stay open and reset after a successful create.
+  @Published var issueCreateMoreEnabled: Bool {
+    didSet {
+      UserDefaults.standard.set(issueCreateMoreEnabled, forKey: Self.issueCreateMoreEnabledKey)
+    }
+  }
+
   /// Whether a full-screen alert appears when a meeting starts.
   @Published var meetingAlertEnabled: Bool {
     didSet {
@@ -451,6 +465,8 @@ final class StatusStore: ObservableObject {
   private static let showsCalendarSectionKey = "showsCalendarSection"
   private static let showsLinearSectionKey = "showsLinearSection"
   private static let showsNotesSectionKey = "showsNotesSection"
+  private static let notesKeepOnTopKey = "notesKeepOnTop"
+  private static let issueCreateMoreEnabledKey = "issueCreateMoreEnabled"
   private static let meetingAlertEnabledKey = "meetingAlertEnabled"
   private static let meetingAlertLeadMinutesKey = "meetingAlertLeadMinutes"
   private static let issueSourceKey = "issueSource"
@@ -580,6 +596,8 @@ final class StatusStore: ObservableObject {
     self.showsCalendarSection = defaults.object(forKey: Self.showsCalendarSectionKey) as? Bool ?? true
     self.showsLinearSection = defaults.object(forKey: Self.showsLinearSectionKey) as? Bool ?? true
     self.showsNotesSection = defaults.object(forKey: Self.showsNotesSectionKey) as? Bool ?? true
+    self.notesKeepOnTop = defaults.object(forKey: Self.notesKeepOnTopKey) as? Bool ?? false
+    self.issueCreateMoreEnabled = defaults.object(forKey: Self.issueCreateMoreEnabledKey) as? Bool ?? false
     self.meetingAlertEnabled = defaults.object(forKey: Self.meetingAlertEnabledKey) as? Bool ?? true
     self.meetingAlertLeadMinutes = Self.storedInteger(forKey: Self.meetingAlertLeadMinutesKey, defaultValue: 0)
     self.issueSource = IssueSource(rawValue: defaults.string(forKey: Self.issueSourceKey) ?? "") ?? .linear
@@ -1373,6 +1391,26 @@ final class StatusStore: ObservableObject {
   /// Persists whether the notes section appears in the menu bar popover.
   func setShowsNotesSection(_ shows: Bool) {
     showsNotesSection = shows
+  }
+
+  /// Persists whether note editor windows float above other windows.
+  func setNotesKeepOnTop(_ keepOnTop: Bool) {
+    notesKeepOnTop = keepOnTop
+  }
+
+  /// Persists whether issue creators stay open and reset after a successful create.
+  func setIssueCreateMoreEnabled(_ enabled: Bool) {
+    issueCreateMoreEnabled = enabled
+  }
+
+  /// Requests the Linear issue creator, resetting any previously entered draft.
+  func requestLinearIssueCreation() {
+    linearIssueCreationRequestID = UUID()
+  }
+
+  /// Requests the GitHub issue creator, resetting any previously entered draft.
+  func requestGitHubIssueCreation() {
+    githubIssueCreationRequestID = UUID()
   }
 
   /// Persists whether the full-screen meeting alert is enabled.
@@ -2569,10 +2607,10 @@ final class StatusStore: ObservableObject {
         self.noteCreationRequestID = UUID()
       case .newLinearIssue:
         guard self.availableIssueSources.contains(.linear) else { return }
-        self.linearIssueCreationRequestID = UUID()
+        self.requestLinearIssueCreation()
       case .newGitHubIssue:
         guard self.availableIssueSources.contains(.github) else { return }
-        self.githubIssueCreationRequestID = UUID()
+        self.requestGitHubIssueCreation()
       case .openGoogleCalendar:
         self.openGoogleCalendar()
       }
