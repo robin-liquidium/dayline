@@ -33,13 +33,21 @@ struct MarkdownTextEditor: NSViewRepresentable {
   }
 
   func updateNSView(_ nsView: NSScrollView, context: Context) {
-    guard let textView = nsView.documentView as? NSTextView, textView.string != text else {
+    guard let textView = nsView.documentView as? NSTextView else {
+      return
+    }
+    let coordinator = context.coordinator
+    if text == coordinator.lastPublishedText {
+      return
+    }
+    coordinator.lastPublishedText = text
+    guard textView.string != text else {
       return
     }
     let selectedRanges = textView.selectedRanges
     textView.string = text
     textView.selectedRanges = selectedRanges
-    context.coordinator.applyHighlighting()
+    coordinator.applyHighlighting()
   }
 
   func makeCoordinator() -> Coordinator {
@@ -49,17 +57,24 @@ struct MarkdownTextEditor: NSViewRepresentable {
   @MainActor
   final class Coordinator: NSObject, NSTextViewDelegate {
     @Binding var text: String
+
+    /// Last text published to the binding; distinguishes view-originated
+    /// updates from external ones so fast typing is never clobbered.
+    var lastPublishedText = ""
+
     weak var textView: NSTextView?
 
     init(text: Binding<String>) {
       _text = text
+      lastPublishedText = text.wrappedValue
     }
 
     func textDidChange(_ notification: Notification) {
       guard let textView else {
         return
       }
-      text = textView.string
+      lastPublishedText = textView.string
+      text = lastPublishedText
       applyHighlighting()
     }
 
@@ -81,6 +96,14 @@ enum MarkdownHighlighter {
     [
       .font: baseFont,
       .foregroundColor: NSColor.textColor
+    ]
+  }
+
+  /// Attributes that collapse markdown delimiters out of view once formatted.
+  static var hiddenAttributes: [NSAttributedString.Key: Any] {
+    [
+      .font: NSFont.systemFont(ofSize: 0.1),
+      .foregroundColor: NSColor.clear
     ]
   }
 
@@ -164,25 +187,49 @@ enum MarkdownHighlighter {
       MarkdownHighlighter.nsRange(of: markup, lineStarts: lineStarts, upperBound: upperBound)
     }
 
+    private func hide(_ range: NSRange) {
+      apply(range, MarkdownHighlighter.hiddenAttributes)
+    }
+
+    /// Hides the delimiter text before the first and after the last child node.
+    private func hidePadding(of markup: Markup) {
+      guard let nodeRange = range(of: markup), markup.childCount > 0,
+            let first = markup.child(at: 0), let firstRange = range(of: first),
+            let last = markup.child(at: markup.childCount - 1), let lastRange = range(of: last) else {
+        return
+      }
+      if firstRange.location > nodeRange.location {
+        hide(NSRange(location: nodeRange.location, length: firstRange.location - nodeRange.location))
+      }
+      let nodeEnd = NSMaxRange(nodeRange), lastEnd = NSMaxRange(lastRange)
+      if nodeEnd > lastEnd {
+        hide(NSRange(location: lastEnd, length: nodeEnd - lastEnd))
+      }
+    }
+
     mutating func visitHeading(_ heading: Heading) {
       let level = min(heading.level, 3)
       let size = [NSFont.systemFontSize + 6, NSFont.systemFontSize + 3, NSFont.systemFontSize + 1][level - 1]
       apply(range(of: heading), [.font: MarkdownHighlighter.font(bold: true, size: size)])
+      hidePadding(of: heading)
       descendInto(heading)
     }
 
     mutating func visitStrong(_ strong: Strong) {
       apply(range(of: strong), [.font: MarkdownHighlighter.font(bold: true)])
+      hidePadding(of: strong)
       descendInto(strong)
     }
 
     mutating func visitEmphasis(_ emphasis: Emphasis) {
       apply(range(of: emphasis), [.font: MarkdownHighlighter.font(italic: true)])
+      hidePadding(of: emphasis)
       descendInto(emphasis)
     }
 
     mutating func visitStrikethrough(_ strikethrough: Strikethrough) {
       apply(range(of: strikethrough), [.strikethroughStyle: NSUnderlineStyle.single.rawValue])
+      hidePadding(of: strikethrough)
       descendInto(strikethrough)
     }
 
@@ -191,6 +238,13 @@ enum MarkdownHighlighter {
         .font: MarkdownHighlighter.font(design: .monospaced),
         .backgroundColor: NSColor.quaternaryLabelColor
       ])
+      if let nodeRange = range(of: inlineCode) {
+        let markerLength = (nodeRange.length - (inlineCode.code as NSString).length) / 2
+        if markerLength > 0 {
+          hide(NSRange(location: nodeRange.location, length: markerLength))
+          hide(NSRange(location: NSMaxRange(nodeRange) - markerLength, length: markerLength))
+        }
+      }
       descendInto(inlineCode)
     }
 
@@ -207,6 +261,7 @@ enum MarkdownHighlighter {
         .foregroundColor: NSColor.controlAccentColor,
         .underlineStyle: NSUnderlineStyle.single.rawValue
       ])
+      hidePadding(of: link)
       descendInto(link)
     }
 

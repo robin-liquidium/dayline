@@ -34,39 +34,70 @@ struct MarkdownHighlighterTests {
   @MainActor
   @Test func strongAndEmphasisGetTraits() {
     let textView = highlightedTextView(for: "plain **bold** and *italic* done")
-    #expect(fontTraits(in: textView, substring: "**bold**").contains(.boldFontMask))
-    #expect(fontTraits(in: textView, substring: "*italic*").contains(.italicFontMask))
+    #expect(fontTraits(in: textView, substring: "bold").contains(.boldFontMask))
+    #expect(fontTraits(in: textView, substring: "italic").contains(.italicFontMask))
     let plainTraits = fontTraits(in: textView, substring: "plain")
     #expect(!plainTraits.contains(.boldFontMask))
     #expect(!plainTraits.contains(.italicFontMask))
   }
 
   @MainActor
+  @Test func formattedMarkersAreHidden() {
+    let textView = highlightedTextView(for: "a *b* c")
+    let marker = (textView.string as NSString).range(of: "*").location
+    let font = textView.textStorage?.attribute(.font, at: marker, effectiveRange: nil) as? NSFont
+    #expect(font?.pointSize == 0.1)
+    let color = textView.textStorage?.attribute(.foregroundColor, at: marker, effectiveRange: nil) as? NSColor
+    #expect(color == .clear)
+  }
+
+  @MainActor
+  @Test func unclosedMarkerStaysVisible() {
+    let textView = highlightedTextView(for: "a *b c")
+    let marker = (textView.string as NSString).range(of: "*").location
+    let font = textView.textStorage?.attribute(.font, at: marker, effectiveRange: nil) as? NSFont
+    #expect(font?.pointSize != 0.1)
+  }
+
+  @MainActor
+  @Test func headingMarkerIsHidden() {
+    let textView = highlightedTextView(for: "# Big title")
+    let font = textView.textStorage?.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+    #expect(font?.pointSize == 0.1)
+  }
+
+  @MainActor
   @Test func inlineCodeGetsMonospaceAndBackground() {
     let textView = highlightedTextView(for: "use `print(x)` here")
     let nsSource = textView.string as NSString
-    let range = nsSource.range(of: "`print(x)`")
+    let range = nsSource.range(of: "print(x)")
     let font = textView.textStorage?.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
     #expect(font?.isFixedPitch == true)
     let background = textView.textStorage?.attribute(.backgroundColor, at: range.location, effectiveRange: nil) as? NSColor
     #expect(background != nil)
+
+    let markerFont = textView.textStorage?.attribute(.font, at: nsSource.range(of: "`").location, effectiveRange: nil) as? NSFont
+    #expect(markerFont?.pointSize == 0.1)
   }
 
   @MainActor
   @Test func linkGetsUnderlineAndAccentColor() {
     let textView = highlightedTextView(for: "see [docs](https://example.com) today")
     let nsSource = textView.string as NSString
-    let range = nsSource.range(of: "[docs](https://example.com)")
+    let range = nsSource.range(of: "docs")
     let underline = textView.textStorage?.attribute(.underlineStyle, at: range.location, effectiveRange: nil) as? Int
     #expect(underline == NSUnderlineStyle.single.rawValue)
     let color = textView.textStorage?.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? NSColor
     #expect(color == .controlAccentColor)
+
+    let markerFont = textView.textStorage?.attribute(.font, at: nsSource.range(of: "]").location, effectiveRange: nil) as? NSFont
+    #expect(markerFont?.pointSize == 0.1)
   }
 
   @MainActor
   @Test func unicodeBeforeMarkupKeepsOffsetsAligned() {
     let textView = highlightedTextView(for: "emoji 😀 café\n\n**bold move**")
-    let traits = fontTraits(in: textView, substring: "**bold move**")
+    let traits = fontTraits(in: textView, substring: "bold move")
     #expect(traits.contains(.boldFontMask))
 
     let plainTraits = fontTraits(in: textView, substring: "café")
