@@ -11,13 +11,15 @@ let package = Package(
     .executable(name: "Dayline", targets: ["Dayline"])
   ],
   dependencies: [
-    .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.4")
+    .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.4"),
+    .package(url: "https://github.com/swiftlang/swift-markdown", exact: "0.8.0")
   ],
   targets: [
     .executableTarget(
       name: "Dayline",
       dependencies: [
-        .product(name: "Sparkle", package: "Sparkle")
+        .product(name: "Sparkle", package: "Sparkle"),
+        .product(name: "Markdown", package: "swift-markdown")
       ],
       path: "Sources/Dayline",
       linkerSettings: [

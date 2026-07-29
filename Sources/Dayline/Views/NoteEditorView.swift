@@ -13,12 +13,9 @@ struct NoteEditorView: View {
   /// Builds the note editor window content.
   var body: some View {
     VStack(spacing: 0) {
-      TextEditor(text: $draft.text)
-        .font(.body)
-        .scrollContentBackground(.hidden)
-        .padding(.horizontal, 12)
-        .padding(.top, 10)
-        .accessibilityIdentifier("noteEditor.text")
+      MarkdownTextEditor(text: $draft.text, accessibilityIdentifier: "noteEditor.text")
+        .padding(.horizontal, 8)
+        .padding(.top, 4)
 
       if let errorMessage = draft.errorMessage {
         Text(errorMessage)
