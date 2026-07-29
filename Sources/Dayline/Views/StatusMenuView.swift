@@ -88,9 +88,16 @@ struct StatusMenuView: View {
         keyboardMonitor.start(in: window) { characters in
           handleKeyPress(characters)
         }
+        DispatchQueue.main.async {
+          keyboardMonitor.makeWindowKeyIfVisible()
+        }
       }
     }
     .onAppear {
+      keyboardMonitor.resume()
+      DispatchQueue.main.async {
+        keyboardMonitor.makeWindowKeyIfVisible()
+      }
       DaylineDiagnostics.record("Menu bar window appeared", category: .menuBar)
     }
     .onDisappear {

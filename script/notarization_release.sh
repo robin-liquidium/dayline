@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP_NAME="Dayline"
-STATE_SCHEMA=1
+STATE_SCHEMA=2
 STATE_MARKER="dayline-notarization-state"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -232,6 +232,107 @@ verify_sha256() {
   fi
 }
 
+verify_ready_release_assets() {
+  local release_json="$1"
+  local state_json="$2"
+  local appcast_destination="$3"
+  local app_zip_asset app_zip_sha final_dmg_asset final_dmg_sha
+  local stable_dmg_asset stable_dmg_sha appcast_asset appcast_sha
+
+  app_zip_asset="$(jq -r '.app_zip_asset' <<< "$state_json")"
+  app_zip_sha="$(jq -r '.app_zip_sha256' <<< "$state_json")"
+  final_dmg_asset="$(jq -r '.final_dmg_asset' <<< "$state_json")"
+  final_dmg_sha="$(jq -r '.final_dmg_sha256' <<< "$state_json")"
+  stable_dmg_asset="$(jq -r '.stable_dmg_asset' <<< "$state_json")"
+  stable_dmg_sha="$(jq -r '.stable_dmg_sha256' <<< "$state_json")"
+  appcast_asset="$(jq -r '.appcast_asset' <<< "$state_json")"
+  appcast_sha="$(jq -r '.appcast_sha256' <<< "$state_json")"
+
+  mkdir -p "$WORK_DIR"
+  download_asset "$release_json" "$app_zip_asset" "$WORK_DIR/verify-$app_zip_asset" || return 1
+  verify_sha256 "$WORK_DIR/verify-$app_zip_asset" "$app_zip_sha" || return 1
+  download_asset "$release_json" "$final_dmg_asset" "$WORK_DIR/verify-$final_dmg_asset" || return 1
+  verify_sha256 "$WORK_DIR/verify-$final_dmg_asset" "$final_dmg_sha" || return 1
+  download_asset "$release_json" "$stable_dmg_asset" "$WORK_DIR/verify-$stable_dmg_asset" || return 1
+  verify_sha256 "$WORK_DIR/verify-$stable_dmg_asset" "$stable_dmg_sha" || return 1
+  download_asset "$release_json" "$appcast_asset" "$appcast_destination" || return 1
+  verify_sha256 "$appcast_destination" "$appcast_sha" || return 1
+
+  rm -f \
+    "$WORK_DIR/verify-$app_zip_asset" \
+    "$WORK_DIR/verify-$final_dmg_asset" \
+    "$WORK_DIR/verify-$stable_dmg_asset"
+}
+
+publish_appcast() {
+  local tag="$1"
+  local appcast="$2"
+  "$ROOT_DIR/script/update_appcast.sh" publish "$tag" "$appcast"
+}
+
+publish_ready_release() {
+  local release_id="$1"
+  local state_json="$2"
+  local version appcast_asset appcast release_json latest_tag now release_body release_notes
+
+  version="$(jq -er '.version' <<< "$state_json")" || return 1
+  appcast_asset="$(jq -er '.appcast_asset' <<< "$state_json")" || return 1
+  appcast="$WORK_DIR/publish-$appcast_asset"
+
+  latest_tag="$(latest_stable_tag)" || return 1
+  if [[ -n "$latest_tag" ]] && ! version_is_greater "v$version" "$latest_tag"; then
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    state_json="$(jq -c --arg stage "superseded" --arg latest "$latest_tag" --arg now "$now" \
+      '.stage = $stage | .superseded_by = $latest | .updated_at = $now' <<< "$state_json")"
+    save_state "$release_id" "$state_json" || return 1
+    echo "Refusing to publish v$version because $latest_tag is already the newest stable release."
+    return 0
+  fi
+
+  release_json="$(gh api "repos/$REPOSITORY/releases/$release_id")" || return 1
+  verify_ready_release_assets "$release_json" "$state_json" "$appcast" || return 1
+
+  if ! delete_submission_assets "$release_id"; then
+    echo "Refusing to publish v$version because temporary notarization assets could not be deleted." >&2
+    return 1
+  fi
+
+  release_json="$(gh api "repos/$REPOSITORY/releases/$release_id")" || return 1
+  if jq -e '.assets[]? | select(.name | test("-(app|dmg)-notary\\.(zip|dmg)$"))' \
+      >/dev/null <<< "$release_json"; then
+    echo "Refusing to publish v$version while temporary notarization assets remain." >&2
+    return 1
+  fi
+
+  latest_tag="$(latest_stable_tag)" || return 1
+  if [[ -n "$latest_tag" ]] && ! version_is_greater "v$version" "$latest_tag"; then
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    state_json="$(jq -c --arg stage "superseded" --arg latest "$latest_tag" --arg now "$now" \
+      '.stage = $stage | .superseded_by = $latest | .updated_at = $now' <<< "$state_json")"
+    save_state "$release_id" "$state_json" || return 1
+    echo "Refusing to publish v$version because $latest_tag became the newest stable release."
+    return 0
+  fi
+
+  release_body="Requires macOS 26 or newer. Connect Google Calendar and Linear directly from Dayline after installation."
+  if release_notes="$(release_notes_for_version "$version")"; then
+    release_body="$release_notes
+
+Requires macOS 26 or newer."
+  fi
+
+  gh api --method PATCH "repos/$REPOSITORY/releases/$release_id" \
+    -f tag_name="v$version" \
+    -f name="$APP_NAME $version" \
+    -f body="$release_body" \
+    -F draft=false \
+    -F prerelease=false \
+    -f make_latest=true >/dev/null || return 1
+
+  publish_appcast "v$version" "$appcast" || return 1
+  echo "Published notarized release v$version"
+}
+
 submission_id_from_history() {
   local submission_name="$1"
   local history
@@ -365,7 +466,7 @@ finalize_accepted_dmg() {
   local release_id="$1"
   local release_json="$2"
   local state_json="$3"
-  local version app_zip_asset app_zip_sha dmg_asset dmg_sha final_dmg stable_dmg app_zip extracted_app appcast latest_tag now release_body release_notes
+  local version app_zip_asset app_zip_sha dmg_asset dmg_sha final_dmg stable_dmg app_zip extracted_app appcast latest_tag now
 
   version="$(jq -r '.version' <<< "$state_json")"
   latest_tag="$(latest_stable_tag)"
@@ -413,33 +514,29 @@ finalize_accepted_dmg() {
   "$ROOT_DIR/script/update_appcast.sh" generate "v$version" "$app_zip" "$appcast"
   upload_asset "$release_id" "$(basename "$appcast")" "$appcast"
 
-  latest_tag="$(latest_stable_tag)"
-  if [[ -n "$latest_tag" ]] && ! version_is_greater "v$version" "$latest_tag"; then
-    echo "Refusing to publish v$version because $latest_tag became the newest stable release." >&2
-    return 1
-  fi
-
-  release_body="Requires macOS 26 or newer. Connect Google Calendar and Linear directly from Dayline after installation."
-  if release_notes="$(release_notes_for_version "$version")"; then
-    release_body="$release_notes
-
-Requires macOS 26 or newer."
-  fi
-
-  gh api --method PATCH "repos/$REPOSITORY/releases/$release_id" \
-    -f tag_name="v$version" \
-    -f name="$APP_NAME $version" \
-    -f body="$release_body" \
-    -F draft=false \
-    -F prerelease=false \
-    -f make_latest=true >/dev/null
-
-  "$ROOT_DIR/script/update_appcast.sh" publish "v$version" "$appcast"
-  if ! delete_submission_assets "$release_id"; then
-    echo "Warning: published v$version, but temporary notarization assets still need cleanup." >&2
-  fi
-
-  echo "Published notarized release v$version"
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  state_json="$(jq -c \
+    --arg stage "ready_to_publish" \
+    --argjson schema "$STATE_SCHEMA" \
+    --arg final_dmg_asset "$(basename "$final_dmg")" \
+    --arg final_dmg_sha256 "$(sha256 "$final_dmg")" \
+    --arg stable_dmg_asset "$(basename "$stable_dmg")" \
+    --arg stable_dmg_sha256 "$(sha256 "$stable_dmg")" \
+    --arg appcast_asset "$(basename "$appcast")" \
+    --arg appcast_sha256 "$(sha256 "$appcast")" \
+    --arg now "$now" \
+    '.schema = $schema
+      | .stage = $stage
+      | .final_dmg_asset = $final_dmg_asset
+      | .final_dmg_sha256 = $final_dmg_sha256
+      | .stable_dmg_asset = $stable_dmg_asset
+      | .stable_dmg_sha256 = $stable_dmg_sha256
+      | .appcast_asset = $appcast_asset
+      | .appcast_sha256 = $appcast_sha256
+      | .updated_at = $now' \
+    <<< "$state_json")"
+  save_state "$release_id" "$state_json" || return 1
+  publish_ready_release "$release_id" "$state_json"
 }
 
 ensure_prepared_app_asset() {
@@ -623,6 +720,11 @@ continue_release() {
       ensure_symbols_asset "$release_json" "$state_json" || return 1
       kind="dmg"
       ;;
+    ready_to_publish)
+      ensure_symbols_asset "$release_json" "$state_json" || return 1
+      publish_ready_release "$release_id" "$state_json" || return 1
+      return 0
+      ;;
     failed|superseded)
       echo "$tag previously reached terminal stage $stage; leaving its draft intact."
       return 0
@@ -768,6 +870,10 @@ continue_all() {
     continue_release "$latest_tag"
   fi
 }
+
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  return 0
+fi
 
 require_command gh
 require_command jq
