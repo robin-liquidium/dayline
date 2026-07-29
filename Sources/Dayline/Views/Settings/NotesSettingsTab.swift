@@ -29,6 +29,13 @@ struct NotesSettingsTab: View {
       } header: {
         Label("Menu", systemImage: "list.bullet")
       }
+
+      Section {
+        Toggle("Keep note windows on top", isOn: notesKeepOnTopBinding)
+          .accessibilityIdentifier("settings.notesKeepOnTop")
+      } header: {
+        Label("Window", systemImage: "macwindow")
+      }
     }
     .formStyle(.grouped)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -39,6 +46,14 @@ struct NotesSettingsTab: View {
     Binding(
       get: { store.showsNotesSection },
       set: { store.setShowsNotesSection($0) }
+    )
+  }
+
+  /// Binding that persists whether note windows float above other windows.
+  private var notesKeepOnTopBinding: Binding<Bool> {
+    Binding(
+      get: { store.notesKeepOnTop },
+      set: { store.setNotesKeepOnTop($0) }
     )
   }
 
