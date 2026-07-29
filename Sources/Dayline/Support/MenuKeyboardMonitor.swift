@@ -8,6 +8,11 @@ final class MenuKeyboardMonitor: ObservableObject {
   private weak var window: NSWindow?
   private var onKeyPress: ((String) -> Bool)?
 
+  /// Whether the key monitor is currently installed; exposed for tests.
+  var isMonitoring: Bool {
+    monitor != nil
+  }
+
   /// Starts one local key monitor while the menu-bar window is visible.
   func start(in window: NSWindow, onKeyPress: @escaping (String) -> Bool) {
     self.window = window

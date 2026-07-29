@@ -257,6 +257,11 @@ verify_ready_release_assets() {
   verify_sha256 "$WORK_DIR/verify-$stable_dmg_asset" "$stable_dmg_sha" || return 1
   download_asset "$release_json" "$appcast_asset" "$appcast_destination" || return 1
   verify_sha256 "$appcast_destination" "$appcast_sha" || return 1
+
+  rm -f \
+    "$WORK_DIR/verify-$app_zip_asset" \
+    "$WORK_DIR/verify-$final_dmg_asset" \
+    "$WORK_DIR/verify-$stable_dmg_asset"
 }
 
 publish_appcast() {

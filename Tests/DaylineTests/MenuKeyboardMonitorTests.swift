@@ -94,4 +94,32 @@ struct MenuKeyboardMonitorTests {
       )
     )
   }
+
+  @Test func resumeReinstallsTheMonitorAfterStop() {
+    let monitor = MenuKeyboardMonitor()
+    let window = makeWindow(visible: true)
+    defer {
+      monitor.stop()
+      window.orderOut(nil)
+    }
+
+    #expect(!monitor.isMonitoring)
+    monitor.start(in: window) { _ in false }
+    #expect(monitor.isMonitoring)
+
+    monitor.stop()
+    #expect(!monitor.isMonitoring)
+
+    monitor.resume()
+    #expect(monitor.isMonitoring)
+
+    monitor.resume()
+    #expect(monitor.isMonitoring)
+  }
+
+  @Test func resumeWithoutStartDoesNotInstall() {
+    let monitor = MenuKeyboardMonitor()
+    monitor.resume()
+    #expect(!monitor.isMonitoring)
+  }
 }
