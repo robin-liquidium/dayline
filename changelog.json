@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.1.13",
+      "date": "2026-07-29",
+      "fixed": [
+        {
+          "text": "Fixed menu shortcuts (S, P, A, L, C) on issue rows no longer working after the menu had been closed and reopened. Shortcuts now keep working for the whole session — no more app restarts.",
+          "pr": 47
+        }
+      ]
+    },
+    {
       "version": "0.1.12",
       "date": "2026-07-27",
       "new": [
