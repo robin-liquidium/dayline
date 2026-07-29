@@ -207,6 +207,17 @@ There is no Dayline server between them.
 - Calendar, Linear, and GitHub data is held in memory for display.
 - Dayline does not include analytics, tracking, advertising, or an account system.
 
+## License
+
+Dayline is free software licensed under the
+[GNU General Public License v3.0](LICENSE). You may use, study, share, and modify
+it, and any distributed copies or derivative works must remain open source under
+the same license with their copyright notices intact.
+
+"Dayline" and the Dayline logo are trademarks of Robin Obermaier. The GPL
+license covers the code, not the name or logo: modified versions distributed
+publicly must not be presented as the original Dayline.
+
 ## Build from Source
 
 Clone the repository, then build and launch the local app bundle:
