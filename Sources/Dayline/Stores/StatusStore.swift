@@ -254,6 +254,15 @@ final class StatusStore: ObservableObject {
     }
   }
 
+  /// Device calendars discovered through EventKit with their selections.
+  @Published private(set) var appleCalendars: [AppleCalendarSource] = []
+
+  /// Whether Dayline holds calendar access and includes device calendars.
+  @Published private(set) var appleCalendarConnected = false
+
+  /// Device calendar error shown in Settings, if any.
+  @Published private(set) var appleCalendarError: String?
+
   /// Optional metadata fields shown on issue rows in the menu.
   @Published var issueRowFields: IssueRowFields {
     didSet {
@@ -478,6 +487,7 @@ final class StatusStore: ObservableObject {
   private static let notesKeepOnTopKey = "notesKeepOnTop"
   private static let issueCreateMoreEnabledKey = "issueCreateMoreEnabled"
   private static let issueRowFieldsKey = "issueRowFields"
+  private static let appleCalendarSelectionsKey = "appleCalendarSelections"
   private static let meetingAlertEnabledKey = "meetingAlertEnabled"
   private static let meetingAlertLeadMinutesKey = "meetingAlertLeadMinutes"
   private static let issueSourceKey = "issueSource"
@@ -515,6 +525,7 @@ final class StatusStore: ObservableObject {
   private let githubService = GitHubService()
   private let githubAuth = GitHubDeviceAuthService.shared
   private let notesService: LocalNotesService
+  private let appleCalendarService: AppleCalendarService
   private let authSessions: [AuthProvider: OAuthSession]
   private let googleAccountRepository: GoogleAccountRepository
   private let linearAccountRepository: LinearAccountRepository
@@ -534,6 +545,7 @@ final class StatusStore: ObservableObject {
   init(
     linearService: LinearService = LinearService(),
     notesService: LocalNotesService = LocalNotesService(),
+    appleCalendarService: AppleCalendarService = AppleCalendarService(),
     authSessions: [AuthProvider: OAuthSession] = [.linear: .linear],
     googleAccountRepository: GoogleAccountRepository = GoogleAccountRepository(),
     linearAccountRepository: LinearAccountRepository = LinearAccountRepository(),
@@ -551,6 +563,7 @@ final class StatusStore: ObservableObject {
       ?? false
     self.linearService = linearService
     self.notesService = notesService
+    self.appleCalendarService = appleCalendarService
     self.authSessions = authSessions
     self.googleAccountRepository = googleAccountRepository
     self.linearAccountRepository = linearAccountRepository
@@ -609,6 +622,19 @@ final class StatusStore: ObservableObject {
     self.showsNotesSection = defaults.object(forKey: Self.showsNotesSectionKey) as? Bool ?? true
     self.notesKeepOnTop = defaults.object(forKey: Self.notesKeepOnTopKey) as? Bool ?? false
     self.issueCreateMoreEnabled = defaults.object(forKey: Self.issueCreateMoreEnabledKey) as? Bool ?? false
+    let hasCalendarAccess = mockData == nil && appleCalendarService.hasFullAccess
+    self.appleCalendarConnected = hasCalendarAccess
+    if hasCalendarAccess {
+      let persisted = defaults.dictionary(forKey: Self.appleCalendarSelectionsKey) as? [String: Bool] ?? [:]
+      let selected = persisted.filter(\.value).map(\.key)
+      var discovered = appleCalendarService.calendarSources()
+      if !selected.isEmpty {
+        for index in discovered.indices {
+          discovered[index].isEnabled = selected.contains(discovered[index].id)
+        }
+      }
+      self.appleCalendars = discovered
+    }
     self.issueRowFields = (defaults.object(forKey: Self.issueRowFieldsKey) as? Int)
       .map(IssueRowFields.init(rawValue:)) ?? .default
     self.meetingAlertEnabled = defaults.object(forKey: Self.meetingAlertEnabledKey) as? Bool ?? true
@@ -1423,6 +1449,50 @@ final class StatusStore: ObservableObject {
     } else {
       issueRowFields.remove(field)
     }
+  }
+
+  /// Requests calendar access and starts including device calendars in the agenda.
+  func connectAppleCalendar() async {
+    guard mockData == nil, AppleCalendarService.canRequestAccess else {
+      return
+    }
+    do {
+      let granted = try await appleCalendarService.requestFullAccess()
+      appleCalendarConnected = granted
+      appleCalendarError = granted ? nil : "Calendar access was not granted. Allow it in System Settings → Privacy & Security → Calendars."
+      if granted {
+        appleCalendars = appleCalendarService.calendarSources()
+        persistAppleCalendarSelections()
+        await refresh()
+      }
+    } catch {
+      appleCalendarError = error.localizedDescription.compactLine(limit: 160)
+    }
+  }
+
+  /// Stops including device calendars without touching the system permission.
+  func disconnectAppleCalendar() {
+    appleCalendarConnected = false
+    appleCalendars = []
+    appleCalendarError = nil
+    rebuildAgendaFromCachedGoogleSources()
+  }
+
+  /// Persists one device calendar selection and refreshes the visible agenda.
+  func setAppleCalendarEnabled(_ calendarID: String, enabled: Bool) {
+    guard let index = appleCalendars.firstIndex(where: { $0.id == calendarID }) else {
+      return
+    }
+    appleCalendars[index].isEnabled = enabled
+    persistAppleCalendarSelections()
+    rebuildAgendaFromCachedGoogleSources()
+    Task { await refresh() }
+  }
+
+  /// Stores the current device calendar selections.
+  private func persistAppleCalendarSelections() {
+    let selections = Dictionary(uniqueKeysWithValues: appleCalendars.map { ($0.id, $0.isEnabled) })
+    UserDefaults.standard.set(selections, forKey: Self.appleCalendarSelectionsKey)
   }
 
   /// Requests the Linear issue creator, resetting any previously entered draft.
@@ -3107,6 +3177,12 @@ final class StatusStore: ObservableObject {
           reauthenticationAccountIDs.insert(outcome.context.accountID)
         }
       }
+    }
+
+    if appleCalendarConnected, mockData == nil {
+      let enabledCalendarIDs = Set(appleCalendars.filter(\.isEnabled).map(\.id))
+      let events = appleCalendarService.events(in: enabledCalendarIDs, from: now, to: dayAfterTomorrow)
+      sourceBatches.append(CalendarAgendaSourceBatch(events: events, warning: nil))
     }
 
     return Self.assembleCalendarAgenda(
