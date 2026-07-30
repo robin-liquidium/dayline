@@ -127,6 +127,9 @@ final class StatusStore: ObservableObject {
   /// Identifier for the Linear issue whose due date picker is open.
   @Published private(set) var dueDatePickerIssueID: LinearIssueItem.ID?
 
+  /// Event or issue currently shown in a detail preview, if any.
+  @Published private(set) var previewTarget: PreviewTarget?
+
   /// Identifier for the Linear issue currently being updated.
   @Published private(set) var updatingIssueTarget: IssueActionTarget?
 
@@ -1650,6 +1653,7 @@ final class StatusStore: ObservableObject {
     dueDatePickerIssueID = nil
     labelPickerTarget = nil
     assigneePickerTarget = nil
+    previewTarget = nil
     return true
   }
 
@@ -1664,6 +1668,7 @@ final class StatusStore: ObservableObject {
     dueDatePickerIssueID = nil
     labelPickerTarget = nil
     assigneePickerTarget = nil
+    previewTarget = nil
     return true
   }
 
@@ -1678,6 +1683,7 @@ final class StatusStore: ObservableObject {
     priorityPickerIssueID = nil
     labelPickerTarget = nil
     assigneePickerTarget = nil
+    previewTarget = nil
     return true
   }
 
@@ -1697,6 +1703,42 @@ final class StatusStore: ObservableObject {
     return true
   }
 
+  /// Opens a detail preview for the hovered event or issue, or closes it when
+  /// the preview is already showing for that item.
+  @discardableResult
+  func presentPreviewForHovered() -> Bool {
+    guard let target = currentHoveredPreviewTarget else {
+      return false
+    }
+    if previewTarget == target {
+      previewTarget = nil
+      return true
+    }
+    previewTarget = target
+    statusPickerTarget = nil
+    priorityPickerIssueID = nil
+    dueDatePickerIssueID = nil
+    labelPickerTarget = nil
+    assigneePickerTarget = nil
+    return true
+  }
+
+  /// Closes the detail preview.
+  func dismissPreview() {
+    previewTarget = nil
+  }
+
+  /// Hovered item eligible for a detail preview, if it still exists.
+  private var currentHoveredPreviewTarget: PreviewTarget? {
+    if let target = validHoveredIssueTarget {
+      return .issue(target)
+    }
+    if let hoveredEventID, (events + tomorrowEvents).contains(where: { $0.id == hoveredEventID }) {
+      return .event(hoveredEventID)
+    }
+    return nil
+  }
+
   private var validHoveredIssueTarget: IssueActionTarget? {
     guard let target = hoveredIssueTarget else { return nil }
     switch target {
@@ -1710,6 +1752,7 @@ final class StatusStore: ObservableObject {
     statusPickerTarget = nil
     priorityPickerIssueID = nil
     dueDatePickerIssueID = nil
+    previewTarget = nil
     if kind != .label { labelPickerTarget = nil }
     if kind != .assignee { assigneePickerTarget = nil }
   }

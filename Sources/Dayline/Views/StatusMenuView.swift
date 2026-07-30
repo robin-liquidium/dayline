@@ -246,6 +246,10 @@ struct StatusMenuView: View {
 
   /// Handles menu-level keyboard shortcuts.
   private func handleKeyPress(_ characters: String) -> Bool {
+    if characters == " " {
+      return recordHandledShortcut("preview", result: store.presentPreviewForHovered())
+    }
+
     if store.matchesStatusPickerHotkey(characters) {
       return recordHandledShortcut("status", result: store.presentStatusPickerForHoveredIssue())
     }
@@ -1211,6 +1215,9 @@ private struct CalendarSection: View {
                 .onHover { isHovered in
                   store.setHoveredEvent(isHovered ? event.id : nil)
                 }
+                .popover(isPresented: eventPreviewBinding(for: event.id), arrowEdge: .trailing) {
+                  EventPreviewPopover(event: event)
+                }
               }
           }
 
@@ -1239,6 +1246,9 @@ private struct CalendarSection: View {
                       .onHover { isHovered in
                         store.setHoveredEvent(isHovered ? event.id : nil)
                       }
+                      .popover(isPresented: eventPreviewBinding(for: event.id), arrowEdge: .trailing) {
+                        EventPreviewPopover(event: event)
+                      }
                   }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1249,6 +1259,18 @@ private struct CalendarSection: View {
       }
       .frame(maxWidth: .infinity, alignment: .leading)
     }
+  }
+
+  /// Binding that anchors the detail preview to its selected event row.
+  private func eventPreviewBinding(for eventID: CalendarEventItem.ID) -> Binding<Bool> {
+    Binding(
+      get: { store.previewTarget == .event(eventID) },
+      set: { isPresented in
+        if !isPresented, store.previewTarget == .event(eventID) {
+          store.dismissPreview()
+        }
+      }
+    )
   }
 }
 
@@ -1374,6 +1396,9 @@ private struct LinearSection: View {
               IssueMultiValuePickerPopover(target: .linear(issue.id), title: issue.title, kind: .assignees)
                 .environmentObject(store)
             }
+            .popover(isPresented: previewBinding(for: .linear(issue.id)), arrowEdge: .trailing) {
+              LinearIssuePreviewPopover(issue: issue)
+            }
           }
 
           if store.hasMoreIssues || store.hasExpandedIssues {
@@ -1393,6 +1418,18 @@ private struct LinearSection: View {
     }
     .animation(.smooth(duration: 0.2), value: issues.isEmpty)
     .animation(.smooth(duration: 0.2), value: store.isRefreshing)
+  }
+
+  /// Binding that anchors the detail preview to its selected issue row.
+  private func previewBinding(for target: IssueActionTarget) -> Binding<Bool> {
+    Binding(
+      get: { store.previewTarget == .issue(target) },
+      set: { isPresented in
+        if !isPresented, store.previewTarget == .issue(target) {
+          store.dismissPreview()
+        }
+      }
+    )
   }
 
   /// Binding that anchors the status chooser to its selected issue row.
@@ -1492,6 +1529,9 @@ private struct GitHubSection: View {
               IssueMultiValuePickerPopover(target: .github(issue.id), title: issue.title, kind: .assignees)
                 .environmentObject(store)
             }
+            .popover(isPresented: previewBinding(for: .github(issue.id)), arrowEdge: .trailing) {
+              GitHubIssuePreviewPopover(issue: issue)
+            }
           }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1503,6 +1543,18 @@ private struct GitHubSection: View {
 
   private func statusPickerBinding(for issueID: String) -> Binding<Bool> {
     Binding(get: { store.statusPickerTarget == .github(issueID) }, set: { if !$0 { store.dismissStatusPicker() } })
+  }
+
+  /// Binding that anchors the detail preview to its selected issue row.
+  private func previewBinding(for target: IssueActionTarget) -> Binding<Bool> {
+    Binding(
+      get: { store.previewTarget == .issue(target) },
+      set: { isPresented in
+        if !isPresented, store.previewTarget == .issue(target) {
+          store.dismissPreview()
+        }
+      }
+    )
   }
 
   private func labelPickerBinding(for target: IssueActionTarget) -> Binding<Bool> {
