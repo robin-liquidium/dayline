@@ -251,6 +251,13 @@ final class StatusStore: ObservableObject {
     }
   }
 
+  /// Optional metadata fields shown on issue rows in the menu.
+  @Published var issueRowFields: IssueRowFields {
+    didSet {
+      UserDefaults.standard.set(issueRowFields.rawValue, forKey: Self.issueRowFieldsKey)
+    }
+  }
+
   /// Whether a full-screen alert appears when a meeting starts.
   @Published var meetingAlertEnabled: Bool {
     didSet {
@@ -467,6 +474,7 @@ final class StatusStore: ObservableObject {
   private static let showsNotesSectionKey = "showsNotesSection"
   private static let notesKeepOnTopKey = "notesKeepOnTop"
   private static let issueCreateMoreEnabledKey = "issueCreateMoreEnabled"
+  private static let issueRowFieldsKey = "issueRowFields"
   private static let meetingAlertEnabledKey = "meetingAlertEnabled"
   private static let meetingAlertLeadMinutesKey = "meetingAlertLeadMinutes"
   private static let issueSourceKey = "issueSource"
@@ -598,6 +606,8 @@ final class StatusStore: ObservableObject {
     self.showsNotesSection = defaults.object(forKey: Self.showsNotesSectionKey) as? Bool ?? true
     self.notesKeepOnTop = defaults.object(forKey: Self.notesKeepOnTopKey) as? Bool ?? false
     self.issueCreateMoreEnabled = defaults.object(forKey: Self.issueCreateMoreEnabledKey) as? Bool ?? false
+    self.issueRowFields = (defaults.object(forKey: Self.issueRowFieldsKey) as? Int)
+      .map(IssueRowFields.init(rawValue:)) ?? .default
     self.meetingAlertEnabled = defaults.object(forKey: Self.meetingAlertEnabledKey) as? Bool ?? true
     self.meetingAlertLeadMinutes = Self.storedInteger(forKey: Self.meetingAlertLeadMinutesKey, defaultValue: 0)
     self.issueSource = IssueSource(rawValue: defaults.string(forKey: Self.issueSourceKey) ?? "") ?? .linear
@@ -1403,6 +1413,15 @@ final class StatusStore: ObservableObject {
     issueCreateMoreEnabled = enabled
   }
 
+  /// Persists one optional issue row field as shown or hidden.
+  func setIssueRowField(_ field: IssueRowFields, enabled: Bool) {
+    if enabled {
+      issueRowFields.insert(field)
+    } else {
+      issueRowFields.remove(field)
+    }
+  }
+
   /// Requests the Linear issue creator, resetting any previously entered draft.
   func requestLinearIssueCreation() {
     linearIssueCreationRequestID = UUID()
@@ -1811,6 +1830,8 @@ final class StatusStore: ObservableObject {
           labels: issue.labels,
           assignee: issue.assignee,
           dueDate: issue.dueDate,
+          updatedAt: issue.updatedAt,
+          projectName: issue.projectName,
           branchName: issue.branchName,
           url: issue.url
         ))
@@ -1854,6 +1875,8 @@ final class StatusStore: ObservableObject {
           labels: issue.labels,
           assignee: issue.assignee,
           dueDate: issue.dueDate,
+          updatedAt: issue.updatedAt,
+          projectName: issue.projectName,
           branchName: issue.branchName,
           url: issue.url
         ))
@@ -1901,6 +1924,8 @@ final class StatusStore: ObservableObject {
           labels: issue.labels,
           assignee: issue.assignee,
           dueDate: formattedDueDate,
+          updatedAt: issue.updatedAt,
+          projectName: issue.projectName,
           branchName: issue.branchName,
           url: issue.url
         ))
@@ -2168,6 +2193,8 @@ final class StatusStore: ObservableObject {
         labels: draft.label.isEmpty ? [] : mockData.labels.filter { $0.id == draft.label },
         assignee: nil,
         dueDate: draft.formattedDueDate,
+        updatedAt: Date(),
+        projectName: nil,
         branchName: nil,
         url: URL(string: "https://linear.app/dayline")
       ))

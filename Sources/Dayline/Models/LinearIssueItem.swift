@@ -38,6 +38,12 @@ struct LinearIssueItem: Identifiable, Equatable {
   /// Optional Linear due date in `YYYY-MM-DD` form.
   let dueDate: String?
 
+  /// Last update timestamp reported by Linear.
+  let updatedAt: Date?
+
+  /// Name of the Linear project the issue belongs to, when any.
+  let projectName: String?
+
   /// Suggested git branch name supplied by Linear.
   let branchName: String?
 
@@ -68,7 +74,7 @@ struct LinearIssueItem: Identifiable, Equatable {
       id: id, title: title, priority: priority, priorityLabel: priorityLabel,
       stateName: stateName, stateID: stateID, stateType: stateType, workflowStates: workflowStates,
       teamID: teamID, labels: labels ?? self.labels, assignee: assignee ?? self.assignee,
-      dueDate: dueDate, branchName: branchName, url: url
+      dueDate: dueDate, updatedAt: updatedAt, projectName: projectName, branchName: branchName, url: url
     )
   }
 }

@@ -59,6 +59,21 @@ struct IssuesSettingsTab: View {
       }
 
       Section {
+        Toggle("Assignee", isOn: issueRowFieldBinding(for: .assignee))
+          .accessibilityIdentifier("settings.issueRowFieldAssignee")
+        Toggle("Labels", isOn: issueRowFieldBinding(for: .labels))
+          .accessibilityIdentifier("settings.issueRowFieldLabels")
+        Toggle("Project (Linear)", isOn: issueRowFieldBinding(for: .project))
+          .accessibilityIdentifier("settings.issueRowFieldProject")
+        Toggle("Last updated", isOn: issueRowFieldBinding(for: .updated))
+          .accessibilityIdentifier("settings.issueRowFieldUpdated")
+        Toggle("Due date (Linear)", isOn: issueRowFieldBinding(for: .dueDate))
+          .accessibilityIdentifier("settings.issueRowFieldDueDate")
+      } header: {
+        Label("Row Fields", systemImage: "text.line.first.and.arrowtriangle.forward")
+      }
+
+      Section {
         if isLinearConnected {
           Picker("Linear issues", selection: linearIssueFilterBinding) {
             ForEach(IssueAssigneeFilter.allCases) { filter in
@@ -107,6 +122,14 @@ struct IssuesSettingsTab: View {
   /// Whether GitHub is connected for issue fetching.
   private var isGitHubConnected: Bool {
     store.connectionStatuses.first(where: { $0.provider == .github })?.isConnected == true
+  }
+
+  /// Binding that persists one optional issue row field.
+  private func issueRowFieldBinding(for field: IssueRowFields) -> Binding<Bool> {
+    Binding(
+      get: { store.issueRowFields.contains(field) },
+      set: { store.setIssueRowField(field, enabled: $0) }
+    )
   }
 
   /// Binding that forwards the Linear issue filter to the store.

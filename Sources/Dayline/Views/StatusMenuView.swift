@@ -1526,6 +1526,18 @@ private struct GitHubIssueRow: View {
   /// Whether this row should show a recent copy confirmation.
   let isCopied: Bool
 
+  /// Single-line summary of the issue's assignees.
+  private func assigneeSummary(_ assignees: [GitHubAssigneeOption]) -> String {
+    guard let first = assignees.first else { return "" }
+    return assignees.count > 1 ? "\(first.login) +\(assignees.count - 1)" : first.login
+  }
+
+  /// Single-line summary of the issue's labels.
+  private func githubLabelSummary(_ labels: [GitHubLabelOption]) -> String {
+    guard let first = labels.first else { return "" }
+    return labels.count > 1 ? "\(first.name) +\(labels.count - 1)" : first.name
+  }
+
   /// Builds the issue row.
   var body: some View {
     Button {
@@ -1547,7 +1559,23 @@ private struct GitHubIssueRow: View {
             color: .green
           )
 
-          if let updatedAt = issue.updatedAt {
+          if !issue.assignees.isEmpty, store.issueRowFields.contains(.assignee) {
+            MetadataPill(
+              title: assigneeSummary(issue.assignees),
+              systemImage: "person",
+              color: .secondary
+            )
+          }
+
+          if !issue.labels.isEmpty, store.issueRowFields.contains(.labels) {
+            MetadataPill(
+              title: githubLabelSummary(issue.labels),
+              systemImage: "tag",
+              color: .secondary
+            )
+          }
+
+          if let updatedAt = issue.updatedAt, store.issueRowFields.contains(.updated) {
             MetadataPill(
               title: "Updated \(DisplayFormatters.relative.localizedString(fromTimeInterval: updatedAt.timeIntervalSinceNow))",
               systemImage: "clock",
@@ -1949,6 +1977,8 @@ private struct EventRow: View {
 
 /// One Linear issue row with title-first layout and muted metadata.
 private struct IssueRow: View {
+  @EnvironmentObject private var store: StatusStore
+
   /// Issue represented by the row.
   let issue: LinearIssueItem
 
@@ -2017,6 +2047,12 @@ private struct IssueRow: View {
     .frame(height: workItemRowHeight)
   }
 
+  /// Single-line summary of the issue's labels.
+  private func labelSummary(_ labels: [LinearLabelOption]) -> String {
+    guard let first = labels.first else { return "" }
+    return labels.count > 1 ? "\(first.label) +\(labels.count - 1)" : first.label
+  }
+
   /// Main issue content that slides left to expose the cancel action.
   private var issueContent: some View {
     VStack(alignment: .leading, spacing: 2) {
@@ -2039,7 +2075,39 @@ private struct IssueRow: View {
           color: priorityStyle.color
         )
 
-        if let dueDate = issue.dueDate, !dueDate.isEmpty {
+        if let assignee = issue.assignee, store.issueRowFields.contains(.assignee) {
+          MetadataPill(
+            title: assignee.label,
+            systemImage: "person",
+            color: .secondary
+          )
+        }
+
+        if !issue.labels.isEmpty, store.issueRowFields.contains(.labels) {
+          MetadataPill(
+            title: labelSummary(issue.labels),
+            systemImage: "tag",
+            color: .secondary
+          )
+        }
+
+        if let projectName = issue.projectName, !projectName.isEmpty, store.issueRowFields.contains(.project) {
+          MetadataPill(
+            title: projectName,
+            systemImage: "folder",
+            color: .secondary
+          )
+        }
+
+        if let updatedAt = issue.updatedAt, store.issueRowFields.contains(.updated) {
+          MetadataPill(
+            title: "Updated \(DisplayFormatters.relative.localizedString(fromTimeInterval: updatedAt.timeIntervalSinceNow))",
+            systemImage: "clock",
+            color: .secondary
+          )
+        }
+
+        if let dueDate = issue.dueDate, !dueDate.isEmpty, store.issueRowFields.contains(.dueDate) {
           MetadataPill(
             title: DisplayFormatters.linearDueDate(dueDate),
             systemImage: "calendar",
