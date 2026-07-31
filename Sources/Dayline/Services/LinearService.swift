@@ -58,6 +58,8 @@ struct LinearService {
             priority
             priorityLabel
             dueDate
+            updatedAt
+            project { name }
             branchName
             url
             state { id name type }
@@ -103,6 +105,8 @@ struct LinearService {
           priority
           priorityLabel
           dueDate
+          updatedAt
+          project { name }
           branchName
           url
           state { id name type }
@@ -149,6 +153,8 @@ struct LinearService {
           priority
           priorityLabel
           dueDate
+          updatedAt
+          project { name }
           branchName
           url
           state { id name type }
@@ -187,6 +193,8 @@ struct LinearService {
           priority
           priorityLabel
           dueDate
+          updatedAt
+          project { name }
           branchName
           url
           state { id name type }
@@ -225,6 +233,8 @@ struct LinearService {
           priority
           priorityLabel
           dueDate
+          updatedAt
+          project { name }
           branchName
           url
           state { id name type }
@@ -294,7 +304,8 @@ struct LinearService {
       issueUpdate(id: $id, input: $input) {
         success
         issue {
-          identifier title priority priorityLabel dueDate branchName url
+          identifier title priority priorityLabel dueDate updatedAt branchName url
+          project { name }
           state { id name type }
           assignee { id name displayName active }
           labels(first: 250) { nodes { id name color } }
@@ -1169,6 +1180,12 @@ private struct LinearIssueNode: Decodable {
   /// Optional Linear due date in `YYYY-MM-DD` form.
   let dueDate: String?
 
+  /// Last update timestamp in RFC3339 form.
+  let updatedAt: String?
+
+  /// Project the issue belongs to, when any.
+  let project: LinearIssueProjectRef?
+
   /// Suggested git branch name.
   let branchName: String?
 
@@ -1204,10 +1221,18 @@ private struct LinearIssueNode: Decodable {
       labels: labels.nodes.map { LinearLabelOption(id: $0.id, name: $0.name, color: $0.color) },
       assignee: assignee?.displayItem,
       dueDate: dueDate,
+      updatedAt: updatedAt.flatMap(DateParsers.rfc3339Date(from:)),
+      projectName: project?.name,
       branchName: branchName,
       url: url.flatMap(URL.init(string:))
     )
   }
+}
+
+/// Raw project reference embedded in issue payloads.
+private struct LinearIssueProjectRef: Decodable {
+  /// Project display name.
+  let name: String
 }
 
 /// Raw Linear workflow state shape.

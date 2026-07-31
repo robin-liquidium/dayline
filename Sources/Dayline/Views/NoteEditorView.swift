@@ -13,12 +13,9 @@ struct NoteEditorView: View {
   /// Builds the note editor window content.
   var body: some View {
     VStack(spacing: 0) {
-      TextEditor(text: $draft.text)
-        .font(.body)
-        .scrollContentBackground(.hidden)
-        .padding(.horizontal, 12)
-        .padding(.top, 10)
-        .accessibilityIdentifier("noteEditor.text")
+      MarkdownTextEditor(text: $draft.text, accessibilityIdentifier: "noteEditor.text")
+        .padding(.horizontal, 8)
+        .padding(.top, 4)
 
       if let errorMessage = draft.errorMessage {
         Text(errorMessage)
@@ -53,6 +50,9 @@ struct NoteEditorView: View {
     }
     .frame(minWidth: 440, minHeight: 320)
     .navigationTitle(request.isExisting ? "Note" : "New Note")
+    .background {
+      WindowLevelConfigurator(keepOnTop: store.notesKeepOnTop)
+    }
     .onAppear(perform: loadInitialNoteIfNeeded)
   }
 
@@ -113,6 +113,44 @@ struct NoteEditorView: View {
       return nil
     }
     return noteID
+  }
+}
+
+/// Applies the keep-on-top preference to the hosting window.
+private struct WindowLevelConfigurator: NSViewRepresentable {
+  let keepOnTop: Bool
+
+  func makeNSView(context: Context) -> WindowLevelConfiguratorView {
+    WindowLevelConfiguratorView(keepOnTop: keepOnTop)
+  }
+
+  func updateNSView(_ nsView: WindowLevelConfiguratorView, context: Context) {
+    nsView.apply(keepOnTop: keepOnTop)
+  }
+}
+
+private final class WindowLevelConfiguratorView: NSView {
+  private var keepOnTop: Bool
+
+  init(keepOnTop: Bool) {
+    self.keepOnTop = keepOnTop
+    super.init(frame: .zero)
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    apply(keepOnTop: keepOnTop)
+  }
+
+  /// Sets the window level from the preference, defaulting back to normal.
+  func apply(keepOnTop: Bool) {
+    self.keepOnTop = keepOnTop
+    window?.level = keepOnTop ? .floating : .normal
   }
 }
 

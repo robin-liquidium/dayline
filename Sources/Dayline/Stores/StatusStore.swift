@@ -24,6 +24,9 @@ final class StatusStore: ObservableObject {
   /// Last successful raw per-calendar events used for immediate local recomputation.
   private var googleSourceEvents: [CalendarEventItem] = []
 
+  /// Last successful device-calendar events used for immediate local recomputation.
+  private var appleSourceEvents: [CalendarEventItem] = []
+
   /// Linear loading error shown as a compact status row.
   @Published private(set) var linearError: String?
 
@@ -126,6 +129,9 @@ final class StatusStore: ObservableObject {
 
   /// Identifier for the Linear issue whose due date picker is open.
   @Published private(set) var dueDatePickerIssueID: LinearIssueItem.ID?
+
+  /// Event or issue currently shown in a detail preview, if any.
+  @Published private(set) var previewTarget: PreviewTarget?
 
   /// Identifier for the Linear issue currently being updated.
   @Published private(set) var updatingIssueTarget: IssueActionTarget?
@@ -234,6 +240,36 @@ final class StatusStore: ObservableObject {
   @Published var showsNotesSection: Bool {
     didSet {
       UserDefaults.standard.set(showsNotesSection, forKey: Self.showsNotesSectionKey)
+    }
+  }
+
+  /// Whether note editor windows float above other windows.
+  @Published var notesKeepOnTop: Bool {
+    didSet {
+      UserDefaults.standard.set(notesKeepOnTop, forKey: Self.notesKeepOnTopKey)
+    }
+  }
+
+  /// Whether issue creators stay open and reset after a successful create.
+  @Published var issueCreateMoreEnabled: Bool {
+    didSet {
+      UserDefaults.standard.set(issueCreateMoreEnabled, forKey: Self.issueCreateMoreEnabledKey)
+    }
+  }
+
+  /// Device calendars discovered through EventKit with their selections.
+  @Published private(set) var appleCalendars: [AppleCalendarSource] = []
+
+  /// Whether Dayline holds calendar access and includes device calendars.
+  @Published private(set) var appleCalendarConnected = false
+
+  /// Device calendar error shown in Settings, if any.
+  @Published private(set) var appleCalendarError: String?
+
+  /// Optional metadata fields shown on issue rows in the menu.
+  @Published var issueRowFields: IssueRowFields {
+    didSet {
+      UserDefaults.standard.set(issueRowFields.rawValue, forKey: Self.issueRowFieldsKey)
     }
   }
 
@@ -451,6 +487,11 @@ final class StatusStore: ObservableObject {
   private static let showsCalendarSectionKey = "showsCalendarSection"
   private static let showsLinearSectionKey = "showsLinearSection"
   private static let showsNotesSectionKey = "showsNotesSection"
+  private static let notesKeepOnTopKey = "notesKeepOnTop"
+  private static let issueCreateMoreEnabledKey = "issueCreateMoreEnabled"
+  private static let issueRowFieldsKey = "issueRowFields"
+  private static let appleCalendarSelectionsKey = "appleCalendarSelections"
+  private static let appleCalendarEnabledKey = "appleCalendarEnabled"
   private static let meetingAlertEnabledKey = "meetingAlertEnabled"
   private static let meetingAlertLeadMinutesKey = "meetingAlertLeadMinutes"
   private static let issueSourceKey = "issueSource"
@@ -488,6 +529,7 @@ final class StatusStore: ObservableObject {
   private let githubService = GitHubService()
   private let githubAuth = GitHubDeviceAuthService.shared
   private let notesService: LocalNotesService
+  private let appleCalendarService: AppleCalendarService
   private let authSessions: [AuthProvider: OAuthSession]
   private let googleAccountRepository: GoogleAccountRepository
   private let linearAccountRepository: LinearAccountRepository
@@ -502,11 +544,13 @@ final class StatusStore: ObservableObject {
   private var refreshTimer: Timer?
   private var menuBarClockTimer: Timer?
   private var refreshRequested = false
+  private var appleCalendarRevision = 0
 
   /// Creates a live store and immediately starts the background refresh loop.
   init(
     linearService: LinearService = LinearService(),
     notesService: LocalNotesService = LocalNotesService(),
+    appleCalendarService: AppleCalendarService = AppleCalendarService(),
     authSessions: [AuthProvider: OAuthSession] = [.linear: .linear],
     googleAccountRepository: GoogleAccountRepository = GoogleAccountRepository(),
     linearAccountRepository: LinearAccountRepository = LinearAccountRepository(),
@@ -524,6 +568,7 @@ final class StatusStore: ObservableObject {
       ?? false
     self.linearService = linearService
     self.notesService = notesService
+    self.appleCalendarService = appleCalendarService
     self.authSessions = authSessions
     self.googleAccountRepository = googleAccountRepository
     self.linearAccountRepository = linearAccountRepository
@@ -580,6 +625,24 @@ final class StatusStore: ObservableObject {
     self.showsCalendarSection = defaults.object(forKey: Self.showsCalendarSectionKey) as? Bool ?? true
     self.showsLinearSection = defaults.object(forKey: Self.showsLinearSectionKey) as? Bool ?? true
     self.showsNotesSection = defaults.object(forKey: Self.showsNotesSectionKey) as? Bool ?? true
+    self.notesKeepOnTop = defaults.object(forKey: Self.notesKeepOnTopKey) as? Bool ?? false
+    self.issueCreateMoreEnabled = defaults.object(forKey: Self.issueCreateMoreEnabledKey) as? Bool ?? false
+    let hasCalendarAccess = mockData == nil && appleCalendarService.hasFullAccess
+    let appleCalendarOptedIn = defaults.object(forKey: Self.appleCalendarEnabledKey) as? Bool
+      ?? hasCalendarAccess
+    self.appleCalendarConnected = appleCalendarOptedIn && hasCalendarAccess
+    if defaults.object(forKey: Self.appleCalendarEnabledKey) == nil {
+      defaults.set(appleCalendarOptedIn, forKey: Self.appleCalendarEnabledKey)
+    }
+    if appleCalendarOptedIn && hasCalendarAccess {
+      let persisted = defaults.dictionary(forKey: Self.appleCalendarSelectionsKey) as? [String: Bool] ?? [:]
+      self.appleCalendars = AppleCalendarSource.restoringSelections(
+        in: appleCalendarService.calendarSources(),
+        from: persisted
+      )
+    }
+    self.issueRowFields = (defaults.object(forKey: Self.issueRowFieldsKey) as? Int)
+      .map(IssueRowFields.init(rawValue:)) ?? .default
     self.meetingAlertEnabled = defaults.object(forKey: Self.meetingAlertEnabledKey) as? Bool ?? true
     self.meetingAlertLeadMinutes = Self.storedInteger(forKey: Self.meetingAlertLeadMinutesKey, defaultValue: 0)
     self.issueSource = IssueSource(rawValue: defaults.string(forKey: Self.issueSourceKey) ?? "") ?? .linear
@@ -694,23 +757,26 @@ final class StatusStore: ObservableObject {
     DaylineDiagnostics.record("Refresh started", category: .refresh)
     await refreshConnectionStatus()
     let googleRevision = connectionRevisions[.google, default: 0]
+    let capturedAppleCalendarRevision = appleCalendarRevision
     let linearRevision = connectionRevisions[.linear, default: 0]
     let githubRevision = connectionRevisions[.github, default: 0]
 
     let shouldLoadLinear = isConnected(.linear) && !dismissedProviders.contains(.linear)
     let shouldLoadGitHub = isConnected(.github) && !dismissedProviders.contains(.github)
+    let shouldLoadCalendar = hasConnectedGoogleAccount || appleCalendarConnected
 
-    async let calendarResult: CalendarAgendaLoadResult? = hasConnectedGoogleAccount ? loadGoogleAgenda() : nil
+    async let calendarResult: CalendarAgendaLoadResult? =
+      shouldLoadCalendar ? loadCalendarAgenda() : nil
     async let linearResult: Result<[LinearIssueItem], Error>? = shouldLoadLinear ? loadLinearIssues() : nil
     async let githubResult: Result<[GitHubIssueItem], Error>? = shouldLoadGitHub ? loadGitHubIssues() : nil
 
     let resolvedCalendarResult = await calendarResult
-    if connectionRevisions[.google, default: 0] == googleRevision {
-      if let calendarResult = resolvedCalendarResult {
-        if calendarResult.shouldReplaceEvents {
-          googleSourceEvents = calendarResult.sourceEvents
-          events = calendarResult.today
-          tomorrowEvents = calendarResult.tomorrow
+    if let calendarResult = resolvedCalendarResult {
+      var didReplaceCalendarEvents = false
+      if connectionRevisions[.google, default: 0] == googleRevision {
+        if calendarResult.shouldReplaceGoogleEvents {
+          googleSourceEvents = calendarResult.googleSourceEvents
+          didReplaceCalendarEvents = true
         }
         calendarWarnings = calendarResult.warnings
         for accountID in calendarResult.reauthenticationAccountIDs {
@@ -723,11 +789,28 @@ final class StatusStore: ObservableObject {
         if !calendarResult.reauthenticationAccountIDs.isEmpty {
           updateGoogleAggregateStatus()
         }
-      } else {
+      }
+      if appleCalendarRevision == capturedAppleCalendarRevision,
+         calendarResult.shouldReplaceAppleEvents {
+        appleSourceEvents = calendarResult.appleSourceEvents
+        didReplaceCalendarEvents = true
+      }
+      if didReplaceCalendarEvents {
+        rebuildAgendaFromCachedSources()
+      }
+    } else {
+      var didReplaceCalendarEvents = false
+      if connectionRevisions[.google, default: 0] == googleRevision {
         googleSourceEvents = []
-        events = []
-        tomorrowEvents = []
         calendarWarnings = []
+        didReplaceCalendarEvents = true
+      }
+      if appleCalendarRevision == capturedAppleCalendarRevision {
+        appleSourceEvents = []
+        didReplaceCalendarEvents = true
+      }
+      if didReplaceCalendarEvents {
+        rebuildAgendaFromCachedSources()
       }
     }
 
@@ -914,7 +997,7 @@ final class StatusStore: ObservableObject {
 
   /// Whether the calendar section should appear in the menu bar popover.
   var isCalendarSectionVisible: Bool {
-    showsCalendarSection && !dismissedProviders.contains(.google)
+    showsCalendarSection && (appleCalendarConnected || !dismissedProviders.contains(.google))
   }
 
   /// Whether the issues section should appear in the menu bar popover.
@@ -949,7 +1032,7 @@ final class StatusStore: ObservableObject {
 
   /// Existing Google accounts that need account-specific reauthentication.
   var googleAccountsNeedingAttention: [GoogleAccountStatus] {
-    guard isCalendarSectionVisible else { return [] }
+    guard isCalendarSectionVisible, !dismissedProviders.contains(.google) else { return [] }
     return googleAccounts.filter(\.needsAttention)
   }
 
@@ -1161,7 +1244,7 @@ final class StatusStore: ObservableObject {
     googleSourceEvents.removeAll { event in
       event.sourceIDs.contains { $0.hasPrefix(accountPrefix) }
     }
-    rebuildAgendaFromCachedGoogleSources()
+    rebuildAgendaFromCachedSources()
     calendarWarnings = []
     googleAuthorizationError = nil
     persistGoogleAccounts()
@@ -1181,7 +1264,7 @@ final class StatusStore: ObservableObject {
     if !isEnabled {
       let disabledSourceID = CalendarEventItem.sourceID(accountID: accountID, calendarID: calendarID)
       googleSourceEvents.removeAll { $0.sourceIDs.contains(disabledSourceID) }
-      rebuildAgendaFromCachedGoogleSources()
+      rebuildAgendaFromCachedSources()
       calendarWarnings = []
     }
     persistGoogleAccounts()
@@ -1373,6 +1456,98 @@ final class StatusStore: ObservableObject {
   /// Persists whether the notes section appears in the menu bar popover.
   func setShowsNotesSection(_ shows: Bool) {
     showsNotesSection = shows
+  }
+
+  /// Persists whether note editor windows float above other windows.
+  func setNotesKeepOnTop(_ keepOnTop: Bool) {
+    notesKeepOnTop = keepOnTop
+  }
+
+  /// Persists whether issue creators stay open and reset after a successful create.
+  func setIssueCreateMoreEnabled(_ enabled: Bool) {
+    issueCreateMoreEnabled = enabled
+  }
+
+  /// Persists one optional issue row field as shown or hidden.
+  func setIssueRowField(_ field: IssueRowFields, enabled: Bool) {
+    if enabled {
+      issueRowFields.insert(field)
+    } else {
+      issueRowFields.remove(field)
+    }
+  }
+
+  /// Requests calendar access and starts including device calendars in the agenda.
+  func connectAppleCalendar() async {
+    guard mockData == nil, AppleCalendarService.canRequestAccess else {
+      return
+    }
+    do {
+      let granted = try await appleCalendarService.requestFullAccess()
+      appleCalendarConnected = granted
+      UserDefaults.standard.set(granted, forKey: Self.appleCalendarEnabledKey)
+      appleCalendarRevision += 1
+      appleCalendarError = granted ? nil : "Calendar access was not granted. Allow it in System Settings → Privacy & Security → Calendars."
+      if granted {
+        let persisted = UserDefaults.standard.dictionary(
+          forKey: Self.appleCalendarSelectionsKey
+        ) as? [String: Bool] ?? [:]
+        appleCalendars = AppleCalendarSource.restoringSelections(
+          in: appleCalendarService.calendarSources(),
+          from: persisted
+        )
+        persistAppleCalendarSelections()
+        await refresh()
+      }
+    } catch {
+      appleCalendarError = error.localizedDescription.compactLine(limit: 160)
+    }
+  }
+
+  /// Stops including device calendars without touching the system permission.
+  func disconnectAppleCalendar() {
+    appleCalendarRevision += 1
+    appleCalendarConnected = false
+    appleCalendars = []
+    appleSourceEvents = []
+    appleCalendarError = nil
+    UserDefaults.standard.set(false, forKey: Self.appleCalendarEnabledKey)
+    rebuildAgendaFromCachedSources()
+  }
+
+  /// Persists one device calendar selection and refreshes the visible agenda.
+  func setAppleCalendarEnabled(_ calendarID: String, enabled: Bool) {
+    guard let index = appleCalendars.firstIndex(where: { $0.id == calendarID }) else {
+      return
+    }
+    appleCalendars[index].isEnabled = enabled
+    appleCalendarRevision += 1
+    if !enabled {
+      let disabledSourceID = CalendarEventItem.sourceID(
+        accountID: AppleCalendarService.accountID,
+        calendarID: calendarID
+      )
+      appleSourceEvents.removeAll { $0.sourceIDs.contains(disabledSourceID) }
+    }
+    persistAppleCalendarSelections()
+    rebuildAgendaFromCachedSources()
+    Task { await refresh() }
+  }
+
+  /// Stores the current device calendar selections.
+  private func persistAppleCalendarSelections() {
+    let selections = Dictionary(uniqueKeysWithValues: appleCalendars.map { ($0.id, $0.isEnabled) })
+    UserDefaults.standard.set(selections, forKey: Self.appleCalendarSelectionsKey)
+  }
+
+  /// Requests the Linear issue creator, resetting any previously entered draft.
+  func requestLinearIssueCreation() {
+    linearIssueCreationRequestID = UUID()
+  }
+
+  /// Requests the GitHub issue creator, resetting any previously entered draft.
+  func requestGitHubIssueCreation() {
+    githubIssueCreationRequestID = UUID()
   }
 
   /// Persists whether the full-screen meeting alert is enabled.
@@ -1593,6 +1768,7 @@ final class StatusStore: ObservableObject {
     dueDatePickerIssueID = nil
     labelPickerTarget = nil
     assigneePickerTarget = nil
+    previewTarget = nil
     return true
   }
 
@@ -1607,6 +1783,7 @@ final class StatusStore: ObservableObject {
     dueDatePickerIssueID = nil
     labelPickerTarget = nil
     assigneePickerTarget = nil
+    previewTarget = nil
     return true
   }
 
@@ -1621,6 +1798,7 @@ final class StatusStore: ObservableObject {
     priorityPickerIssueID = nil
     labelPickerTarget = nil
     assigneePickerTarget = nil
+    previewTarget = nil
     return true
   }
 
@@ -1640,6 +1818,42 @@ final class StatusStore: ObservableObject {
     return true
   }
 
+  /// Opens a detail preview for the hovered event or issue, or closes it when
+  /// the preview is already showing for that item.
+  @discardableResult
+  func presentPreviewForHovered() -> Bool {
+    guard let target = currentHoveredPreviewTarget else {
+      return false
+    }
+    if previewTarget == target {
+      previewTarget = nil
+      return true
+    }
+    previewTarget = target
+    statusPickerTarget = nil
+    priorityPickerIssueID = nil
+    dueDatePickerIssueID = nil
+    labelPickerTarget = nil
+    assigneePickerTarget = nil
+    return true
+  }
+
+  /// Closes the detail preview.
+  func dismissPreview() {
+    previewTarget = nil
+  }
+
+  /// Hovered item eligible for a detail preview, if it still exists.
+  private var currentHoveredPreviewTarget: PreviewTarget? {
+    if let target = validHoveredIssueTarget {
+      return .issue(target)
+    }
+    if let hoveredEventID, (events + tomorrowEvents).contains(where: { $0.id == hoveredEventID }) {
+      return .event(hoveredEventID)
+    }
+    return nil
+  }
+
   private var validHoveredIssueTarget: IssueActionTarget? {
     guard let target = hoveredIssueTarget else { return nil }
     switch target {
@@ -1653,6 +1867,7 @@ final class StatusStore: ObservableObject {
     statusPickerTarget = nil
     priorityPickerIssueID = nil
     dueDatePickerIssueID = nil
+    previewTarget = nil
     if kind != .label { labelPickerTarget = nil }
     if kind != .assignee { assigneePickerTarget = nil }
   }
@@ -1773,6 +1988,8 @@ final class StatusStore: ObservableObject {
           labels: issue.labels,
           assignee: issue.assignee,
           dueDate: issue.dueDate,
+          updatedAt: issue.updatedAt,
+          projectName: issue.projectName,
           branchName: issue.branchName,
           url: issue.url
         ))
@@ -1816,6 +2033,8 @@ final class StatusStore: ObservableObject {
           labels: issue.labels,
           assignee: issue.assignee,
           dueDate: issue.dueDate,
+          updatedAt: issue.updatedAt,
+          projectName: issue.projectName,
           branchName: issue.branchName,
           url: issue.url
         ))
@@ -1863,6 +2082,8 @@ final class StatusStore: ObservableObject {
           labels: issue.labels,
           assignee: issue.assignee,
           dueDate: formattedDueDate,
+          updatedAt: issue.updatedAt,
+          projectName: issue.projectName,
           branchName: issue.branchName,
           url: issue.url
         ))
@@ -2130,6 +2351,8 @@ final class StatusStore: ObservableObject {
         labels: draft.label.isEmpty ? [] : mockData.labels.filter { $0.id == draft.label },
         assignee: nil,
         dueDate: draft.formattedDueDate,
+        updatedAt: Date(),
+        projectName: nil,
         branchName: nil,
         url: URL(string: "https://linear.app/dayline")
       ))
@@ -2569,10 +2792,10 @@ final class StatusStore: ObservableObject {
         self.noteCreationRequestID = UUID()
       case .newLinearIssue:
         guard self.availableIssueSources.contains(.linear) else { return }
-        self.linearIssueCreationRequestID = UUID()
+        self.requestLinearIssueCreation()
       case .newGitHubIssue:
         guard self.availableIssueSources.contains(.github) else { return }
-        self.githubIssueCreationRequestID = UUID()
+        self.requestGitHubIssueCreation()
       case .openGoogleCalendar:
         self.openGoogleCalendar()
       }
@@ -2654,7 +2877,7 @@ final class StatusStore: ObservableObject {
     let lead = TimeInterval(meetingAlertLeadMinutes * 60)
     // Evaluate against the uncapped merged source pool so capped menu slices
     // cannot hide meetings still inside the alert lead window.
-    meetingAlertEvent = CalendarEventItem.mergedAgenda(googleSourceEvents)
+    meetingAlertEvent = CalendarEventItem.mergedAgenda(googleSourceEvents + appleSourceEvents)
       .filter { event in
         // Skip all-day style events that would fire the alert at midnight.
         guard event.endDate.timeIntervalSince(event.startDate) < 24 * 60 * 60 else { return false }
@@ -2934,7 +3157,7 @@ final class StatusStore: ObservableObject {
   }
 
   /// Loads all enabled calendars, preserving successful results when individual sources fail.
-  private func loadGoogleAgenda(now: Date = Date()) async -> CalendarAgendaLoadResult {
+  private func loadCalendarAgenda(now: Date = Date()) async -> CalendarAgendaLoadResult {
     let calendar = Calendar.current
     let tomorrowStart = calendar.date(
       byAdding: .day,
@@ -2964,6 +3187,15 @@ final class StatusStore: ObservableObject {
       return "\(status.account.label): \(detail)"
     }
     var reauthenticationAccountIDs: Set<UUID> = []
+    let appleFetchTask: Task<[CalendarEventItem], Never>? = {
+      guard appleCalendarConnected, mockData == nil else { return nil }
+      let enabledCalendarIDs = Set(appleCalendars.filter(\.isEnabled).map(\.id))
+      return Task.detached(priority: .userInitiated) { [appleCalendarService] in
+        guard !Task.isCancelled else { return [] }
+        let events = appleCalendarService.events(in: enabledCalendarIDs, from: now, to: dayAfterTomorrow)
+        return Task.isCancelled ? [] : events
+      }
+    }()
 
     await withTaskGroup(of: GoogleCalendarFetchOutcome.self) { group in
       for context in contexts {
@@ -2990,6 +3222,7 @@ final class StatusStore: ObservableObject {
 
       for await outcome in group {
         sourceBatches.append(CalendarAgendaSourceBatch(
+          provider: .google,
           events: outcome.events,
           warning: outcome.error.map {
             "\(outcome.context.calendar.name) (\(outcome.context.accountLabel)): \($0)"
@@ -2998,6 +3231,15 @@ final class StatusStore: ObservableObject {
         if outcome.needsReauthentication {
           reauthenticationAccountIDs.insert(outcome.context.accountID)
         }
+      }
+    }
+
+    if Task.isCancelled {
+      appleFetchTask?.cancel()
+    } else if let appleFetchTask {
+      let events = await appleFetchTask.value
+      if !Task.isCancelled {
+        sourceBatches.append(CalendarAgendaSourceBatch(provider: .apple, events: events, warning: nil))
       }
     }
 
@@ -3026,18 +3268,22 @@ final class StatusStore: ObservableObject {
       tomorrowLimit: Self.tomorrowEventLimit
     )
     let warnings = additionalWarnings + sourceBatches.compactMap(\.warning)
+    let googleBatches = sourceBatches.filter { $0.provider == .google }
+    let appleBatches = sourceBatches.filter { $0.provider == .apple }
     return CalendarAgendaLoadResult(
-      sourceEvents: sourceBatches.flatMap(\.events),
+      googleSourceEvents: googleBatches.flatMap(\.events),
+      appleSourceEvents: appleBatches.flatMap(\.events),
       today: sections.today,
       tomorrow: sections.tomorrow,
       warnings: Array(Set(warnings)).sorted(),
       reauthenticationAccountIDs: reauthenticationAccountIDs,
-      shouldReplaceEvents: sourceBatches.isEmpty || sourceBatches.contains { $0.warning == nil }
+      shouldReplaceGoogleEvents: googleBatches.isEmpty || googleBatches.contains { $0.warning == nil },
+      shouldReplaceAppleEvents: appleBatches.contains { $0.warning == nil }
     )
   }
 
   /// Rebuilds the visible agenda after a local source is disabled or disconnected.
-  private func rebuildAgendaFromCachedGoogleSources(now: Date = Date()) {
+  private func rebuildAgendaFromCachedSources(now: Date = Date()) {
     let calendar = Calendar.current
     let tomorrowStart = calendar.date(
       byAdding: .day,
@@ -3047,7 +3293,7 @@ final class StatusStore: ObservableObject {
     let dayAfterTomorrow = calendar.date(byAdding: .day, value: 1, to: tomorrowStart)
       ?? tomorrowStart.addingTimeInterval(24 * 60 * 60)
     let sections = CalendarEventItem.agendaSections(
-      from: googleSourceEvents,
+      from: googleSourceEvents + appleSourceEvents,
       tomorrowStart: tomorrowStart,
       dayAfterTomorrow: dayAfterTomorrow,
       todayLimit: Self.todayEventLimit,
@@ -3113,20 +3359,29 @@ private struct GoogleCalendarFetchOutcome: Sendable {
   let needsReauthentication: Bool
 }
 
+/// Calendar provider owning one independent source result.
+enum CalendarAgendaProvider: Equatable, Sendable {
+  case google
+  case apple
+}
+
 /// Successful events and an optional warning produced by one independent source.
 struct CalendarAgendaSourceBatch: Sendable {
+  let provider: CalendarAgendaProvider
   let events: [CalendarEventItem]
   let warning: String?
 }
 
 /// Fully merged agenda and recoverable source failures from one refresh.
 struct CalendarAgendaLoadResult: Sendable {
-  let sourceEvents: [CalendarEventItem]
+  let googleSourceEvents: [CalendarEventItem]
+  let appleSourceEvents: [CalendarEventItem]
   let today: [CalendarEventItem]
   let tomorrow: [CalendarEventItem]
   let warnings: [String]
   let reauthenticationAccountIDs: Set<UUID>
-  let shouldReplaceEvents: Bool
+  let shouldReplaceGoogleEvents: Bool
+  let shouldReplaceAppleEvents: Bool
 }
 
 /// Recognizes OAuth failures that invalidate only the affected Google account.

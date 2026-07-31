@@ -60,7 +60,8 @@ struct MockData {
       stateID: String,
       stateName: String,
       stateType: String,
-      dueInDays: Int? = nil
+      dueInDays: Int? = nil,
+      projectName: String? = nil
     ) -> LinearIssueItem {
       let dueDate = dueInDays.flatMap { days -> String? in
         guard let date = calendar.date(byAdding: .day, value: days, to: now) else { return nil }
@@ -79,6 +80,8 @@ struct MockData {
         labels: [],
         assignee: nil,
         dueDate: dueDate,
+        updatedAt: calendar.date(byAdding: .hour, value: -3, to: now),
+        projectName: projectName,
         branchName: "alex/\(id.lowercased())-\(title.lowercased().replacingOccurrences(of: " ", with: "-"))",
         url: URL(string: "https://linear.app/dayline/issue/\(id.lowercased())")
       )
@@ -95,7 +98,7 @@ struct MockData {
     }
 
     let issues = [
-      issue("DAY-104", "Polish the onboarding checklist", priority: 1, priorityLabel: "Urgent", stateID: "mock-progress", stateName: "In Progress", stateType: "started", dueInDays: 0),
+      issue("DAY-104", "Polish the onboarding checklist", priority: 1, priorityLabel: "Urgent", stateID: "mock-progress", stateName: "In Progress", stateType: "started", dueInDays: 0, projectName: "Onboarding"),
       issue("DAY-112", "Prepare launch screenshots", priority: 2, priorityLabel: "High", stateID: "mock-progress", stateName: "In Progress", stateType: "started", dueInDays: 1),
       issue("DAY-108", "Review homepage copy", priority: 2, priorityLabel: "High", stateID: "mock-todo", stateName: "Todo", stateType: "unstarted", dueInDays: 2),
       issue("DAY-117", "Fix reminder timezone edge case", priority: 3, priorityLabel: "Medium", stateID: "mock-review", stateName: "In Review", stateType: "started"),

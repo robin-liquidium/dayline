@@ -38,12 +38,16 @@ final class MenuKeyboardMonitor: ObservableObject {
     }
     monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
       guard let self,
+            let characters = event.charactersIgnoringModifiers,
             Self.shouldHandleKeyDown(
               menuWindow: self.window,
               modifierFlags: event.modifierFlags,
               isEditingText: Self.isEditingText
             ),
-            let characters = event.charactersIgnoringModifiers,
+            !Self.shouldPreserveSpaceForFocusedControl(
+              characters,
+              focusedRole: Self.focusedAccessibilityRole
+            ),
             self.onKeyPress?(characters) == true else {
         return event
       }
@@ -99,10 +103,33 @@ final class MenuKeyboardMonitor: ObservableObject {
     return !isEditingText
   }
 
+  /// Leaves Space available for the normal activation of a keyboard-focused control.
+  static func shouldPreserveSpaceForFocusedControl(
+    _ characters: String,
+    focusedRole: NSAccessibility.Role?
+  ) -> Bool {
+    guard characters == " ", let focusedRole else {
+      return false
+    }
+    return [
+      .button,
+      .checkBox,
+      .radioButton,
+      .popUpButton,
+      .comboBox,
+      .slider,
+      .incrementor
+    ].contains(focusedRole)
+  }
+
   private static var isEditingText: Bool {
     guard let responder = NSApp.keyWindow?.firstResponder else {
       return false
     }
     return responder is NSTextView || responder is NSTextField
+  }
+
+  private static var focusedAccessibilityRole: NSAccessibility.Role? {
+    (NSApp.keyWindow?.firstResponder as? NSView)?.accessibilityRole()
   }
 }

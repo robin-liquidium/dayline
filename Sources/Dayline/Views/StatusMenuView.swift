@@ -246,6 +246,10 @@ struct StatusMenuView: View {
 
   /// Handles menu-level keyboard shortcuts.
   private func handleKeyPress(_ characters: String) -> Bool {
+    if characters == " " {
+      return recordHandledShortcut("preview", result: store.presentPreviewForHovered())
+    }
+
     if store.matchesStatusPickerHotkey(characters) {
       return recordHandledShortcut("status", result: store.presentStatusPickerForHoveredIssue())
     }
@@ -291,12 +295,14 @@ struct StatusMenuView: View {
 
   /// Opens the Linear issue creator window and brings the accessory app forward.
   private func openLinearIssueCreator() {
+    store.requestLinearIssueCreation()
     openWindow(id: "linearIssueCreator")
     LinearIssueEditorWindowPresenter.bringIssueWindowToFront()
   }
 
   /// Opens the GitHub issue creator window and brings the accessory app forward.
   private func openGitHubIssueCreator() {
+    store.requestGitHubIssueCreation()
     openWindow(id: "githubIssueCreator")
     GitHubIssueEditorWindowPresenter.bringIssueWindowToFront()
   }
@@ -1209,6 +1215,9 @@ private struct CalendarSection: View {
                 .onHover { isHovered in
                   store.setHoveredEvent(isHovered ? event.id : nil)
                 }
+                .popover(isPresented: eventPreviewBinding(for: event.id), arrowEdge: .trailing) {
+                  EventPreviewPopover(event: event)
+                }
               }
           }
 
@@ -1237,6 +1246,9 @@ private struct CalendarSection: View {
                       .onHover { isHovered in
                         store.setHoveredEvent(isHovered ? event.id : nil)
                       }
+                      .popover(isPresented: eventPreviewBinding(for: event.id), arrowEdge: .trailing) {
+                        EventPreviewPopover(event: event)
+                      }
                   }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1247,6 +1259,18 @@ private struct CalendarSection: View {
       }
       .frame(maxWidth: .infinity, alignment: .leading)
     }
+  }
+
+  /// Binding that anchors the detail preview to its selected event row.
+  private func eventPreviewBinding(for eventID: CalendarEventItem.ID) -> Binding<Bool> {
+    Binding(
+      get: { store.previewTarget == .event(eventID) },
+      set: { isPresented in
+        if !isPresented, store.previewTarget == .event(eventID) {
+          store.dismissPreview()
+        }
+      }
+    )
   }
 }
 
@@ -1372,6 +1396,9 @@ private struct LinearSection: View {
               IssueMultiValuePickerPopover(target: .linear(issue.id), title: issue.title, kind: .assignees)
                 .environmentObject(store)
             }
+            .popover(isPresented: previewBinding(for: .linear(issue.id)), arrowEdge: .trailing) {
+              LinearIssuePreviewPopover(issue: issue)
+            }
           }
 
           if store.hasMoreIssues || store.hasExpandedIssues {
@@ -1391,6 +1418,18 @@ private struct LinearSection: View {
     }
     .animation(.smooth(duration: 0.2), value: issues.isEmpty)
     .animation(.smooth(duration: 0.2), value: store.isRefreshing)
+  }
+
+  /// Binding that anchors the detail preview to its selected issue row.
+  private func previewBinding(for target: IssueActionTarget) -> Binding<Bool> {
+    Binding(
+      get: { store.previewTarget == .issue(target) },
+      set: { isPresented in
+        if !isPresented, store.previewTarget == .issue(target) {
+          store.dismissPreview()
+        }
+      }
+    )
   }
 
   /// Binding that anchors the status chooser to its selected issue row.
@@ -1490,6 +1529,9 @@ private struct GitHubSection: View {
               IssueMultiValuePickerPopover(target: .github(issue.id), title: issue.title, kind: .assignees)
                 .environmentObject(store)
             }
+            .popover(isPresented: previewBinding(for: .github(issue.id)), arrowEdge: .trailing) {
+              GitHubIssuePreviewPopover(issue: issue)
+            }
           }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1501,6 +1543,18 @@ private struct GitHubSection: View {
 
   private func statusPickerBinding(for issueID: String) -> Binding<Bool> {
     Binding(get: { store.statusPickerTarget == .github(issueID) }, set: { if !$0 { store.dismissStatusPicker() } })
+  }
+
+  /// Binding that anchors the detail preview to its selected issue row.
+  private func previewBinding(for target: IssueActionTarget) -> Binding<Bool> {
+    Binding(
+      get: { store.previewTarget == .issue(target) },
+      set: { isPresented in
+        if !isPresented, store.previewTarget == .issue(target) {
+          store.dismissPreview()
+        }
+      }
+    )
   }
 
   private func labelPickerBinding(for target: IssueActionTarget) -> Binding<Bool> {
@@ -1524,6 +1578,18 @@ private struct GitHubIssueRow: View {
   /// Whether this row should show a recent copy confirmation.
   let isCopied: Bool
 
+  /// Single-line summary of the issue's assignees.
+  private func assigneeSummary(_ assignees: [GitHubAssigneeOption]) -> String {
+    guard let first = assignees.first else { return "" }
+    return assignees.count > 1 ? "\(first.login) +\(assignees.count - 1)" : first.login
+  }
+
+  /// Single-line summary of the issue's labels.
+  private func githubLabelSummary(_ labels: [GitHubLabelOption]) -> String {
+    guard let first = labels.first else { return "" }
+    return labels.count > 1 ? "\(first.name) +\(labels.count - 1)" : first.name
+  }
+
   /// Builds the issue row.
   var body: some View {
     Button {
@@ -1545,7 +1611,23 @@ private struct GitHubIssueRow: View {
             color: .green
           )
 
-          if let updatedAt = issue.updatedAt {
+          if !issue.assignees.isEmpty, store.issueRowFields.contains(.assignee) {
+            MetadataPill(
+              title: assigneeSummary(issue.assignees),
+              systemImage: "person",
+              color: .secondary
+            )
+          }
+
+          if !issue.labels.isEmpty, store.issueRowFields.contains(.labels) {
+            MetadataPill(
+              title: githubLabelSummary(issue.labels),
+              systemImage: "tag",
+              color: .secondary
+            )
+          }
+
+          if let updatedAt = issue.updatedAt, store.issueRowFields.contains(.updated) {
             MetadataPill(
               title: "Updated \(DisplayFormatters.relative.localizedString(fromTimeInterval: updatedAt.timeIntervalSinceNow))",
               systemImage: "clock",
@@ -1578,7 +1660,11 @@ private struct GitHubIssueRow: View {
     .buttonStyle(.plain)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("\(issue.title), \(issue.reference)")
-    .accessibilityHint("Opens the GitHub issue. Press \(store.copyIssueHotkey.uppercased()) to copy, \(store.statusPickerHotkey.uppercased()) for status, \(store.labelPickerHotkey.uppercased()) for labels, or \(store.assigneePickerHotkey.uppercased()) for assignees while hovering.")
+    .accessibilityHint(
+      issue.url == nil
+        ? "No GitHub link is available. Press Space to preview while hovering."
+        : "Open GitHub issue. While hovering, press Space to preview, \(store.copyIssueHotkey.uppercased()) to copy, \(store.statusPickerHotkey.uppercased()) for status, \(store.labelPickerHotkey.uppercased()) for labels, or \(store.assigneePickerHotkey.uppercased()) for assignees."
+    )
     .accessibilityIdentifier("github.issue.\(issue.id)")
     .disabled(issue.url == nil)
     .frame(height: workItemRowHeight)
@@ -1868,7 +1954,11 @@ private struct EventRow: View {
     .buttonStyle(.plain)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(accessibilityLabel)
-    .accessibilityHint(event.openURL == nil ? "No openable link is available" : "Open meeting link, location link, or calendar event")
+    .accessibilityHint(
+      event.openURL == nil
+        ? "No openable link is available. Press Space to preview while hovering."
+        : "Open meeting link, location link, or calendar event. Press Space to preview while hovering."
+    )
     .accessibilityIdentifier("calendar.event.\(event.id)")
     .disabled(event.openURL == nil)
   }
@@ -1947,6 +2037,8 @@ private struct EventRow: View {
 
 /// One Linear issue row with title-first layout and muted metadata.
 private struct IssueRow: View {
+  @EnvironmentObject private var store: StatusStore
+
   /// Issue represented by the row.
   let issue: LinearIssueItem
 
@@ -2015,6 +2107,12 @@ private struct IssueRow: View {
     .frame(height: workItemRowHeight)
   }
 
+  /// Single-line summary of the issue's labels.
+  private func labelSummary(_ labels: [LinearLabelOption]) -> String {
+    guard let first = labels.first else { return "" }
+    return labels.count > 1 ? "\(first.label) +\(labels.count - 1)" : first.label
+  }
+
   /// Main issue content that slides left to expose the cancel action.
   private var issueContent: some View {
     VStack(alignment: .leading, spacing: 2) {
@@ -2037,7 +2135,39 @@ private struct IssueRow: View {
           color: priorityStyle.color
         )
 
-        if let dueDate = issue.dueDate, !dueDate.isEmpty {
+        if let assignee = issue.assignee, store.issueRowFields.contains(.assignee) {
+          MetadataPill(
+            title: assignee.label,
+            systemImage: "person",
+            color: .secondary
+          )
+        }
+
+        if !issue.labels.isEmpty, store.issueRowFields.contains(.labels) {
+          MetadataPill(
+            title: labelSummary(issue.labels),
+            systemImage: "tag",
+            color: .secondary
+          )
+        }
+
+        if let projectName = issue.projectName, !projectName.isEmpty, store.issueRowFields.contains(.project) {
+          MetadataPill(
+            title: projectName,
+            systemImage: "folder",
+            color: .secondary
+          )
+        }
+
+        if let updatedAt = issue.updatedAt, store.issueRowFields.contains(.updated) {
+          MetadataPill(
+            title: "Updated \(DisplayFormatters.relative.localizedString(fromTimeInterval: updatedAt.timeIntervalSinceNow))",
+            systemImage: "clock",
+            color: .secondary
+          )
+        }
+
+        if let dueDate = issue.dueDate, !dueDate.isEmpty, store.issueRowFields.contains(.dueDate) {
           MetadataPill(
             title: DisplayFormatters.linearDueDate(dueDate),
             systemImage: "calendar",
@@ -2080,7 +2210,7 @@ private struct IssueRow: View {
   /// VoiceOver summary for the Linear issue row.
   private var accessibilityLabel: String {
     var parts = [issue.title, issue.stateName, issue.priorityLabel]
-    if let dueDate = issue.dueDate, !dueDate.isEmpty {
+    if let dueDate = issue.dueDate, !dueDate.isEmpty, store.issueRowFields.contains(.dueDate) {
       parts.append("Due \(DisplayFormatters.linearDueDate(dueDate))")
     }
     return parts.joined(separator: ", ")
@@ -2089,10 +2219,10 @@ private struct IssueRow: View {
   /// VoiceOver hint with the user-configured Linear row shortcuts.
   private var accessibilityHint: String {
     guard issue.url != nil else {
-      return "No Linear link is available"
+      return "No Linear link is available. Press Space to preview while hovering."
     }
 
-    return "Open Linear issue. Press \(copyHotkey.uppercased()) to copy, \(statusHotkey.uppercased()) for status, \(priorityHotkey.uppercased()) for priority, \(dueDateHotkey.uppercased()) for due date, \(labelHotkey.uppercased()) for labels, or \(assigneeHotkey.uppercased()) for assignee while hovering."
+    return "Open Linear issue. While hovering, press Space to preview, \(copyHotkey.uppercased()) to copy, \(statusHotkey.uppercased()) for status, \(priorityHotkey.uppercased()) for priority, \(dueDateHotkey.uppercased()) for due date, \(labelHotkey.uppercased()) for labels, or \(assigneeHotkey.uppercased()) for assignee."
   }
 
   /// Visual style for the Linear workflow state.

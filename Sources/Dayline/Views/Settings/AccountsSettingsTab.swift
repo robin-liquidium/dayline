@@ -48,6 +48,52 @@ struct AccountsSettingsTab: View {
         Label("Google", systemImage: "calendar")
       }
 
+      Section {
+        if store.appleCalendarConnected {
+          if store.appleCalendars.isEmpty {
+            Text("No device calendars found")
+              .foregroundStyle(.secondary)
+          } else {
+            ForEach(store.appleCalendars) { calendar in
+              Toggle(isOn: appleCalendarBinding(for: calendar.id)) {
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(calendar.title)
+                  Text(calendar.sourceName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+              }
+              .accessibilityIdentifier("settings.account.apple.calendar.\(calendar.id)")
+            }
+          }
+
+          Button("Disconnect", role: .destructive) {
+            store.disconnectAppleCalendar()
+          }
+          .accessibilityIdentifier("settings.account.apple.disconnect")
+        } else if AppleCalendarService.canRequestAccess {
+          Button {
+            Task { await store.connectAppleCalendar() }
+          } label: {
+            Label("Connect Apple Calendar", systemImage: "plus")
+          }
+          .accessibilityIdentifier("settings.account.apple.connect")
+
+          if let error = store.appleCalendarError {
+            Text(error)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .fixedSize(horizontal: false, vertical: true)
+              .accessibilityIdentifier("settings.account.apple.error")
+          }
+        } else {
+          Text("Apple Calendar is available in the packaged Dayline app.")
+            .foregroundStyle(.secondary)
+        }
+      } header: {
+        Label("Apple Calendar", systemImage: "applelogo")
+      }
+
       if let linearStatus = store.connectionStatuses.first(where: { $0.provider == .linear }) {
         Section {
           LinearAccountSettingsRow(status: linearStatus)
@@ -66,6 +112,14 @@ struct AccountsSettingsTab: View {
     }
     .formStyle(.grouped)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+
+  /// Binding that persists one device calendar selection.
+  private func appleCalendarBinding(for calendarID: String) -> Binding<Bool> {
+    Binding(
+      get: { store.appleCalendars.first { $0.id == calendarID }?.isEnabled ?? false },
+      set: { store.setAppleCalendarEnabled(calendarID, enabled: $0) }
+    )
   }
 }
 
