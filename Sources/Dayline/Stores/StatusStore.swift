@@ -3182,7 +3182,9 @@ final class StatusStore: ObservableObject {
       guard appleCalendarConnected, mockData == nil else { return nil }
       let enabledCalendarIDs = Set(appleCalendars.filter(\.isEnabled).map(\.id))
       return Task.detached(priority: .userInitiated) { [appleCalendarService] in
-        appleCalendarService.events(in: enabledCalendarIDs, from: now, to: dayAfterTomorrow)
+        guard !Task.isCancelled else { return [] }
+        let events = appleCalendarService.events(in: enabledCalendarIDs, from: now, to: dayAfterTomorrow)
+        return Task.isCancelled ? [] : events
       }
     }()
 
@@ -3222,9 +3224,13 @@ final class StatusStore: ObservableObject {
       }
     }
 
-    if let appleFetchTask {
+    if Task.isCancelled {
+      appleFetchTask?.cancel()
+    } else if let appleFetchTask {
       let events = await appleFetchTask.value
-      sourceBatches.append(CalendarAgendaSourceBatch(events: events, warning: nil))
+      if !Task.isCancelled {
+        sourceBatches.append(CalendarAgendaSourceBatch(events: events, warning: nil))
+      }
     }
 
     return Self.assembleCalendarAgenda(
