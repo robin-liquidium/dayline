@@ -3178,6 +3178,13 @@ final class StatusStore: ObservableObject {
       return "\(status.account.label): \(detail)"
     }
     var reauthenticationAccountIDs: Set<UUID> = []
+    let appleFetchTask: Task<[CalendarEventItem], Never>? = {
+      guard appleCalendarConnected, mockData == nil else { return nil }
+      let enabledCalendarIDs = Set(appleCalendars.filter(\.isEnabled).map(\.id))
+      return Task.detached(priority: .userInitiated) { [appleCalendarService] in
+        appleCalendarService.events(in: enabledCalendarIDs, from: now, to: dayAfterTomorrow)
+      }
+    }()
 
     await withTaskGroup(of: GoogleCalendarFetchOutcome.self) { group in
       for context in contexts {
@@ -3215,9 +3222,8 @@ final class StatusStore: ObservableObject {
       }
     }
 
-    if appleCalendarConnected, mockData == nil {
-      let enabledCalendarIDs = Set(appleCalendars.filter(\.isEnabled).map(\.id))
-      let events = appleCalendarService.events(in: enabledCalendarIDs, from: now, to: dayAfterTomorrow)
+    if let appleFetchTask {
+      let events = await appleFetchTask.value
       sourceBatches.append(CalendarAgendaSourceBatch(events: events, warning: nil))
     }
 

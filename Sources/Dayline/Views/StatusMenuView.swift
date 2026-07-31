@@ -1660,7 +1660,11 @@ private struct GitHubIssueRow: View {
     .buttonStyle(.plain)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("\(issue.title), \(issue.reference)")
-    .accessibilityHint("Opens the GitHub issue. While hovering, press Space to preview, \(store.copyIssueHotkey.uppercased()) to copy, \(store.statusPickerHotkey.uppercased()) for status, \(store.labelPickerHotkey.uppercased()) for labels, or \(store.assigneePickerHotkey.uppercased()) for assignees.")
+    .accessibilityHint(
+      issue.url == nil
+        ? "No GitHub link is available. Press Space to preview while hovering."
+        : "Open GitHub issue. While hovering, press Space to preview, \(store.copyIssueHotkey.uppercased()) to copy, \(store.statusPickerHotkey.uppercased()) for status, \(store.labelPickerHotkey.uppercased()) for labels, or \(store.assigneePickerHotkey.uppercased()) for assignees."
+    )
     .accessibilityIdentifier("github.issue.\(issue.id)")
     .disabled(issue.url == nil)
     .frame(height: workItemRowHeight)
@@ -2206,7 +2210,7 @@ private struct IssueRow: View {
   /// VoiceOver summary for the Linear issue row.
   private var accessibilityLabel: String {
     var parts = [issue.title, issue.stateName, issue.priorityLabel]
-    if let dueDate = issue.dueDate, !dueDate.isEmpty {
+    if let dueDate = issue.dueDate, !dueDate.isEmpty, store.issueRowFields.contains(.dueDate) {
       parts.append("Due \(DisplayFormatters.linearDueDate(dueDate))")
     }
     return parts.joined(separator: ", ")

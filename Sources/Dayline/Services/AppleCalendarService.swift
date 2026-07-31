@@ -10,7 +10,7 @@ final class AppleCalendarService: @unchecked Sendable {
 
   /// Whether the bundle may ask for calendar access without crashing.
   static var canRequestAccess: Bool {
-    Bundle.main.object(forInfoDictionaryKey: "NSCalendarsUsageDescription") != nil
+    Bundle.main.object(forInfoDictionaryKey: "NSCalendarsFullAccessUsageDescription") != nil
   }
 
   /// Whether Dayline currently holds full calendar access.
@@ -52,7 +52,7 @@ final class AppleCalendarService: @unchecked Sendable {
           calendarID: event.calendar.calendarIdentifier,
           eventID: eventID
         ),
-        title: event.title,
+        title: event.title ?? "",
         startDate: event.startDate,
         endDate: event.endDate,
         location: event.location,

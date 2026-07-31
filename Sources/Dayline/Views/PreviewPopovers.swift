@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Detail preview for a hovered calendar event.

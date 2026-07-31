@@ -188,6 +188,7 @@ write_info_plist() {
   /usr/bin/plutil -insert CFBundleShortVersionString -string "$VERSION" "$INFO_PLIST"
   /usr/bin/plutil -insert CFBundleVersion -string "$BUILD_NUMBER_RESOLVED" "$INFO_PLIST"
   /usr/bin/plutil -insert NSCalendarsUsageDescription -string "Dayline shows your upcoming Apple Calendar events in the menu bar." "$INFO_PLIST"
+  /usr/bin/plutil -insert NSCalendarsFullAccessUsageDescription -string "Dayline shows your upcoming Apple Calendar events in the menu bar." "$INFO_PLIST"
   /usr/bin/plutil -insert DaylineGoogleClientID -string "$google_client_id" "$INFO_PLIST"
   /usr/bin/plutil -insert DaylineLinearClientID -string "$LINEAR_CLIENT_ID" "$INFO_PLIST"
   /usr/bin/plutil -insert DaylineGitHubClientID -string "$GITHUB_CLIENT_ID" "$INFO_PLIST"
