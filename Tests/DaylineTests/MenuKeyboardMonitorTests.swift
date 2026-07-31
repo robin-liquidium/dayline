@@ -95,6 +95,26 @@ struct MenuKeyboardMonitorTests {
     )
   }
 
+  @Test func preservesSpaceForKeyboardFocusedActionableControls() {
+    for role: NSAccessibility.Role in [.button, .checkBox, .radioButton, .popUpButton, .comboBox] {
+      #expect(
+        MenuKeyboardMonitor.shouldPreserveSpaceForFocusedControl(" ", focusedRole: role)
+      )
+    }
+  }
+
+  @Test func doesNotPreserveHoverShortcutsWithoutActionableFocus() {
+    #expect(
+      !MenuKeyboardMonitor.shouldPreserveSpaceForFocusedControl(" ", focusedRole: nil)
+    )
+    #expect(
+      !MenuKeyboardMonitor.shouldPreserveSpaceForFocusedControl("c", focusedRole: .button)
+    )
+    #expect(
+      !MenuKeyboardMonitor.shouldPreserveSpaceForFocusedControl(" ", focusedRole: .staticText)
+    )
+  }
+
   @Test func resumeReinstallsTheMonitorAfterStop() {
     let monitor = MenuKeyboardMonitor()
     let window = makeWindow(visible: true)

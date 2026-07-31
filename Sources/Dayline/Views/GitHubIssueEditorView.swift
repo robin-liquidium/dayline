@@ -194,7 +194,11 @@ struct GitHubIssueEditorView: View {
     draft.body = ""
     draft.selectedLabel = ""
     draft.errorMessage = nil
+    draft.assignees = []
+    draft.labels = []
+    requestedOptionsRepository = ""
     seedDefaults()
+    Task { await loadRepositoryOptions() }
   }
 
   /// Seeds the configured default repository and self-assignee.
@@ -218,9 +222,9 @@ struct GitHubIssueEditorView: View {
   /// Loads assignable collaborators and labels for the selected repository.
   private func loadRepositoryOptions() async {
     let repository = draft.repository
+    draft.assignees = []
+    draft.labels = []
     guard !repository.isEmpty else {
-      draft.assignees = []
-      draft.labels = []
       draft.isLoadingOptions = false
       return
     }

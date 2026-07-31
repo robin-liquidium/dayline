@@ -65,12 +65,12 @@ struct AccountsSettingsTab: View {
               }
               .accessibilityIdentifier("settings.account.apple.calendar.\(calendar.id)")
             }
-
-            Button("Disconnect", role: .destructive) {
-              store.disconnectAppleCalendar()
-            }
-            .accessibilityIdentifier("settings.account.apple.disconnect")
           }
+
+          Button("Disconnect", role: .destructive) {
+            store.disconnectAppleCalendar()
+          }
+          .accessibilityIdentifier("settings.account.apple.disconnect")
         } else if AppleCalendarService.canRequestAccess {
           Button {
             Task { await store.connectAppleCalendar() }

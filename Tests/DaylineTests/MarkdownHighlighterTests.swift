@@ -105,6 +105,22 @@ struct MarkdownHighlighterTests {
   }
 
   @MainActor
+  @Test func emojiBeforeSameLineMarkupKeepsOffsetsAligned() {
+    let textView = highlightedTextView(for: "😀 intro **bold move** tail")
+    #expect(fontTraits(in: textView, substring: "bold move").contains(.boldFontMask))
+    #expect(!fontTraits(in: textView, substring: "intro").contains(.boldFontMask))
+    #expect(!fontTraits(in: textView, substring: "tail").contains(.boldFontMask))
+  }
+
+  @MainActor
+  @Test func nonASCIIBeforeSameLineEmphasisKeepsOffsetsAligned() {
+    let textView = highlightedTextView(for: "café déjà *correct span* tail")
+    #expect(fontTraits(in: textView, substring: "correct span").contains(.italicFontMask))
+    #expect(!fontTraits(in: textView, substring: "déjà").contains(.italicFontMask))
+    #expect(!fontTraits(in: textView, substring: "tail").contains(.italicFontMask))
+  }
+
+  @MainActor
   @Test func blockQuoteGetsSecondaryColor() {
     let textView = highlightedTextView(for: "text\n\n> quoted line")
     let nsSource = textView.string as NSString

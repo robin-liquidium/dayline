@@ -113,7 +113,7 @@ enum MarkdownHighlighter {
       return
     }
     let source = textView.string
-    let lineStarts = Self.lineStartOffsets(in: source)
+    let lineStarts = Self.utf8LineStartOffsets(in: source)
     let fullRange = NSRange(location: 0, length: (source as NSString).length)
 
     storage.beginEditing()
@@ -130,33 +130,44 @@ enum MarkdownHighlighter {
     storage.endEditing()
   }
 
-  /// UTF-16 offsets for the start of each 1-indexed source line.
-  private static func lineStartOffsets(in source: String) -> [Int] {
+  /// UTF-8 byte offsets for the start of each 1-indexed source line.
+  private static func utf8LineStartOffsets(in source: String) -> [Int] {
     var starts = [0]
-    let nsSource = source as NSString
-    for index in 0..<nsSource.length {
-      if nsSource.character(at: index) == 0x0A {
+    for (index, byte) in source.utf8.enumerated() {
+      if byte == 0x0A {
         starts.append(index + 1)
       }
     }
     return starts
   }
 
-  /// Converts a markdown source location (1-indexed line/column) to a UTF-16 offset.
-  private static func offset(for location: SourceLocation, lineStarts: [Int], upperBound: Int) -> Int? {
+  /// Converts swift-markdown's 1-based UTF-8 byte location to an AppKit UTF-16 offset.
+  private static func offset(
+    for location: SourceLocation,
+    in source: String,
+    lineStarts: [Int]
+  ) -> Int? {
     let lineIndex = location.line - 1
     guard lineStarts.indices.contains(lineIndex) else {
       return nil
     }
-    let offset = lineStarts[lineIndex] + location.column - 1
-    return offset <= upperBound ? offset : nil
+    let byteOffset = lineStarts[lineIndex] + location.column - 1
+    guard byteOffset >= 0, byteOffset <= source.utf8.count else {
+      return nil
+    }
+    let utf8Index = source.utf8.index(source.utf8.startIndex, offsetBy: byteOffset)
+    guard let stringIndex = String.Index(utf8Index, within: source),
+          let utf16Index = stringIndex.samePosition(in: source.utf16) else {
+      return nil
+    }
+    return source.utf16.distance(from: source.utf16.startIndex, to: utf16Index)
   }
 
   /// NSRange for a markup node, or nil when its source span is unknown.
-  private static func nsRange(of markup: Markup, lineStarts: [Int], upperBound: Int) -> NSRange? {
+  private static func nsRange(of markup: Markup, source: String, lineStarts: [Int]) -> NSRange? {
     guard let range = markup.range,
-          let start = offset(for: range.lowerBound, lineStarts: lineStarts, upperBound: upperBound),
-          let end = offset(for: range.upperBound, lineStarts: lineStarts, upperBound: upperBound),
+          let start = offset(for: range.lowerBound, in: source, lineStarts: lineStarts),
+          let end = offset(for: range.upperBound, in: source, lineStarts: lineStarts),
           end >= start else {
       return nil
     }
@@ -179,12 +190,8 @@ enum MarkdownHighlighter {
     let lineStarts: [Int]
     let apply: (NSRange?, [NSAttributedString.Key: Any]) -> Void
 
-    private var upperBound: Int {
-      (source as NSString).length
-    }
-
     private func range(of markup: Markup) -> NSRange? {
-      MarkdownHighlighter.nsRange(of: markup, lineStarts: lineStarts, upperBound: upperBound)
+      MarkdownHighlighter.nsRange(of: markup, source: source, lineStarts: lineStarts)
     }
 
     private func hide(_ range: NSRange) {

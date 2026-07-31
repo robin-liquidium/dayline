@@ -304,7 +304,8 @@ struct LinearService {
       issueUpdate(id: $id, input: $input) {
         success
         issue {
-          identifier title priority priorityLabel dueDate branchName url
+          identifier title priority priorityLabel dueDate updatedAt branchName url
+          project { name }
           state { id name type }
           assignee { id name displayName active }
           labels(first: 250) { nodes { id name color } }

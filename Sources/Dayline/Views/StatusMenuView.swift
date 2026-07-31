@@ -1660,7 +1660,7 @@ private struct GitHubIssueRow: View {
     .buttonStyle(.plain)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("\(issue.title), \(issue.reference)")
-    .accessibilityHint("Opens the GitHub issue. Press \(store.copyIssueHotkey.uppercased()) to copy, \(store.statusPickerHotkey.uppercased()) for status, \(store.labelPickerHotkey.uppercased()) for labels, or \(store.assigneePickerHotkey.uppercased()) for assignees while hovering.")
+    .accessibilityHint("Opens the GitHub issue. While hovering, press Space to preview, \(store.copyIssueHotkey.uppercased()) to copy, \(store.statusPickerHotkey.uppercased()) for status, \(store.labelPickerHotkey.uppercased()) for labels, or \(store.assigneePickerHotkey.uppercased()) for assignees.")
     .accessibilityIdentifier("github.issue.\(issue.id)")
     .disabled(issue.url == nil)
     .frame(height: workItemRowHeight)
@@ -1950,7 +1950,11 @@ private struct EventRow: View {
     .buttonStyle(.plain)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(accessibilityLabel)
-    .accessibilityHint(event.openURL == nil ? "No openable link is available" : "Open meeting link, location link, or calendar event")
+    .accessibilityHint(
+      event.openURL == nil
+        ? "No openable link is available. Press Space to preview while hovering."
+        : "Open meeting link, location link, or calendar event. Press Space to preview while hovering."
+    )
     .accessibilityIdentifier("calendar.event.\(event.id)")
     .disabled(event.openURL == nil)
   }
@@ -2211,10 +2215,10 @@ private struct IssueRow: View {
   /// VoiceOver hint with the user-configured Linear row shortcuts.
   private var accessibilityHint: String {
     guard issue.url != nil else {
-      return "No Linear link is available"
+      return "No Linear link is available. Press Space to preview while hovering."
     }
 
-    return "Open Linear issue. Press \(copyHotkey.uppercased()) to copy, \(statusHotkey.uppercased()) for status, \(priorityHotkey.uppercased()) for priority, \(dueDateHotkey.uppercased()) for due date, \(labelHotkey.uppercased()) for labels, or \(assigneeHotkey.uppercased()) for assignee while hovering."
+    return "Open Linear issue. While hovering, press Space to preview, \(copyHotkey.uppercased()) to copy, \(statusHotkey.uppercased()) for status, \(priorityHotkey.uppercased()) for priority, \(dueDateHotkey.uppercased()) for due date, \(labelHotkey.uppercased()) for labels, or \(assigneeHotkey.uppercased()) for assignee."
   }
 
   /// Visual style for the Linear workflow state.
