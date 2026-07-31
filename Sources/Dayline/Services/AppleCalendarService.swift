@@ -37,29 +37,39 @@ final class AppleCalendarService: @unchecked Sendable {
 
   /// Loads timed events from the selected calendars in the given window.
   func events(in calendarIDs: Set<String>, from start: Date, to end: Date) -> [CalendarEventItem] {
+    let eventStore = EKEventStore()
     let calendars = eventStore.calendars(for: .event).filter { calendarIDs.contains($0.calendarIdentifier) }
     guard !calendars.isEmpty else {
       return []
     }
     let predicate = eventStore.predicateForEvents(withStart: start, end: end, calendars: calendars)
     return eventStore.events(matching: predicate).compactMap { event in
-      guard !event.isAllDay, let eventID = event.eventIdentifier else {
+      guard !event.isAllDay,
+            let eventID = event.eventIdentifier,
+            let startDate = event.startDate,
+            let endDate = event.endDate else {
         return nil
+      }
+      let occurrenceDate = event.occurrenceDate ?? startDate
+      let occurrenceID = "\(eventID)|\(occurrenceDate.timeIntervalSince1970)"
+      let deduplicationKey = event.calendarItemExternalIdentifier.map {
+        "\($0)|\(occurrenceDate.timeIntervalSince1970)"
       }
       return CalendarEventItem(
         id: CalendarEventItem.compositeID(
           accountID: Self.accountID,
           calendarID: event.calendar.calendarIdentifier,
-          eventID: eventID
+          eventID: occurrenceID
         ),
         title: event.title ?? "",
-        startDate: event.startDate,
-        endDate: event.endDate,
+        startDate: startDate,
+        endDate: endDate,
         location: event.location,
         calendarURL: nil,
         openURL: event.url,
         sourceCalendarNames: [event.calendar.title],
-        sourceIDs: [CalendarEventItem.sourceID(accountID: Self.accountID, calendarID: event.calendar.calendarIdentifier)]
+        sourceIDs: [CalendarEventItem.sourceID(accountID: Self.accountID, calendarID: event.calendar.calendarIdentifier)],
+        deduplicationKey: deduplicationKey
       )
     }
   }

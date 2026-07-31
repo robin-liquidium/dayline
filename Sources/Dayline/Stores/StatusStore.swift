@@ -771,19 +771,12 @@ final class StatusStore: ObservableObject {
     async let githubResult: Result<[GitHubIssueItem], Error>? = shouldLoadGitHub ? loadGitHubIssues() : nil
 
     let resolvedCalendarResult = await calendarResult
-    if connectionRevisions[.google, default: 0] == googleRevision,
-       appleCalendarRevision == capturedAppleCalendarRevision {
-      if let calendarResult = resolvedCalendarResult {
-        if calendarResult.shouldReplaceEvents {
-          let appleSourcePrefix = "\(AppleCalendarService.accountID.uuidString)|"
-          appleSourceEvents = calendarResult.sourceEvents.filter {
-            $0.sourceIDs.contains { $0.hasPrefix(appleSourcePrefix) }
-          }
-          googleSourceEvents = calendarResult.sourceEvents.filter {
-            !$0.sourceIDs.contains { $0.hasPrefix(appleSourcePrefix) }
-          }
-          events = calendarResult.today
-          tomorrowEvents = calendarResult.tomorrow
+    if let calendarResult = resolvedCalendarResult {
+      var didReplaceCalendarEvents = false
+      if connectionRevisions[.google, default: 0] == googleRevision {
+        if calendarResult.shouldReplaceGoogleEvents {
+          googleSourceEvents = calendarResult.googleSourceEvents
+          didReplaceCalendarEvents = true
         }
         calendarWarnings = calendarResult.warnings
         for accountID in calendarResult.reauthenticationAccountIDs {
@@ -796,12 +789,28 @@ final class StatusStore: ObservableObject {
         if !calendarResult.reauthenticationAccountIDs.isEmpty {
           updateGoogleAggregateStatus()
         }
-      } else {
+      }
+      if appleCalendarRevision == capturedAppleCalendarRevision,
+         calendarResult.shouldReplaceAppleEvents {
+        appleSourceEvents = calendarResult.appleSourceEvents
+        didReplaceCalendarEvents = true
+      }
+      if didReplaceCalendarEvents {
+        rebuildAgendaFromCachedSources()
+      }
+    } else {
+      var didReplaceCalendarEvents = false
+      if connectionRevisions[.google, default: 0] == googleRevision {
         googleSourceEvents = []
-        appleSourceEvents = []
-        events = []
-        tomorrowEvents = []
         calendarWarnings = []
+        didReplaceCalendarEvents = true
+      }
+      if appleCalendarRevision == capturedAppleCalendarRevision {
+        appleSourceEvents = []
+        didReplaceCalendarEvents = true
+      }
+      if didReplaceCalendarEvents {
+        rebuildAgendaFromCachedSources()
       }
     }
 
@@ -3213,6 +3222,7 @@ final class StatusStore: ObservableObject {
 
       for await outcome in group {
         sourceBatches.append(CalendarAgendaSourceBatch(
+          provider: .google,
           events: outcome.events,
           warning: outcome.error.map {
             "\(outcome.context.calendar.name) (\(outcome.context.accountLabel)): \($0)"
@@ -3229,7 +3239,7 @@ final class StatusStore: ObservableObject {
     } else if let appleFetchTask {
       let events = await appleFetchTask.value
       if !Task.isCancelled {
-        sourceBatches.append(CalendarAgendaSourceBatch(events: events, warning: nil))
+        sourceBatches.append(CalendarAgendaSourceBatch(provider: .apple, events: events, warning: nil))
       }
     }
 
@@ -3258,13 +3268,17 @@ final class StatusStore: ObservableObject {
       tomorrowLimit: Self.tomorrowEventLimit
     )
     let warnings = additionalWarnings + sourceBatches.compactMap(\.warning)
+    let googleBatches = sourceBatches.filter { $0.provider == .google }
+    let appleBatches = sourceBatches.filter { $0.provider == .apple }
     return CalendarAgendaLoadResult(
-      sourceEvents: sourceBatches.flatMap(\.events),
+      googleSourceEvents: googleBatches.flatMap(\.events),
+      appleSourceEvents: appleBatches.flatMap(\.events),
       today: sections.today,
       tomorrow: sections.tomorrow,
       warnings: Array(Set(warnings)).sorted(),
       reauthenticationAccountIDs: reauthenticationAccountIDs,
-      shouldReplaceEvents: sourceBatches.isEmpty || sourceBatches.contains { $0.warning == nil }
+      shouldReplaceGoogleEvents: googleBatches.isEmpty || googleBatches.contains { $0.warning == nil },
+      shouldReplaceAppleEvents: appleBatches.contains { $0.warning == nil }
     )
   }
 
@@ -3345,20 +3359,29 @@ private struct GoogleCalendarFetchOutcome: Sendable {
   let needsReauthentication: Bool
 }
 
+/// Calendar provider owning one independent source result.
+enum CalendarAgendaProvider: Equatable, Sendable {
+  case google
+  case apple
+}
+
 /// Successful events and an optional warning produced by one independent source.
 struct CalendarAgendaSourceBatch: Sendable {
+  let provider: CalendarAgendaProvider
   let events: [CalendarEventItem]
   let warning: String?
 }
 
 /// Fully merged agenda and recoverable source failures from one refresh.
 struct CalendarAgendaLoadResult: Sendable {
-  let sourceEvents: [CalendarEventItem]
+  let googleSourceEvents: [CalendarEventItem]
+  let appleSourceEvents: [CalendarEventItem]
   let today: [CalendarEventItem]
   let tomorrow: [CalendarEventItem]
   let warnings: [String]
   let reauthenticationAccountIDs: Set<UUID>
-  let shouldReplaceEvents: Bool
+  let shouldReplaceGoogleEvents: Bool
+  let shouldReplaceAppleEvents: Bool
 }
 
 /// Recognizes OAuth failures that invalidate only the affected Google account.

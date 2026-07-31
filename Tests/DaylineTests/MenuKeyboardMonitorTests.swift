@@ -96,7 +96,9 @@ struct MenuKeyboardMonitorTests {
   }
 
   @Test func preservesSpaceForKeyboardFocusedActionableControls() {
-    for role: NSAccessibility.Role in [.button, .checkBox, .radioButton, .popUpButton, .comboBox] {
+    for role: NSAccessibility.Role in [
+      .button, .checkBox, .radioButton, .popUpButton, .comboBox, .slider, .incrementor
+    ] {
       #expect(
         MenuKeyboardMonitor.shouldPreserveSpaceForFocusedControl(" ", focusedRole: role)
       )

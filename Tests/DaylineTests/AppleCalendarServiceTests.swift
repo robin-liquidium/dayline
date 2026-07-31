@@ -4,6 +4,7 @@ import Testing
 struct AppleCalendarServiceTests {
   @Test func unauthorizedAccessReturnsEmptyCalendarsAndEvents() {
     let service = AppleCalendarService()
+    guard !service.hasFullAccess else { return }
     // The headless test runner holds no calendar permission, so both calls
     // must degrade to empty results instead of throwing or crashing.
     let sources = service.calendarSources()

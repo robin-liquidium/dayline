@@ -46,8 +46,21 @@ struct MarkdownTextEditor: NSViewRepresentable {
     }
     let selectedRanges = textView.selectedRanges
     textView.string = text
-    textView.selectedRanges = selectedRanges
+    textView.selectedRanges = Self.clampedSelectionRanges(
+      selectedRanges,
+      textLength: (text as NSString).length
+    )
     coordinator.applyHighlighting()
+  }
+
+  /// Keeps external text replacement from restoring selections past the new end.
+  static func clampedSelectionRanges(_ ranges: [NSValue], textLength: Int) -> [NSValue] {
+    ranges.map { value in
+      let range = value.rangeValue
+      let location = min(range.location, textLength)
+      let length = min(range.length, textLength - location)
+      return NSValue(range: NSRange(location: location, length: length))
+    }
   }
 
   func makeCoordinator() -> Coordinator {
@@ -120,7 +133,7 @@ enum MarkdownHighlighter {
     storage.setAttributes(baseAttributes, range: fullRange)
 
     let document = Document(parsing: source)
-    var walker = HighlightWalker(source: source, lineStarts: lineStarts) { range, attributes in
+    var walker = HighlightWalker(source: source, lineStarts: lineStarts, storage: storage) { range, attributes in
       guard let range, range.location != NSNotFound, NSMaxRange(range) <= fullRange.length else {
         return
       }
@@ -188,6 +201,7 @@ enum MarkdownHighlighter {
   private struct HighlightWalker: MarkupWalker {
     let source: String
     let lineStarts: [Int]
+    let storage: NSTextStorage
     let apply: (NSRange?, [NSAttributedString.Key: Any]) -> Void
 
     private func range(of markup: Markup) -> NSRange? {
@@ -196,6 +210,29 @@ enum MarkdownHighlighter {
 
     private func hide(_ range: NSRange) {
       apply(range, MarkdownHighlighter.hiddenAttributes)
+    }
+
+    /// Adds font traits while preserving traits and sizes applied by parent nodes.
+    private func applyFont(
+      to range: NSRange?,
+      bold: Bool = false,
+      italic: Bool = false,
+      size: CGFloat? = nil
+    ) {
+      guard let range else { return }
+      var segments: [(NSRange, NSFont)] = []
+      storage.enumerateAttribute(.font, in: range) { value, segment, _ in
+        segments.append((segment, value as? NSFont ?? MarkdownHighlighter.baseFont))
+      }
+      for (segment, existingFont) in segments {
+        let pointSize = size ?? existingFont.pointSize
+        let resized = NSFont(descriptor: existingFont.fontDescriptor, size: pointSize) ?? existingFont
+        var traits = NSFontManager.shared.traits(of: resized)
+        if bold { traits.insert(.boldFontMask) }
+        if italic { traits.insert(.italicFontMask) }
+        let merged = NSFontManager.shared.convert(resized, toHaveTrait: traits)
+        apply(segment, [.font: merged])
+      }
     }
 
     /// Hides the delimiter text before the first and after the last child node.
@@ -217,19 +254,19 @@ enum MarkdownHighlighter {
     mutating func visitHeading(_ heading: Heading) {
       let level = min(heading.level, 3)
       let size = [NSFont.systemFontSize + 6, NSFont.systemFontSize + 3, NSFont.systemFontSize + 1][level - 1]
-      apply(range(of: heading), [.font: MarkdownHighlighter.font(bold: true, size: size)])
+      applyFont(to: range(of: heading), bold: true, size: size)
       hidePadding(of: heading)
       descendInto(heading)
     }
 
     mutating func visitStrong(_ strong: Strong) {
-      apply(range(of: strong), [.font: MarkdownHighlighter.font(bold: true)])
+      applyFont(to: range(of: strong), bold: true)
       hidePadding(of: strong)
       descendInto(strong)
     }
 
     mutating func visitEmphasis(_ emphasis: Emphasis) {
-      apply(range(of: emphasis), [.font: MarkdownHighlighter.font(italic: true)])
+      applyFont(to: range(of: emphasis), italic: true)
       hidePadding(of: emphasis)
       descendInto(emphasis)
     }

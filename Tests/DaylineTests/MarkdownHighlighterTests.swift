@@ -22,6 +22,13 @@ struct MarkdownHighlighterTests {
   }
 
   @MainActor
+  private func font(in textView: NSTextView, substring: String) -> NSFont? {
+    let range = (textView.string as NSString).range(of: substring)
+    #expect(range.location != NSNotFound)
+    return textView.textStorage?.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
+  }
+
+  @MainActor
   @Test func headingGetsBoldLargerFont() {
     let textView = highlightedTextView(for: "# Big title\n\nbody text")
     let traits = fontTraits(in: textView, substring: "Big title")
@@ -39,6 +46,28 @@ struct MarkdownHighlighterTests {
     let plainTraits = fontTraits(in: textView, substring: "plain")
     #expect(!plainTraits.contains(.boldFontMask))
     #expect(!plainTraits.contains(.italicFontMask))
+  }
+
+  @MainActor
+  @Test func nestedStrongEmphasisCombinesTraits() {
+    let textView = highlightedTextView(for: "**_nested_**")
+    let traits = fontTraits(in: textView, substring: "nested")
+    #expect(traits.contains(.boldFontMask))
+    #expect(traits.contains(.italicFontMask))
+  }
+
+  @MainActor
+  @Test func strongTextInHeadingKeepsHeadingSize() {
+    let textView = highlightedTextView(for: "# **Bold heading**")
+    let headingFont = font(in: textView, substring: "Bold heading")
+    #expect(headingFont?.pointSize == NSFont.systemFontSize + 6)
+    #expect(headingFont.map { NSFontManager.shared.traits(of: $0).contains(.boldFontMask) } == true)
+  }
+
+  @Test func externalTextReplacementClampsSelections() {
+    let ranges = [NSValue(range: NSRange(location: 8, length: 4))]
+    let clamped = MarkdownTextEditor.clampedSelectionRanges(ranges, textLength: 3)
+    #expect(clamped.map(\.rangeValue) == [NSRange(location: 3, length: 0)])
   }
 
   @MainActor

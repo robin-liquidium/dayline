@@ -239,8 +239,8 @@ struct CalendarEventItemTests {
 
     let result = StatusStore.assembleCalendarAgenda(
       sourceBatches: [
-        CalendarAgendaSourceBatch(events: [successfulEvent], warning: nil),
-        CalendarAgendaSourceBatch(events: [], warning: "Work (other@example.com): Timed out")
+        CalendarAgendaSourceBatch(provider: .google, events: [successfulEvent], warning: nil),
+        CalendarAgendaSourceBatch(provider: .google, events: [], warning: "Work (other@example.com): Timed out")
       ],
       tomorrowStart: tomorrowStart,
       dayAfterTomorrow: dayAfterTomorrow
@@ -248,7 +248,7 @@ struct CalendarEventItemTests {
 
     #expect(result.today == [successfulEvent])
     #expect(result.warnings == ["Work (other@example.com): Timed out"])
-    #expect(result.shouldReplaceEvents)
+    #expect(result.shouldReplaceGoogleEvents)
   }
 
   @Test @MainActor func totalSourceFailurePreservesThePreviousAgenda() {
@@ -257,8 +257,8 @@ struct CalendarEventItemTests {
 
     let result = StatusStore.assembleCalendarAgenda(
       sourceBatches: [
-        CalendarAgendaSourceBatch(events: [], warning: "Work: Timed out"),
-        CalendarAgendaSourceBatch(events: [], warning: "Personal: Offline")
+        CalendarAgendaSourceBatch(provider: .google, events: [], warning: "Work: Timed out"),
+        CalendarAgendaSourceBatch(provider: .google, events: [], warning: "Personal: Offline")
       ],
       tomorrowStart: tomorrowStart,
       dayAfterTomorrow: dayAfterTomorrow
@@ -266,7 +266,31 @@ struct CalendarEventItemTests {
 
     #expect(result.today.isEmpty)
     #expect(result.tomorrow.isEmpty)
-    #expect(!result.shouldReplaceEvents)
+    #expect(!result.shouldReplaceGoogleEvents)
+  }
+
+  @Test @MainActor func appleSuccessDoesNotReplaceFailedGoogleEvents() {
+    let tomorrowStart = Date(timeIntervalSince1970: 86_400)
+    let dayAfterTomorrow = tomorrowStart.addingTimeInterval(86_400)
+    let appleEvent = event(
+      id: "apple-event",
+      startDate: Date(timeIntervalSince1970: 20_000),
+      endDate: Date(timeIntervalSince1970: 21_000)
+    )
+
+    let result = StatusStore.assembleCalendarAgenda(
+      sourceBatches: [
+        CalendarAgendaSourceBatch(provider: .google, events: [], warning: "Work: Offline"),
+        CalendarAgendaSourceBatch(provider: .apple, events: [appleEvent], warning: nil)
+      ],
+      tomorrowStart: tomorrowStart,
+      dayAfterTomorrow: dayAfterTomorrow
+    )
+
+    #expect(!result.shouldReplaceGoogleEvents)
+    #expect(result.shouldReplaceAppleEvents)
+    #expect(result.googleSourceEvents.isEmpty)
+    #expect(result.appleSourceEvents == [appleEvent])
   }
 
   private func event(
