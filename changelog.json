@@ -1,6 +1,38 @@
 {
   "releases": [
     {
+      "version": "0.2.0",
+      "date": "2026-07-31",
+      "new": [
+        {
+          "title": "Apple Calendar",
+          "text": "Bring local Apple Calendar events into your agenda alongside Google Calendar. Connect it in Settings → Accounts, choose exactly which calendars to show, and disconnect whenever you want.",
+          "pr": 49
+        },
+        {
+          "title": "Markdown notes",
+          "text": "Notes now style headings, bold, italics, links, quotes, lists, and code as you type. You can also keep a note above other windows from the note editor.",
+          "pr": 49
+        },
+        {
+          "title": "Quick previews",
+          "text": "Hover a calendar event, Linear issue, or GitHub issue and press Space to preview the important details without leaving Dayline.",
+          "pr": 49
+        },
+        {
+          "title": "Issue-row details",
+          "text": "Choose which status, priority, due date, project, label, and assignee details appear under Linear and GitHub issues in Settings → Issues.",
+          "pr": 49
+        }
+      ],
+      "fixed": [
+        {
+          "text": "Linear and GitHub issue creators now open with a clean form and offer Create more so you can file several issues in succession.",
+          "pr": 49
+        }
+      ]
+    },
+    {
       "version": "0.1.13",
       "date": "2026-07-29",
       "fixed": [
