@@ -333,12 +333,8 @@ final class DaylineUITests: XCTestCase {
     let editor = noteEditor()
     editor.click()
     editor.typeText("bold italic")
-    let initialText = XCTNSPredicateExpectation(
-      predicate: NSPredicate(format: "value IN %@", ["bold italic", "Bold italic"]),
-      object: editor
-    )
-    XCTAssertEqual(XCTWaiter.wait(for: [initialText], timeout: 5), .completed)
-    let firstWord = try XCTUnwrap((editor.value as? String)?.components(separatedBy: " ").first)
+    let initialValue = try captureValue(of: editor, allowed: ["bold italic", "Bold italic"])
+    let firstWord = try XCTUnwrap(initialValue.components(separatedBy: " ").first)
     XCTAssertTrue(firstWord == "bold" || firstWord == "Bold")
 
     editor.typeKey(.leftArrow, modifierFlags: [.option, .shift])
@@ -353,12 +349,26 @@ final class DaylineUITests: XCTestCase {
     editor.typeKey(.rightArrow, modifierFlags: .command)
     editor.typeKey(.return, modifierFlags: [])
     editor.typeText("list item")
+    let formattedPrefix = "**\(firstWord)** *italic*\n"
+    let preformattedListValue = try captureValue(
+      of: editor,
+      allowed: ["\(formattedPrefix)list item", "\(formattedPrefix)List item"]
+    )
+    let listText = String(preformattedListValue.dropFirst(formattedPrefix.count))
     editor.typeKey("8", modifierFlags: [.command, .shift])
-    assertValue(of: editor, equals: "**\(firstWord)** *italic*\n- list item")
+    let formattedListValue = "\(formattedPrefix)- \(listText)"
+    assertValue(of: editor, equals: formattedListValue)
 
     editor.typeKey(.rightArrow, modifierFlags: .command)
     editor.typeKey(.return, modifierFlags: [])
     editor.typeText("link target")
+    let linkPrefix = "\(formattedListValue)\n- "
+    let preformattedLinkValue = try captureValue(
+      of: editor,
+      allowed: ["\(linkPrefix)link target", "\(linkPrefix)Link target"]
+    )
+    let linkText = String(preformattedLinkValue.dropFirst(linkPrefix.count))
+    let linkLead = String(linkText.dropLast(" target".count))
     editor.typeKey(.leftArrow, modifierFlags: [.option, .shift])
     editor.typeKey("k", modifierFlags: .command)
     let linkURL = app.textFields["URL"].firstMatch
@@ -370,7 +380,7 @@ final class DaylineUITests: XCTestCase {
     insertLink.click()
     assertValue(
       of: editor,
-      equals: "**\(firstWord)** *italic*\n- list item\n- link [target](https://example.com)"
+      equals: "\(formattedListValue)\n- \(linkLead) [target](https://example.com)"
     )
 
     attachCheckpoint(
@@ -463,6 +473,29 @@ final class DaylineUITests: XCTestCase {
       file: file,
       line: line
     )
+  }
+
+  private func captureValue(
+    of element: XCUIElement,
+    allowed: [String],
+    timeout: TimeInterval = 5,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) throws -> String {
+    let expectation = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "value IN %@", allowed),
+      object: element
+    )
+    XCTAssertEqual(
+      XCTWaiter.wait(for: [expectation], timeout: timeout),
+      .completed,
+      "Expected \(element.identifier) value to be one of \(allowed)",
+      file: file,
+      line: line
+    )
+    let value = try XCTUnwrap(element.value as? String, file: file, line: line)
+    XCTAssertTrue(allowed.contains(value), file: file, line: line)
+    return value
   }
 
   private func assertEnabled(
