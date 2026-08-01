@@ -23,6 +23,7 @@ final class UpdateService: NSObject, ObservableObject {
   private var injectedCheckForUpdatesAction: (() -> Void)?
   private var automaticallyDownloadsObservation: NSKeyValueObservation?
   private var canCheckForUpdatesObservation: NSKeyValueObservation?
+  private var pendingInstallOnQuitVersion: String?
 
   /// Creates either the production Sparkle updater or the isolated mock used for UI testing.
   init(isMock: Bool, mockVersion: String? = nil) {
@@ -93,6 +94,21 @@ final class UpdateService: NSObject, ObservableObject {
     }
     updaterController?.checkForUpdates(nil)
   }
+
+  /// Keeps the footer reminder for an update Sparkle has staged to install on quit.
+  func recordPendingInstallOnQuit(version: String) {
+    pendingInstallOnQuitVersion = version
+    availableVersion = version
+  }
+
+  /// Removes staged state when Sparkle cancels that installation after a user choice.
+  func clearPendingInstallOnQuit(version: String) {
+    guard pendingInstallOnQuitVersion == version else {
+      return
+    }
+    pendingInstallOnQuitVersion = nil
+    availableVersion = nil
+  }
 }
 
 extension UpdateService: SPUUpdaterDelegate {
@@ -102,8 +118,20 @@ extension UpdateService: SPUUpdaterDelegate {
     willInstallUpdateOnQuit item: SUAppcastItem,
     immediateInstallationBlock _: @escaping () -> Void
   ) -> Bool {
-    availableVersion = item.displayVersionString
+    recordPendingInstallOnQuit(version: item.displayVersionString)
     return false
+  }
+
+  func updater(
+    _: SPUUpdater,
+    userDidMake choice: SPUUserUpdateChoice,
+    forUpdate item: SUAppcastItem,
+    state _: SPUUserUpdateState
+  ) {
+    guard choice == .skip else {
+      return
+    }
+    clearPendingInstallOnQuit(version: item.displayVersionString)
   }
 }
 
@@ -133,8 +161,8 @@ extension UpdateService: @preconcurrency SPUStandardUserDriverDelegate {
     availableVersion = update.displayVersionString
   }
 
-  /// Removes a reminder after Sparkle finishes a dismissed, skipped, or failed session.
+  /// Finishes footer state by keeping only an update still staged to install on quit.
   func standardUserDriverWillFinishUpdateSession() {
-    availableVersion = nil
+    availableVersion = pendingInstallOnQuitVersion
   }
 }

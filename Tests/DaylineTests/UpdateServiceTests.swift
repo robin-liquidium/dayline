@@ -32,4 +32,41 @@ struct UpdateServiceTests {
     service.checkForUpdates()
     #expect(invocationCount == 0)
   }
+
+  @Test func finishingSessionClearsReminderWithoutPendingInstall() {
+    let service = UpdateService(isMock: true, mockVersion: "9.9.9")
+
+    service.standardUserDriverWillFinishUpdateSession()
+
+    #expect(service.availableVersion == nil)
+  }
+
+  @Test func finishingSessionKeepsReminderForPendingInstallOnQuit() {
+    let service = UpdateService(isMock: true)
+
+    service.recordPendingInstallOnQuit(version: "9.9.9")
+    service.standardUserDriverWillFinishUpdateSession()
+
+    #expect(service.availableVersion == "9.9.9")
+  }
+
+  @Test func canceledPendingInstallNoLongerKeepsReminder() {
+    let service = UpdateService(isMock: true)
+    service.recordPendingInstallOnQuit(version: "9.9.9")
+
+    service.clearPendingInstallOnQuit(version: "9.9.9")
+    service.standardUserDriverWillFinishUpdateSession()
+
+    #expect(service.availableVersion == nil)
+  }
+
+  @Test func cancelingAnotherVersionDoesNotClearPendingInstall() {
+    let service = UpdateService(isMock: true)
+    service.recordPendingInstallOnQuit(version: "9.9.9")
+
+    service.clearPendingInstallOnQuit(version: "9.9.8")
+    service.standardUserDriverWillFinishUpdateSession()
+
+    #expect(service.availableVersion == "9.9.9")
+  }
 }

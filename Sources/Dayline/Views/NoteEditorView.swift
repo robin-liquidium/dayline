@@ -40,6 +40,7 @@ struct NoteEditorView: View {
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.tail)
+            .help(errorMessage)
             .accessibilityIdentifier("noteEditor.error")
         }
 

@@ -399,8 +399,6 @@ private final class HiddenScrollIndicatorsView: NSView {
     guard let scrollView = enclosingScrollView else { return }
     scrollView.hasHorizontalScroller = false
     scrollView.hasVerticalScroller = false
-    scrollView.horizontalScroller?.isHidden = true
-    scrollView.verticalScroller?.isHidden = true
   }
 }
 
@@ -2175,7 +2173,7 @@ private struct IssueRow: View {
     }
     .frame(height: workItemRowHeight)
     .contextMenu {
-      Button("Cancel Issue", systemImage: "trash", role: .destructive) {
+      Button("Cancel Issue", systemImage: "xmark.circle", role: .destructive) {
         confirmDestructiveAction(
           title: "Cancel issue?",
           message: "Move \(issue.id) to its canceled Linear state.",
