@@ -3,11 +3,23 @@ import Foundation
 import OSLog
 import UniformTypeIdentifiers
 
+private extension ProcessInfo {
+  func uiTestingValue(after argument: String) -> String? {
+    guard arguments.contains("--ui-testing"),
+          let index = arguments.firstIndex(of: argument),
+          arguments.indices.contains(index + 1) else {
+      return nil
+    }
+    return arguments[index + 1]
+  }
+}
+
 /// Privacy-safe event groups written to unified logging and the local diagnostic ring.
 enum DiagnosticCategory: String, Sendable {
   case lifecycle
   case menuBar
   case refresh
+  case interaction
   case feedback
 }
 
@@ -19,21 +31,26 @@ enum DaylineDiagnostics {
   private static let lifecycleLogger = Logger(subsystem: subsystem, category: DiagnosticCategory.lifecycle.rawValue)
   private static let menuBarLogger = Logger(subsystem: subsystem, category: DiagnosticCategory.menuBar.rawValue)
   private static let refreshLogger = Logger(subsystem: subsystem, category: DiagnosticCategory.refresh.rawValue)
+  private static let interactionLogger = Logger(subsystem: subsystem, category: DiagnosticCategory.interaction.rawValue)
   private static let feedbackLogger = Logger(subsystem: subsystem, category: DiagnosticCategory.feedback.rawValue)
+  private static let runID = ProcessInfo.processInfo.uiTestingValue(after: "--ui-test-run-id")
 
   /// Writes one deliberately non-sensitive breadcrumb to both durable and unified logs.
   static func record(_ message: String, category: DiagnosticCategory) {
+    let renderedMessage = runID.map { "[run \($0.prefix(64))] \(message)" } ?? message
     switch category {
     case .lifecycle:
-      lifecycleLogger.info("\(message, privacy: .public)")
+      lifecycleLogger.info("\(renderedMessage, privacy: .public)")
     case .menuBar:
-      menuBarLogger.info("\(message, privacy: .public)")
+      menuBarLogger.info("\(renderedMessage, privacy: .public)")
     case .refresh:
-      refreshLogger.info("\(message, privacy: .public)")
+      refreshLogger.info("\(renderedMessage, privacy: .public)")
+    case .interaction:
+      interactionLogger.info("\(renderedMessage, privacy: .public)")
     case .feedback:
-      feedbackLogger.info("\(message, privacy: .public)")
+      feedbackLogger.info("\(renderedMessage, privacy: .public)")
     }
-    recorder.append(message, category: category)
+    recorder.append(renderedMessage, category: category)
   }
 }
 
@@ -124,6 +141,11 @@ final class DiagnosticLogRecorder: @unchecked Sendable {
   }
 
   private static var defaultDirectoryURL: URL {
+    let processInfo = ProcessInfo.processInfo
+    if let testDirectory = processInfo.uiTestingValue(after: "--ui-test-log-dir"), !testDirectory.isEmpty {
+      return URL(fileURLWithPath: testDirectory, isDirectory: true)
+    }
+
     let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     let appFolder = Bundle.main.bundleIdentifier == "build.local.DaylineMock" ? "Dayline Mock" : "Dayline"
     return root

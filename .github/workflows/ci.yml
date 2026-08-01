@@ -71,3 +71,30 @@ jobs:
 
       - name: Build
         run: bun run build
+
+  ui-test:
+    runs-on: macos-26
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Enable UI automation
+        run: |
+          sudo DevToolsSecurity -enable
+          sudo xcrun automationmodetool enable-automationmode-without-authentication
+
+      - name: Run XCUITests
+        run: ./script/ui_test.sh
+
+      - name: Upload UI test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dayline-XCUITest-evidence
+          path: dist/ui-test-results/
+          if-no-files-found: warn
+          retention-days: 7

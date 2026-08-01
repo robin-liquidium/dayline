@@ -33,7 +33,11 @@ struct DaylineApp: App {
   private let appDisplayName: String
 
   init() {
-    let isMock = ProcessInfo.processInfo.arguments.contains("--mock")
+    let arguments = ProcessInfo.processInfo.arguments
+    let isMock = arguments.contains("--mock")
+    if arguments.contains("--ui-testing"), let bundleIdentifier = Bundle.main.bundleIdentifier {
+      UserDefaults.standard.removePersistentDomain(forName: bundleIdentifier)
+    }
     let mockData = isMock ? MockData.make() : nil
     _store = StateObject(wrappedValue: StatusStore(mockData: mockData))
     _updateService = StateObject(wrappedValue: UpdateService(
@@ -62,6 +66,9 @@ struct DaylineApp: App {
     .defaultSize(width: 500, height: 420)
     // OAuth redirects use the dayline:// scheme; do not let them open editor windows.
     .handlesExternalEvents(matching: [])
+    .commands {
+      NoteFormattingCommands()
+    }
 
     Window("New Linear Issue", id: "linearIssueCreator") {
       LinearIssueEditorView()

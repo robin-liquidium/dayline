@@ -6,6 +6,12 @@ BUNDLE_ID="build.local.DaylineMock"
 MIN_SYSTEM_VERSION="26.0"
 VERSION="0.1.0"
 BUILD_NUMBER="1"
+BUILD_ONLY=false
+
+if [[ "${1:-}" == "--build-only" ]]; then
+  BUILD_ONLY=true
+  shift
+fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -69,6 +75,11 @@ cat >"$INFO_PLIST" <<PLIST
 </dict>
 </plist>
 PLIST
+
+if [[ "$BUILD_ONLY" == true ]]; then
+  echo "Built $APP_BUNDLE"
+  exit 0
+fi
 
 /usr/bin/open "$APP_BUNDLE" --args --mock "$@"
 

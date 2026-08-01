@@ -29,7 +29,7 @@ or Dock icon.
 
 - **Calendar at a glance:** see remaining timed events today and optionally expand tomorrow.
 - **Issues without the tab:** review assigned Linear or GitHub issues and update their status, labels, or assignee.
-- **Local notes:** capture quick notes on this Mac; the first line becomes the title.
+- **Local Markdown notes:** write formatted notes on this Mac; the first line becomes the title.
 - **Keyboard-first actions:** hover an issue and use configurable shortcuts for copy, status, labels, assignee, and Linear-specific fields.
 - **Super lightweight:** native and menu-bar-only, using next to no system resources in the background.
 - **Quiet by design:** menu-bar-only, background refresh, launch at login, and configurable ordering.
@@ -58,8 +58,9 @@ Linear issues also support `P` for priority and `D` for due date. The shortcuts 
 
 ### Write it down locally
 
-Notes are plain text and stay on this Mac. The first line becomes the menu title,
-and more notes remain one click away.
+Notes use a native live Markdown editor and stay on this Mac. The first line becomes
+the menu title, while standard shortcuts such as Command-B and Command-I format the
+current selection.
 
 <p align="center">
   <img src="website/public/images/local-notes-list.webp" width="620" alt="Dayline showing a list of local notes">
@@ -276,6 +277,23 @@ Run the complete smoke test with:
 ```sh
 ./script/smoke_test.sh
 ```
+
+Run the scripted XCUITest suite with:
+
+```sh
+./script/ui_test.sh
+```
+
+The XCUITests build and launch the isolated `Dayline Mock.app`, exercise the
+menu, Calendar expansion, Linear/GitHub switching, pagination, complex Markdown
+note rendering and formatting shortcuts, and Settings. Each run saves an isolated evidence directory under
+`dist/ui-test-results/` containing the `.xcresult`, structured test summaries,
+the complete runner log, privacy-safe app breadcrumbs, and always-kept visual
+and element-state checkpoints for successful as well as failed tests. The
+checkpoint PNGs and text files are also extracted into a directly browsable
+`checkpoints/` directory.
+The same suite runs on a GitHub-hosted macOS runner for every pull request and
+push to `main`, so it does not use the local mouse or interrupt local work.
 
 <details>
 <summary><strong>Stable accessibility identifiers</strong></summary>

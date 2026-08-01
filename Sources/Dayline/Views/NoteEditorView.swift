@@ -1,3 +1,4 @@
+import MarkdownEngine
 import SwiftUI
 
 /// Stock SwiftUI window for creating notes and editing note text locally.
@@ -13,7 +14,12 @@ struct NoteEditorView: View {
   /// Builds the note editor window content.
   var body: some View {
     VStack(spacing: 0) {
-      MarkdownTextEditor(text: $draft.text, accessibilityIdentifier: "noteEditor.text")
+      NativeTextViewWrapper(
+        text: $draft.text,
+        configuration: draft.markdownConfiguration,
+        documentId: existingNoteID ?? draft.editorDocumentID
+      )
+        .accessibilityIdentifier("noteEditor.text")
         .padding(.horizontal, 8)
         .padding(.top, 4)
 
@@ -53,6 +59,10 @@ struct NoteEditorView: View {
     .background {
       WindowLevelConfigurator(keepOnTop: store.notesKeepOnTop)
     }
+    .focusedSceneValue(
+      \.noteFormattingActions,
+      NoteFormattingActions(perform: draft.performFormatting)
+    )
     .onAppear(perform: loadInitialNoteIfNeeded)
   }
 
@@ -156,6 +166,15 @@ private final class WindowLevelConfiguratorView: NSView {
 
 /// Observable draft state for the note editor window.
 private final class NoteEditorDraft: ObservableObject {
+  /// Stable identity used to isolate undo history and formatting commands.
+  let editorDocumentID = UUID().uuidString
+
+  /// Per-editor formatting bridge so shortcuts only affect the active note window.
+  let formatting = NoteFormattingBridge()
+
+  /// Markdown engine defaults plus Dayline's formatting command bridge.
+  lazy var markdownConfiguration = formatting.configuration
+
   /// Editable note body.
   @Published var text = ""
 
@@ -167,4 +186,9 @@ private final class NoteEditorDraft: ObservableObject {
 
   /// Whether the initial cached note has been copied into this draft.
   @Published var hasLoadedInitialNote = false
+
+  /// Routes a native formatting command to this editor instance.
+  func performFormatting(_ action: NoteFormattingAction) {
+    formatting.perform(action)
+  }
 }

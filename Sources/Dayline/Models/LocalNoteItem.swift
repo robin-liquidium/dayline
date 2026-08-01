@@ -5,7 +5,7 @@ struct LocalNoteItem: Identifiable, Codable, Equatable {
   /// Stable local note identifier.
   var id: String
 
-  /// Plain-text body for compact display and editing.
+  /// Markdown source used for compact display and live editing.
   var text: String
 
   /// Creation timestamp.
