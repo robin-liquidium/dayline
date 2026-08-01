@@ -214,8 +214,12 @@ final class DaylineUITests: XCTestCase {
 
       revealDestructiveAction(on: note)
       element("notes.delete.mock-note-2").click()
-      let confirmButton = app.buttons["Delete note"].firstMatch
-      XCTAssertTrue(confirmButton.waitForExistence(timeout: 3))
+      let nonRowActionButtons = app.buttons.matching(NSPredicate(
+        format: "NOT (identifier BEGINSWITH %@)",
+        "notes.delete."
+      ))
+      let confirmButton = nonRowActionButtons["Delete note"].firstMatch
+      assertEnabled(confirmButton, description: "Delete note confirmation button")
       confirmButton.click()
       try? openMenu()
       scrollIntoView(element("notes.note.mock-note-1"))
