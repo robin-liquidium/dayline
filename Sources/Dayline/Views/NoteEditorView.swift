@@ -1,3 +1,4 @@
+import MarkdownEngine
 import SwiftUI
 
 /// Stock SwiftUI window for creating notes and editing note text locally.
@@ -9,11 +10,18 @@ struct NoteEditorView: View {
   let request: NoteEditorRequest
 
   @StateObject private var draft = NoteEditorDraft()
+  @State private var linkURL = ""
+  @State private var isShowingLinkPrompt = false
 
   /// Builds the note editor window content.
   var body: some View {
     VStack(spacing: 0) {
-      MarkdownTextEditor(text: $draft.text, accessibilityIdentifier: "noteEditor.text")
+      NativeTextViewWrapper(
+        text: $draft.text,
+        configuration: draft.markdownConfiguration,
+        documentId: existingNoteID ?? draft.editorDocumentID
+      )
+        .accessibilityIdentifier("noteEditor.text")
         .padding(.horizontal, 8)
         .padding(.top, 4)
 
@@ -53,7 +61,32 @@ struct NoteEditorView: View {
     .background {
       WindowLevelConfigurator(keepOnTop: store.notesKeepOnTop)
     }
+    .focusedSceneValue(
+      \.noteFormattingActions,
+      NoteFormattingActions(perform: performFormatting)
+    )
+    .alert("Insert Link", isPresented: $isShowingLinkPrompt) {
+      TextField("URL", text: $linkURL)
+      Button("Cancel", role: .cancel) {
+        linkURL = ""
+      }
+      Button("Insert") {
+        draft.performLink(url: linkURL.trimmingCharacters(in: .whitespacesAndNewlines))
+        linkURL = ""
+      }
+      .disabled(linkURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    } message: {
+      Text("Enter the destination URL for the selected text.")
+    }
     .onAppear(perform: loadInitialNoteIfNeeded)
+  }
+
+  private func performFormatting(_ action: NoteFormattingAction) {
+    if case .link = action {
+      isShowingLinkPrompt = true
+    } else {
+      draft.performFormatting(action)
+    }
   }
 
   /// Title for the primary save action.
@@ -156,6 +189,15 @@ private final class WindowLevelConfiguratorView: NSView {
 
 /// Observable draft state for the note editor window.
 private final class NoteEditorDraft: ObservableObject {
+  /// Stable identity used to isolate undo history and formatting commands.
+  let editorDocumentID = UUID().uuidString
+
+  /// Per-editor formatting bridge so shortcuts only affect the active note window.
+  let formatting = NoteFormattingBridge()
+
+  /// Markdown engine defaults plus Dayline's formatting command bridge.
+  lazy var markdownConfiguration = formatting.configuration
+
   /// Editable note body.
   @Published var text = ""
 
@@ -167,4 +209,14 @@ private final class NoteEditorDraft: ObservableObject {
 
   /// Whether the initial cached note has been copied into this draft.
   @Published var hasLoadedInitialNote = false
+
+  /// Routes a native formatting command to this editor instance.
+  func performFormatting(_ action: NoteFormattingAction) {
+    formatting.perform(action)
+  }
+
+  /// Applies the URL collected by the native link prompt to the active selection.
+  func performLink(url: String) {
+    formatting.performLink(url: url)
+  }
 }

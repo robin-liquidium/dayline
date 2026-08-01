@@ -12,14 +12,14 @@ let package = Package(
   ],
   dependencies: [
     .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.4"),
-    .package(url: "https://github.com/swiftlang/swift-markdown", exact: "0.8.0")
+    .package(url: "https://github.com/nodes-app/swift-markdown-engine", exact: "0.11.0")
   ],
   targets: [
     .executableTarget(
       name: "Dayline",
       dependencies: [
         .product(name: "Sparkle", package: "Sparkle"),
-        .product(name: "Markdown", package: "swift-markdown")
+        .product(name: "MarkdownEngine", package: "swift-markdown-engine")
       ],
       path: "Sources/Dayline",
       linkerSettings: [
@@ -31,7 +31,10 @@ let package = Package(
     ),
     .testTarget(
       name: "DaylineTests",
-      dependencies: ["Dayline"],
+      dependencies: [
+        "Dayline",
+        .product(name: "MarkdownEngine", package: "swift-markdown-engine")
+      ],
       path: "Tests/DaylineTests",
       linkerSettings: [
         .unsafeFlags([

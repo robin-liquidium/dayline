@@ -1451,6 +1451,7 @@ final class StatusStore: ObservableObject {
   func setIssueSource(_ source: IssueSource) {
     guard issueSource != source else { return }
     issueSource = source
+    DaylineDiagnostics.record("Issue source selected \(source.rawValue)", category: .interaction)
   }
 
   /// Persists whether the notes section appears in the menu bar popover.
@@ -1667,12 +1668,14 @@ final class StatusStore: ObservableObject {
   func showMoreIssues() {
     visibleIssueCount = min(visibleIssueCount + Self.issuePageSize, allIssues.count)
     applyLinearIssueOrder()
+    DaylineDiagnostics.record("Linear issues expanded visible \(issues.count)", category: .interaction)
   }
 
   /// Collapses Linear issues back to the initial visible page.
   func showFewerIssues() {
     visibleIssueCount = Self.initialVisibleIssueCount
     applyLinearIssueOrder()
+    DaylineDiagnostics.record("Linear issues collapsed visible \(issues.count)", category: .interaction)
   }
 
   /// Whether additional fetched local notes can be shown without another refresh.
@@ -1706,6 +1709,10 @@ final class StatusStore: ObservableObject {
   /// Toggles tomorrow's cached calendar events in the menu.
   func toggleTomorrowEvents() {
     isTomorrowExpanded.toggle()
+    DaylineDiagnostics.record(
+      "Tomorrow events \(isTomorrowExpanded ? "expanded" : "collapsed") visible \(isTomorrowExpanded ? tomorrowEvents.count : 0)",
+      category: .interaction
+    )
   }
 
   /// Returns whether a keypress should copy the hovered Linear issue link.
@@ -1994,6 +2001,7 @@ final class StatusStore: ObservableObject {
           url: issue.url
         ))
       }
+      DaylineDiagnostics.record("Linear issue status changed", category: .interaction)
       updatingIssueTarget = nil
       return
     }
@@ -2002,6 +2010,7 @@ final class StatusStore: ObservableObject {
       let updatedIssue = try await linearService.updateIssueStatus(issueID: issueID, stateID: state.id)
       replaceFetchedIssue(updatedIssue)
       linearError = nil
+      DaylineDiagnostics.record("Linear issue status changed", category: .interaction)
     } catch {
       linearError = error.localizedDescription
     }
@@ -2039,6 +2048,7 @@ final class StatusStore: ObservableObject {
           url: issue.url
         ))
       }
+      DaylineDiagnostics.record("Linear issue priority changed", category: .interaction)
       updatingPriorityIssueID = nil
       return
     }
@@ -2047,6 +2057,7 @@ final class StatusStore: ObservableObject {
       let updatedIssue = try await linearService.updateIssuePriority(issueID: issueID, priority: priority.value)
       replaceFetchedIssue(updatedIssue)
       linearError = nil
+      DaylineDiagnostics.record("Linear issue priority changed", category: .interaction)
     } catch {
       linearError = error.localizedDescription
     }
@@ -2190,6 +2201,7 @@ final class StatusStore: ObservableObject {
           replaceFetchedIssue(try await linearService.updateIssueLabels(issueID: id, labelIDs: ids))
         }
         linearError = nil
+        DaylineDiagnostics.record("Linear issue labels changed count \(ids.count)", category: .interaction)
       } catch { linearError = error.localizedDescription }
     case .github(let id):
       guard let issue = githubIssues.first(where: { $0.id == id }) else { return }
@@ -2205,6 +2217,7 @@ final class StatusStore: ObservableObject {
         }
         replaceGitHubIssue(issue.replacing(labels: labels))
         githubError = nil
+        DaylineDiagnostics.record("GitHub issue labels changed count \(labels.count)", category: .interaction)
       } catch { githubError = error.localizedDescription }
     }
   }
@@ -2264,6 +2277,7 @@ final class StatusStore: ObservableObject {
           }
         }
         linearError = nil
+        DaylineDiagnostics.record("Linear issue assignee changed", category: .interaction)
       } catch { linearError = error.localizedDescription }
     case .github(let id):
       guard let issue = githubIssues.first(where: { $0.id == id }) else { return }
@@ -2290,6 +2304,7 @@ final class StatusStore: ObservableObject {
           replaceGitHubIssue(issue.replacing(assignees: assignees))
         }
         githubError = nil
+        DaylineDiagnostics.record("GitHub issue assignees changed count \(assignees.count)", category: .interaction)
       } catch { githubError = error.localizedDescription }
     }
   }
@@ -2358,11 +2373,13 @@ final class StatusStore: ObservableObject {
       ))
       applyLinearIssueOrder()
       lastUpdatedAt = Date()
+      DaylineDiagnostics.record("Linear issue created", category: .interaction)
       return
     }
 
     try await linearService.createIssue(draft: draft)
     lastUpdatedAt = Date()
+    DaylineDiagnostics.record("Linear issue created", category: .interaction)
     Task { await refresh() }
   }
 
@@ -2407,6 +2424,7 @@ final class StatusStore: ObservableObject {
         assignees: assignees.map { GitHubAssigneeOption(login: $0) }
       ), at: 0)
       lastUpdatedAt = Date()
+      DaylineDiagnostics.record("GitHub issue created", category: .interaction)
       return
     }
 
@@ -2419,6 +2437,7 @@ final class StatusStore: ObservableObject {
     )
     insertOptimisticGitHubIssue(created)
     lastUpdatedAt = Date()
+    DaylineDiagnostics.record("GitHub issue created", category: .interaction)
     Task { await refresh() }
   }
 
@@ -2490,6 +2509,10 @@ final class StatusStore: ObservableObject {
       }
       applyLocalNoteSortOrder()
       notesError = nil
+      DaylineDiagnostics.record(
+        "Local note \(noteID == nil ? "created" : "updated") total \(allNotes.count)",
+        category: .interaction
+      )
       return savedNote
     } catch {
       allNotes = previousNotes
@@ -2511,6 +2534,7 @@ final class StatusStore: ObservableObject {
       visibleNoteCount = min(max(defaultVisibleNoteCount, visibleNoteCount), max(defaultVisibleNoteCount, allNotes.count))
       applyLocalNoteSortOrder()
       notesError = nil
+      DaylineDiagnostics.record("Local note deleted total \(allNotes.count)", category: .interaction)
     } catch {
       allNotes = previousNotes
       applyLocalNoteSortOrder()

@@ -152,6 +152,7 @@ struct StatusMenuView: View {
     ZStack {
       HStack {
         Button {
+          DaylineDiagnostics.record("Settings requested", category: .interaction)
           openWindow(id: "settings")
           SettingsWindowPresenter.bringSettingsToFront()
         } label: {
@@ -289,6 +290,10 @@ struct StatusMenuView: View {
 
   /// Opens a note editor window and brings the accessory app forward.
   private func openNoteEditor(_ request: NoteEditorRequest) {
+    DaylineDiagnostics.record(
+      request.isExisting ? "Existing note editor requested" : "New note editor requested",
+      category: .interaction
+    )
     openWindow(value: request)
     NoteEditorWindowPresenter.bringNoteWindowToFront()
   }
@@ -856,6 +861,7 @@ private struct IssueMultiValuePickerPopover: View {
                     }
                   }
                 }
+                .accessibilityValue(isSelected ? "Selected" : "Not selected")
                 .accessibilityIdentifier("issue.label.\(option.id)")
               }
             } else {
@@ -875,6 +881,7 @@ private struct IssueMultiValuePickerPopover: View {
                     }
                   }
                 }
+                .accessibilityValue(isSelected ? "Selected" : "Not selected")
                 .accessibilityIdentifier("issue.assignee.\(option.id)")
               }
             }
@@ -1056,6 +1063,7 @@ private struct PriorityPickerPopover: View {
             }
           }
           .accessibilityLabel(priority.label)
+          .accessibilityValue(priority.value == issue.priority ? "Selected" : "Not selected")
           .accessibilityHint("Change issue priority")
           .accessibilityIdentifier("linear.priority.\(priority.value)")
         }
@@ -2352,7 +2360,6 @@ private struct NoteRow: View {
               .frame(width: proxy.size.width, height: workItemRowHeight, alignment: .leading)
           }
           .buttonStyle(.plain)
-          .accessibilityElement(children: .ignore)
           .accessibilityLabel(accessibilityLabel)
           .accessibilityHint("Open note editor")
           .accessibilityIdentifier("notes.note.\(note.id)")

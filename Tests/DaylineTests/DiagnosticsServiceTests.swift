@@ -3,6 +3,15 @@ import Testing
 @testable import Dayline
 
 struct DiagnosticsServiceTests {
+  @Test func UItestRunIDAllowsOnlyShortOpaqueTokens() {
+    #expect(DaylineDiagnostics.validatedUITestRunID("run-2026_08.01") == "run-2026_08.01")
+    #expect(DaylineDiagnostics.validatedUITestRunID(String(repeating: "a", count: 64)) != nil)
+    #expect(DaylineDiagnostics.validatedUITestRunID("") == nil)
+    #expect(DaylineDiagnostics.validatedUITestRunID(String(repeating: "a", count: 65)) == nil)
+    #expect(DaylineDiagnostics.validatedUITestRunID("run\nforged") == nil)
+    #expect(DaylineDiagnostics.validatedUITestRunID("run/../../private") == nil)
+  }
+
   @Test func diagnosticLogRotatesAndKeepsTheNewestEntry() throws {
     let root = FileManager.default.temporaryDirectory
       .appendingPathComponent("dayline-log-test-\(UUID().uuidString)", isDirectory: true)
