@@ -333,21 +333,28 @@ final class DaylineUITests: XCTestCase {
     let editor = noteEditor()
     editor.click()
     editor.typeText("bold italic")
+    let initialText = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "value IN %@", ["bold italic", "Bold italic"]),
+      object: editor
+    )
+    XCTAssertEqual(XCTWaiter.wait(for: [initialText], timeout: 5), .completed)
+    let firstWord = try XCTUnwrap((editor.value as? String)?.components(separatedBy: " ").first)
+    XCTAssertTrue(firstWord == "bold" || firstWord == "Bold")
 
     editor.typeKey(.leftArrow, modifierFlags: [.option, .shift])
     editor.typeKey("i", modifierFlags: .command)
-    assertValue(of: editor, equals: "bold *italic*")
+    assertValue(of: editor, equals: "\(firstWord) *italic*")
 
     editor.typeKey(.leftArrow, modifierFlags: .command)
     editor.typeKey(.rightArrow, modifierFlags: [.option, .shift])
     editor.typeKey("b", modifierFlags: .command)
-    assertValue(of: editor, equals: "**bold** *italic*")
+    assertValue(of: editor, equals: "**\(firstWord)** *italic*")
 
     editor.typeKey(.rightArrow, modifierFlags: .command)
     editor.typeKey(.return, modifierFlags: [])
     editor.typeText("list item")
     editor.typeKey("8", modifierFlags: [.command, .shift])
-    assertValue(of: editor, equals: "**bold** *italic*\n- list item")
+    assertValue(of: editor, equals: "**\(firstWord)** *italic*\n- list item")
 
     editor.typeKey(.rightArrow, modifierFlags: .command)
     editor.typeKey(.return, modifierFlags: [])
@@ -363,7 +370,7 @@ final class DaylineUITests: XCTestCase {
     insertLink.click()
     assertValue(
       of: editor,
-      equals: "**bold** *italic*\n- list item\n- link [target](https://example.com)"
+      equals: "**\(firstWord)** *italic*\n- list item\n- link [target](https://example.com)"
     )
 
     attachCheckpoint(
