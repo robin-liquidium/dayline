@@ -6,7 +6,7 @@ import Testing
 
 @MainActor
 struct MarkdownRenderingIntegrationTests {
-  @Test func noteEditorUsesProductionFontAndBottomSafeArea() throws {
+  @Test func noteEditorUsesProductionFont() throws {
     let store = StatusStore(mockData: MockData.make())
     let editor = NoteEditorView(request: .existing("mock-note-1"))
       .environmentObject(store)
@@ -20,9 +20,6 @@ struct MarkdownRenderingIntegrationTests {
     let font = try #require(textView.font)
     #expect(font.familyName == NoteEditorAppearance.bodyFont.familyName)
     #expect(font.pointSize == NoteEditorAppearance.bodyFont.pointSize)
-
-    let configuration = NoteFormattingBridge().configuration
-    #expect(configuration.safeAreaInsets.bottom == 58)
   }
 
   @Test func complexMarkdownUsesEngineRenderedSemanticsWithoutLosingUnicode() throws {

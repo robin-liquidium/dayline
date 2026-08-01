@@ -21,7 +21,7 @@ struct NoteEditorView: View {
 
   /// Builds the note editor window content.
   var body: some View {
-    ZStack(alignment: .bottom) {
+    VStack(spacing: 0) {
       NativeTextViewWrapper(
         text: $draft.text,
         configuration: draft.markdownConfiguration,

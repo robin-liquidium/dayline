@@ -357,6 +357,12 @@ final class DaylineUITests: XCTestCase {
     element("notes.new").click()
 
     let editor = noteEditor()
+    let cancelButton = element("noteEditor.cancel")
+    XCTAssertLessThanOrEqual(
+      editor.frame.maxY,
+      cancelButton.frame.minY,
+      "The editor must end above the glass controls"
+    )
     editor.click()
     editor.typeText("[")
     assertValue(of: editor, equals: "[")
@@ -485,7 +491,7 @@ final class DaylineUITests: XCTestCase {
     line: UInt = #line
   ) {
     let visibleScrollBars = app.scrollBars.allElementsBoundByAccessibilityElement.filter {
-      $0.exists && $0.isHittable && !$0.frame.isEmpty
+      $0.exists && !$0.frame.isEmpty
     }
     XCTAssertTrue(
       visibleScrollBars.isEmpty,
