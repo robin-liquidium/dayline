@@ -410,7 +410,8 @@ final class DaylineUITests: XCTestCase {
   }
 
   private func noteEditor() -> XCUIElement {
-    let editor = element("noteEditor.text").descendants(matching: .textView).firstMatch
+    XCTAssertTrue(element("noteEditor.text").waitForExistence(timeout: 5))
+    let editor = app.textViews.firstMatch
     XCTAssertTrue(editor.waitForExistence(timeout: 5))
     return editor
   }
@@ -420,17 +421,21 @@ final class DaylineUITests: XCTestCase {
   }
 
   private func scrollIntoView(_ target: XCUIElement) {
-    if target.isHittable {
-      return
-    }
     let menuScrollView = app.scrollViews.firstMatch
     XCTAssertTrue(menuScrollView.waitForExistence(timeout: 3))
+    let bottomSafetyMargin: CGFloat = 80
+    func isSafelyVisible() -> Bool {
+      target.isHittable
+        && target.frame.maxY <= menuScrollView.frame.maxY - bottomSafetyMargin
+    }
+    if isSafelyVisible() { return }
+
     let deadline = Date().addingTimeInterval(3)
     repeat {
       menuScrollView.scroll(byDeltaX: 0, deltaY: -160)
-      if target.isHittable { return }
+      if isSafelyVisible() { return }
     } while Date() < deadline
-    XCTAssertTrue(target.isHittable, "Expected \(target.identifier) to be visible and hittable")
+    XCTAssertTrue(isSafelyVisible(), "Expected \(target.identifier) to be safely above the scroll view bottom")
   }
 
   private func assertValue(
