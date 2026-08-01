@@ -89,24 +89,30 @@ struct MarkdownRenderingIntegrationTests {
     condition: (NSTextView) -> Bool
   ) throws -> NSTextView {
     let deadline = Date().addingTimeInterval(2)
-    var matchingTextView: NSTextView?
     repeat {
       hostingView.layoutSubtreeIfNeeded()
-      if let textView = findTextView(in: hostingView), condition(textView) {
-        matchingTextView = textView
-        break
+      if let textView = findTextView(in: hostingView, condition: condition) {
+        return textView
       }
       RunLoop.main.run(until: Date().addingTimeInterval(0.01))
     } while Date() < deadline
-    return try #require(matchingTextView)
+    hostingView.layoutSubtreeIfNeeded()
+    let matchingTextView = findTextView(in: hostingView, condition: condition)
+    return try #require(
+      matchingTextView,
+      "Timed out waiting for a matching NSTextView"
+    )
   }
 
-  private func findTextView(in view: NSView) -> NSTextView? {
-    if let textView = view as? NSTextView {
+  private func findTextView(
+    in view: NSView,
+    condition: (NSTextView) -> Bool
+  ) -> NSTextView? {
+    if let textView = view as? NSTextView, condition(textView) {
       return textView
     }
     for subview in view.subviews {
-      if let textView = findTextView(in: subview) {
+      if let textView = findTextView(in: subview, condition: condition) {
         return textView
       }
     }
