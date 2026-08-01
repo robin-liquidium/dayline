@@ -1,6 +1,24 @@
 {
   "releases": [
     {
+      "version": "0.2.1",
+      "date": "2026-08-01",
+      "new": [
+        {
+          "title": "Formatting shortcuts",
+          "text": "Format selected note text with familiar shortcuts: ⌘B for bold, ⌘I for italics, and ⌘K for links. The Format menu also includes strikethrough, inline code, headings, quotes, numbered lists, and bullet lists.",
+          "pr": 51
+        }
+      ],
+      "fixed": [
+        {
+          "title": "Reliable Markdown notes",
+          "text": "Longer Markdown notes now keep all of their text and render headings, emphasis, links, quotes, code, and bullet lists consistently without exposing stray formatting markers.",
+          "pr": 51
+        }
+      ]
+    },
+    {
       "version": "0.2.0",
       "date": "2026-07-31",
       "new": [
