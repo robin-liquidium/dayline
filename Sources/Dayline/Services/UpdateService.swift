@@ -19,15 +19,12 @@ final class UpdateService: NSObject, ObservableObject {
     updaterController != nil
   }
 
-  private let isMock: Bool
   private var updaterController: SPUStandardUpdaterController?
   private var automaticallyDownloadsObservation: NSKeyValueObservation?
   private var canCheckForUpdatesObservation: NSKeyValueObservation?
-  private var immediateInstallationHandler: (() -> Void)?
 
   /// Creates either the production Sparkle updater or the isolated mock used for UI testing.
   init(isMock: Bool, mockVersion: String? = nil) {
-    self.isMock = isMock
     availableVersion = mockVersion
     super.init()
 
@@ -77,18 +74,21 @@ final class UpdateService: NSObject, ObservableObject {
     updaterController?.updater.automaticallyDownloadsUpdates = isEnabled
   }
 
-  /// Installs a staged update immediately, or brings Sparkle's native update UI forward.
-  func performUpdate() {
-    if let immediateInstallationHandler {
-      immediateInstallationHandler()
-    } else if !isMock {
-      updaterController?.updater.checkForUpdates()
-    }
-  }
-
   /// Runs a user-initiated update check, letting Sparkle present its standard UI.
   func checkForUpdates() {
     updaterController?.checkForUpdates(nil)
+  }
+}
+
+extension UpdateService: SPUUpdaterDelegate {
+  /// Keeps Dayline's reminder visible while leaving installation and relaunch UI to Sparkle.
+  func updater(
+    _ updater: SPUUpdater,
+    willInstallUpdateOnQuit item: SUAppcastItem,
+    immediateInstallationBlock _: @escaping () -> Void
+  ) -> Bool {
+    availableVersion = item.displayVersionString
+    return false
   }
 }
 
@@ -120,22 +120,6 @@ extension UpdateService: @preconcurrency SPUStandardUserDriverDelegate {
 
   /// Removes a reminder after Sparkle finishes a dismissed, skipped, or failed session.
   func standardUserDriverWillFinishUpdateSession() {
-    guard immediateInstallationHandler == nil else {
-      return
-    }
     availableVersion = nil
-  }
-}
-
-extension UpdateService: SPUUpdaterDelegate {
-  /// Retains Sparkle's supported install-and-relaunch operation once a download is staged.
-  func updater(
-    _ updater: SPUUpdater,
-    willInstallUpdateOnQuit item: SUAppcastItem,
-    immediateInstallationBlock immediateInstallHandler: @escaping () -> Void
-  ) -> Bool {
-    availableVersion = item.displayVersionString
-    immediateInstallationHandler = immediateInstallHandler
-    return true
   }
 }

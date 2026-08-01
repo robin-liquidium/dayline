@@ -30,7 +30,7 @@ final class DaylineUITests: XCTestCase {
     }
 
     app = XCUIApplication(url: appURL)
-    app.launchArguments = ["--mock", "--ui-testing"]
+    app.launchArguments = ["--mock", "--ui-testing", "-AppleShowScrollBars", "Always"]
     if let testRunID = ProcessInfo.processInfo.environment["DAYLINE_UI_TEST_RUN_ID"] {
       app.launchArguments += ["--ui-test-run-id", testRunID]
     }
@@ -317,7 +317,7 @@ final class DaylineUITests: XCTestCase {
         .matching(NSPredicate(
           format: "identifier BEGINSWITH %@ AND label BEGINSWITH %@",
           "notes.note.",
-          "# Markdown regression"
+          "Markdown regression"
         ))
         .firstMatch
       XCTAssertTrue(savedNote.waitForExistence(timeout: 5))
@@ -327,6 +327,23 @@ final class DaylineUITests: XCTestCase {
         facts: ["saved_note_visible=\(savedNote.exists)"]
       )
     }
+  }
+
+  func testSquareBracketDoesNotAutoClose() throws {
+    try openMenu()
+    element("notes.new").click()
+
+    let editor = noteEditor()
+    editor.click()
+    editor.typeText("[")
+    assertValue(of: editor, equals: "[")
+
+    attachCheckpoint(
+      "markdown-no-auto-close",
+      identifiers: ["noteEditor.text", "noteEditor.cancel"],
+      facts: ["square_bracket_remains_single=true"],
+      screenshotElement: editor
+    )
   }
 
   func testKeyboardFormattingShortcuts() throws {

@@ -1,4 +1,5 @@
 import AppKit
+@testable import Dayline
 import MarkdownEngine
 import SwiftUI
 import Testing
@@ -12,10 +13,15 @@ struct MarkdownRenderingIntegrationTests {
     * First bullet with *nested emphasis*
     * Second bullet keeps emoji 🚀 and café.
     """
-    let configuration = MarkdownEditorConfiguration.default
+    let configuration = NoteFormattingBridge().configuration
+    #expect(configuration.lists.helpersEnabled)
+    #expect(!configuration.lists.autoClosePairsEnabled)
+
     let editor = NativeTextViewWrapper(
       text: .constant(source),
       configuration: configuration,
+      fontName: NoteEditorAppearance.bodyFont.fontName,
+      fontSize: NoteEditorAppearance.bodyFont.pointSize,
       documentId: "markdown-rendering-integration"
     )
     let hostingView = NSHostingView(rootView: editor.frame(width: 700, height: 400))
@@ -37,6 +43,10 @@ struct MarkdownRenderingIntegrationTests {
     #expect(rendered.string.contains("🚀 and café"))
 
     let sourceNSString = source as NSString
+    let bodyFont = try #require(rendered.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+    #expect(bodyFont.pointSize == NSFont.systemFontSize)
+    #expect(bodyFont.familyName == NoteEditorAppearance.bodyFont.familyName)
+
     let italicContent = sourceNSString.range(of: "italic words")
     let italicFont = try #require(rendered.attribute(.font, at: italicContent.location, effectiveRange: nil) as? NSFont)
     #expect(italicFont.fontDescriptor.symbolicTraits.contains(.italic))

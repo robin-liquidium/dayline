@@ -18,7 +18,15 @@ struct LocalNoteItem: Identifiable, Codable, Equatable {
   var title: String {
     let firstLine = text.components(separatedBy: .newlines).first ?? ""
     let trimmedFirstLine = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmedFirstLine.isEmpty ? "Untitled note" : trimmedFirstLine
+    guard !trimmedFirstLine.isEmpty else {
+      return "Untitled note"
+    }
+
+    guard let rendered = try? AttributedString(markdown: trimmedFirstLine) else {
+      return trimmedFirstLine
+    }
+    let plainText = String(rendered.characters).trimmingCharacters(in: .whitespacesAndNewlines)
+    return plainText.isEmpty ? "Untitled note" : plainText
   }
 
   /// Preview text shown under the derived title in the menu.

@@ -71,6 +71,7 @@ struct StatusMenuView: View {
         .padding(.vertical, 12)
         .padding(.horizontal, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .configureHiddenScrollIndicators()
       }
       .scrollContentBackground(.hidden)
       .scrollIndicators(.hidden)
@@ -192,7 +193,7 @@ struct StatusMenuView: View {
 
       if let availableUpdateVersion = updateService.availableVersion {
         Button {
-          updateService.performUpdate()
+          updateService.checkForUpdates()
         } label: {
           Label("Update", systemImage: "arrow.down.circle")
             .foregroundStyle(.blue)
@@ -202,9 +203,10 @@ struct StatusMenuView: View {
             .hoverHighlight(isHovered: store.hoveredControlID == .update)
         }
         .buttonStyle(.plain)
-        .help("Download and install Dayline \(availableUpdateVersion)")
+        .disabled(!updateService.canCheckForUpdates)
+        .help("Review and install Dayline \(availableUpdateVersion)")
         .accessibilityLabel("Update Dayline")
-        .accessibilityHint("Download and install version \(availableUpdateVersion)")
+        .accessibilityHint("Show installation options for version \(availableUpdateVersion)")
         .accessibilityIdentifier("dayline.update")
         .onHover { isHovered in
           store.setHoveredControl(isHovered ? .update : nil)
@@ -342,6 +344,63 @@ private final class MenuWindowReaderView: NSView {
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
     onWindowChange(window)
+  }
+}
+
+/// Hides AppKit scroller controls when SwiftUI's scroll-indicator modifiers are ignored.
+private struct HiddenScrollIndicatorsConfigurator: NSViewRepresentable {
+  func makeNSView(context: Context) -> HiddenScrollIndicatorsView {
+    HiddenScrollIndicatorsView()
+  }
+
+  func updateNSView(_ nsView: HiddenScrollIndicatorsView, context: Context) {
+    nsView.scheduleUpdate()
+  }
+}
+
+private extension View {
+  func configureHiddenScrollIndicators() -> some View {
+    background(alignment: .topLeading) {
+      HiddenScrollIndicatorsConfigurator()
+        .frame(width: 0, height: 0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+  }
+}
+
+private final class HiddenScrollIndicatorsView: NSView {
+  override func hitTest(_ point: NSPoint) -> NSView? {
+    nil
+  }
+
+  override func viewDidMoveToSuperview() {
+    super.viewDidMoveToSuperview()
+    scheduleUpdate()
+  }
+
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    scheduleUpdate()
+  }
+
+  override func layout() {
+    super.layout()
+    hideScrollIndicators()
+  }
+
+  func scheduleUpdate() {
+    DispatchQueue.main.async { [weak self] in
+      self?.hideScrollIndicators()
+    }
+  }
+
+  private func hideScrollIndicators() {
+    guard let scrollView = enclosingScrollView else { return }
+    scrollView.hasHorizontalScroller = false
+    scrollView.hasVerticalScroller = false
+    scrollView.horizontalScroller?.isHidden = true
+    scrollView.verticalScroller?.isHidden = true
   }
 }
 
@@ -2108,8 +2167,10 @@ private struct IssueRow: View {
             action: cancel
           )
         }
+        .configureHiddenScrollIndicators()
       }
       .scrollContentBackground(.hidden)
+      .scrollIndicators(.hidden)
       .clipped()
     }
     .frame(height: workItemRowHeight)
@@ -2374,8 +2435,10 @@ private struct NoteRow: View {
             action: delete
           )
         }
+        .configureHiddenScrollIndicators()
       }
       .scrollContentBackground(.hidden)
+      .scrollIndicators(.hidden)
       .clipped()
     }
     .frame(height: workItemRowHeight)
