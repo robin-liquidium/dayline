@@ -31,7 +31,10 @@ let package = Package(
     ),
     .testTarget(
       name: "DaylineTests",
-      dependencies: ["Dayline"],
+      dependencies: [
+        "Dayline",
+        .product(name: "MarkdownEngine", package: "swift-markdown-engine")
+      ],
       path: "Tests/DaylineTests",
       linkerSettings: [
         .unsafeFlags([

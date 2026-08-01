@@ -4,11 +4,22 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RESULTS_DIR="$ROOT_DIR/dist/ui-test-results"
 RUN_ID="${DAYLINE_UI_TEST_RUN_ID:-$(date +%Y%m%d-%H%M%S)-$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]')}"
+if [[ ! "$RUN_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
+  echo "DAYLINE_UI_TEST_RUN_ID must be a 1-64 character alphanumeric, dot, underscore, or hyphen token." >&2
+  exit 2
+fi
 RUN_DIR="$RESULTS_DIR/$RUN_ID"
 RESULT_PATH="${DAYLINE_UI_TEST_RESULT_PATH:-$RUN_DIR/DaylineUITests.xcresult}"
-DERIVED_DATA_PATH="$ROOT_DIR/dist/ui-test-derived-data"
+DERIVED_DATA_PATH="$ROOT_DIR/dist/ui-test-derived-data/$RUN_ID"
 RUNNER_PATH="$DERIVED_DATA_PATH/Build/Products/Debug/DaylineUITests-Runner.app"
 RUN_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+IS_TARGETED_RUN=false
+for argument in "$@"; do
+  if [[ "$argument" == -only-testing* ]]; then
+    IS_TARGETED_RUN=true
+    break
+  fi
+done
 
 mkdir -p "$RUN_DIR/app-logs" "$(dirname "$RESULT_PATH")"
 
@@ -44,11 +55,12 @@ xcodebuild build-for-testing \
 # which makes Gatekeeper reject the otherwise valid generated runner.
 /usr/bin/xattr -cr "$RUNNER_PATH"
 
-XCTESTRUN_PATH="$(/usr/bin/find "$DERIVED_DATA_PATH/Build/Products" -name '*.xctestrun' -print -quit)"
-if [[ -z "$XCTESTRUN_PATH" ]]; then
-  echo "Xcode did not produce an .xctestrun file." >&2
+XCTESTRUN_COUNT="$(/usr/bin/find "$DERIVED_DATA_PATH/Build/Products" -type f -name '*.xctestrun' -print | /usr/bin/wc -l | /usr/bin/tr -d '[:space:]')"
+if [[ "$XCTESTRUN_COUNT" != "1" ]]; then
+  echo "Expected exactly one .xctestrun file, found $XCTESTRUN_COUNT." >&2
   exit 1
 fi
+XCTESTRUN_PATH="$(/usr/bin/find "$DERIVED_DATA_PATH/Build/Products" -type f -name '*.xctestrun' -print)"
 
 /usr/bin/plutil -remove 'DaylineUITests.EnvironmentVariables.DAYLINE_UI_TEST_RUN_ID' "$XCTESTRUN_PATH" 2>/dev/null || true
 /usr/bin/plutil -remove 'DaylineUITests.EnvironmentVariables.DAYLINE_UI_TEST_LOG_DIR' "$XCTESTRUN_PATH" 2>/dev/null || true
@@ -79,6 +91,47 @@ fi
 
 if [[ "$RESULT_EXPORT_EXIT_CODE" -ne 0 ]]; then
   exit "$RESULT_EXPORT_EXIT_CODE"
+fi
+
+if [[ "$IS_TARGETED_RUN" == false ]]; then
+  APP_LOG="$RUN_DIR/app-logs/dayline.log"
+  if [[ ! -f "$APP_LOG" ]]; then
+    echo "Full UI test run did not produce the run-scoped app log." >&2
+    exit 1
+  fi
+
+  REQUIRED_BREADCRUMBS=(
+    "App launched version"
+    "Mock refresh completed"
+    "Issue source selected github"
+    "Issue source selected linear"
+    "Linear issues expanded visible"
+    "Linear issues collapsed visible"
+    "Linear issue priority changed"
+    "Linear issue labels changed count"
+    "Linear issue status changed"
+    "Linear issue assignee changed"
+    "Linear issue created"
+    "GitHub issue created"
+    "Local note created total"
+    "Local note updated total"
+    "Local note deleted total"
+    "Note formatting command requested: bold"
+    "Note formatting command requested: italic"
+    "Note formatting command requested: unordered list"
+    "Note formatting command requested: link"
+  )
+  for breadcrumb in "${REQUIRED_BREADCRUMBS[@]}"; do
+    if ! /usr/bin/grep -Fq "[run $RUN_ID] $breadcrumb" "$APP_LOG"; then
+      echo "Missing required run-scoped app breadcrumb: $breadcrumb" >&2
+      exit 1
+    fi
+  done
+
+  if /usr/bin/grep -Eiq '(^|[[:space:]])(error|fault|failed|failure)(:|[[:space:]]|$)' "$RUN_DIR"/app-logs/dayline*.log; then
+    echo "Run-scoped app logs contain an error, fault, failure, or failed breadcrumb." >&2
+    exit 1
+  fi
 fi
 
 echo "UI test evidence: $RUN_DIR"

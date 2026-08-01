@@ -5,7 +5,9 @@ import UniformTypeIdentifiers
 
 private extension ProcessInfo {
   func uiTestingValue(after argument: String) -> String? {
-    guard arguments.contains("--ui-testing"),
+    guard Bundle.main.bundleIdentifier == "build.local.DaylineMock",
+          arguments.contains("--mock"),
+          arguments.contains("--ui-testing"),
           let index = arguments.firstIndex(of: argument),
           arguments.indices.contains(index + 1) else {
       return nil
@@ -33,7 +35,21 @@ enum DaylineDiagnostics {
   private static let refreshLogger = Logger(subsystem: subsystem, category: DiagnosticCategory.refresh.rawValue)
   private static let interactionLogger = Logger(subsystem: subsystem, category: DiagnosticCategory.interaction.rawValue)
   private static let feedbackLogger = Logger(subsystem: subsystem, category: DiagnosticCategory.feedback.rawValue)
-  private static let runID = ProcessInfo.processInfo.uiTestingValue(after: "--ui-test-run-id")
+  private static let runID = validatedUITestRunID(
+    ProcessInfo.processInfo.uiTestingValue(after: "--ui-test-run-id")
+  )
+
+  /// Accepts only a short opaque token before including a UI-test run ID in public logs.
+  static func validatedUITestRunID(_ candidate: String?) -> String? {
+    guard let candidate, !candidate.isEmpty, candidate.utf8.count <= 64 else {
+      return nil
+    }
+    let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+    guard candidate.unicodeScalars.allSatisfy(allowed.contains) else {
+      return nil
+    }
+    return candidate
+  }
 
   /// Writes one deliberately non-sensitive breadcrumb to both durable and unified logs.
   static func record(_ message: String, category: DiagnosticCategory) {

@@ -137,7 +137,7 @@ final class NoteFormattingBridge {
     case .italic: name = italic
     case .strikethrough: name = strikethrough
     case .inlineCode: name = inlineCode
-    case .link: name = link
+    case .link: return
     case .unorderedList: name = unorderedList
     case .orderedList: name = orderedList
     case .blockquote: name = blockquote
@@ -147,7 +147,14 @@ final class NoteFormattingBridge {
     }
 
     NotificationCenter.default.post(name: name, object: nil, userInfo: userInfo)
-    DaylineDiagnostics.record("Note formatting command handled: \(action.diagnosticName)", category: .interaction)
+    DaylineDiagnostics.record("Note formatting command requested: \(action.diagnosticName)", category: .interaction)
+  }
+
+  /// Sends the URL payload required by MarkdownEngine's `applyLinkRequest` contract.
+  func performLink(url: String) {
+    guard !url.isEmpty else { return }
+    NotificationCenter.default.post(name: link, object: nil, userInfo: ["url": url])
+    DaylineDiagnostics.record("Note formatting command requested: link", category: .interaction)
   }
 
   private func notification(_ action: String) -> Notification.Name {

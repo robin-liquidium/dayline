@@ -35,7 +35,10 @@ struct DaylineApp: App {
   init() {
     let arguments = ProcessInfo.processInfo.arguments
     let isMock = arguments.contains("--mock")
-    if arguments.contains("--ui-testing"), let bundleIdentifier = Bundle.main.bundleIdentifier {
+    if isMock,
+       arguments.contains("--ui-testing"),
+       let bundleIdentifier = Bundle.main.bundleIdentifier,
+       bundleIdentifier == "build.local.DaylineMock" {
       UserDefaults.standard.removePersistentDomain(forName: bundleIdentifier)
     }
     let mockData = isMock ? MockData.make() : nil

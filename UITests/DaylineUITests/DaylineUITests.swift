@@ -97,7 +97,7 @@ final class DaylineUITests: XCTestCase {
     XCTContext.runActivity(named: "Switch from Linear to GitHub and back") { _ in
       element("issues.source.github").click()
       assertExists("github.issue.mock-gh-1")
-      XCTAssertFalse(element("linear.issue.DAY-104").exists)
+      XCTAssertFalse(element("linear.issue.DAY-104").waitForExistence(timeout: 1))
       attachCheckpoint(
         "github-issues",
         identifiers: ["issues.source.github", "github.issue.mock-gh-1", "linear.issue.DAY-104"]
@@ -131,8 +131,15 @@ final class DaylineUITests: XCTestCase {
 
       issue.hover()
       app.typeKey("p", modifierFlags: [])
-      XCTAssertFalse(element("linear.priority.4").isEnabled)
+      let lowPrioritySelected = !element("linear.priority.4").isEnabled
+      XCTAssertTrue(lowPrioritySelected)
       app.typeKey(.escape, modifierFlags: [])
+
+      attachCheckpoint(
+        "linear-priority-updated",
+        identifiers: ["linear.issue.DAY-104"],
+        facts: ["low_priority_option_selected=\(lowPrioritySelected)"]
+      )
     }
 
     XCTContext.runActivity(named: "Change Linear labels and assignee") { _ in
@@ -142,6 +149,7 @@ final class DaylineUITests: XCTestCase {
       assertExists("issue.label.mock-label-bug")
       element("issue.label.mock-label-bug").click()
       assertValue(of: element("issue.label.mock-label-bug"), equals: "Selected")
+      let bugLabelSelected = element("issue.label.mock-label-bug").value as? String == "Selected"
       app.typeKey(.escape, modifierFlags: [])
 
       let statusIssue = element("linear.issue.DAY-112")
@@ -149,18 +157,24 @@ final class DaylineUITests: XCTestCase {
       app.typeKey("s", modifierFlags: [])
       assertExists("linear.status.mock-done")
       element("linear.status.mock-done").click()
-      XCTAssertFalse(statusIssue.waitForExistence(timeout: 2))
+      let completedIssueRemovedFromOpenList = !statusIssue.waitForExistence(timeout: 2)
+      XCTAssertTrue(completedIssueRemovedFromOpenList)
 
       issue.hover()
       app.typeKey("a", modifierFlags: [])
       assertExists("issue.assignee.mock-user")
       element("issue.assignee.mock-user").click()
-      XCTAssertFalse(issue.waitForExistence(timeout: 2))
+      let reassignedIssueRemovedFromMyIssues = !issue.waitForExistence(timeout: 2)
+      XCTAssertTrue(reassignedIssueRemovedFromMyIssues)
 
       attachCheckpoint(
         "linear-pickers-updated",
-        identifiers: ["linear.issue.DAY-112"],
-        facts: ["status=Done", "priority=Low", "label=Bug", "assignee=Alex Morgan"]
+        identifiers: ["linear.showMore"],
+        facts: [
+          "bug_label_option_selected=\(bugLabelSelected)",
+          "completed_issue_removed_from_open_list=\(completedIssueRemovedFromOpenList)",
+          "reassigned_issue_removed_from_my_issues=\(reassignedIssueRemovedFromMyIssues)",
+        ]
       )
     }
   }
@@ -248,7 +262,7 @@ final class DaylineUITests: XCTestCase {
     XCTAssertTrue(linearTitle.waitForExistence(timeout: 5))
     linearTitle.click()
     linearTitle.typeText("Automated Linear issue")
-    XCTAssertTrue(element("linearEditor.create").isEnabled)
+    assertEnabled("linearEditor.create")
     element("linearEditor.create").click()
 
     try openMenu()
@@ -266,7 +280,7 @@ final class DaylineUITests: XCTestCase {
     XCTAssertTrue(githubTitle.waitForExistence(timeout: 5))
     githubTitle.click()
     githubTitle.typeText("Automated GitHub issue")
-    XCTAssertTrue(element("githubEditor.create").isEnabled)
+    assertEnabled("githubEditor.create")
     element("githubEditor.create").click()
 
     try openMenu()
@@ -334,10 +348,27 @@ final class DaylineUITests: XCTestCase {
     editor.typeKey("8", modifierFlags: [.command, .shift])
     XCTAssertEqual(editor.value as? String, "**bold** *italic*\n- list item")
 
+    editor.typeKey(.rightArrow, modifierFlags: .command)
+    editor.typeKey(.return, modifierFlags: [])
+    editor.typeText("link target")
+    editor.typeKey(.leftArrow, modifierFlags: [.option, .shift])
+    editor.typeKey("k", modifierFlags: .command)
+    let linkURL = app.textFields.firstMatch
+    XCTAssertTrue(linkURL.waitForExistence(timeout: 3))
+    linkURL.click()
+    linkURL.typeText("https://example.com")
+    let insertLink = app.sheets.firstMatch.buttons["Insert"]
+    assertEnabled(insertLink, description: "Insert link button")
+    insertLink.click()
+    XCTAssertEqual(
+      editor.value as? String,
+      "**bold** *italic*\n- list item\n- link [target](https://example.com)"
+    )
+
     attachCheckpoint(
       "markdown-shortcuts",
       identifiers: ["noteEditor.text", "noteEditor.save"],
-      facts: ["bold_shortcut=true", "italic_shortcut=true", "list_shortcut=true"],
+      facts: ["bold_shortcut=true", "italic_shortcut=true", "list_shortcut=true", "link_prompt=true"],
       screenshotElement: editor
     )
   }
@@ -410,6 +441,46 @@ final class DaylineUITests: XCTestCase {
       XCTWaiter.wait(for: [expectation], timeout: timeout),
       .completed,
       "Expected \(element.identifier) value to equal \(expected), got \(String(describing: element.value))",
+      file: file,
+      line: line
+    )
+  }
+
+  private func assertEnabled(
+    _ identifier: String,
+    timeout: TimeInterval = 5,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) {
+    let candidate = element(identifier)
+    let expectation = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "exists == true AND enabled == true"),
+      object: candidate
+    )
+    XCTAssertEqual(
+      XCTWaiter.wait(for: [expectation], timeout: timeout),
+      .completed,
+      "Expected accessibility element \(identifier) to become enabled",
+      file: file,
+      line: line
+    )
+  }
+
+  private func assertEnabled(
+    _ candidate: XCUIElement,
+    description: String,
+    timeout: TimeInterval = 5,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) {
+    let expectation = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "exists == true AND enabled == true"),
+      object: candidate
+    )
+    XCTAssertEqual(
+      XCTWaiter.wait(for: [expectation], timeout: timeout),
+      .completed,
+      "Expected \(description) to become enabled",
       file: file,
       line: line
     )

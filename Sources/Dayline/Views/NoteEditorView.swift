@@ -10,6 +10,8 @@ struct NoteEditorView: View {
   let request: NoteEditorRequest
 
   @StateObject private var draft = NoteEditorDraft()
+  @State private var linkURL = ""
+  @State private var isShowingLinkPrompt = false
 
   /// Builds the note editor window content.
   var body: some View {
@@ -61,9 +63,30 @@ struct NoteEditorView: View {
     }
     .focusedSceneValue(
       \.noteFormattingActions,
-      NoteFormattingActions(perform: draft.performFormatting)
+      NoteFormattingActions(perform: performFormatting)
     )
+    .alert("Insert Link", isPresented: $isShowingLinkPrompt) {
+      TextField("URL", text: $linkURL)
+      Button("Cancel", role: .cancel) {
+        linkURL = ""
+      }
+      Button("Insert") {
+        draft.performLink(url: linkURL.trimmingCharacters(in: .whitespacesAndNewlines))
+        linkURL = ""
+      }
+      .disabled(linkURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    } message: {
+      Text("Enter the destination URL for the selected text.")
+    }
     .onAppear(perform: loadInitialNoteIfNeeded)
+  }
+
+  private func performFormatting(_ action: NoteFormattingAction) {
+    if case .link = action {
+      isShowingLinkPrompt = true
+    } else {
+      draft.performFormatting(action)
+    }
   }
 
   /// Title for the primary save action.
@@ -190,5 +213,10 @@ private final class NoteEditorDraft: ObservableObject {
   /// Routes a native formatting command to this editor instance.
   func performFormatting(_ action: NoteFormattingAction) {
     formatting.perform(action)
+  }
+
+  /// Applies the URL collected by the native link prompt to the active selection.
+  func performLink(url: String) {
+    formatting.performLink(url: url)
   }
 }
