@@ -158,15 +158,13 @@ final class DaylineUITests: XCTestCase {
       app.typeKey("s", modifierFlags: [])
       assertExists("linear.status.mock-done")
       element("linear.status.mock-done").click()
-      let completedIssueRemovedFromOpenList = !statusIssue.waitForExistence(timeout: 2)
-      XCTAssertTrue(completedIssueRemovedFromOpenList)
+      let completedIssueRemovedFromOpenList = waitForRemoval(statusIssue)
 
       issue.hover()
       app.typeKey("a", modifierFlags: [])
       assertExists("issue.assignee.mock-user")
       element("issue.assignee.mock-user").click()
-      let reassignedIssueRemovedFromMyIssues = !issue.waitForExistence(timeout: 2)
-      XCTAssertTrue(reassignedIssueRemovedFromMyIssues)
+      let reassignedIssueRemovedFromMyIssues = waitForRemoval(issue)
 
       attachCheckpoint(
         "linear-pickers-updated",
@@ -199,7 +197,7 @@ final class DaylineUITests: XCTestCase {
       XCTAssertTrue(confirmButton.waitForExistence(timeout: 3))
       confirmButton.click()
       try? openMenu()
-      XCTAssertFalse(issue.waitForExistence(timeout: 2))
+      waitForRemoval(issue)
     }
 
     XCTContext.runActivity(named: "Cancel then confirm note deletion") { _ in
@@ -221,7 +219,7 @@ final class DaylineUITests: XCTestCase {
       confirmButton.click()
       try? openMenu()
       scrollIntoView(element("notes.note.mock-note-1"))
-      XCTAssertFalse(element("notes.note.mock-note-2").waitForExistence(timeout: 2))
+      waitForRemoval(element("notes.note.mock-note-2"))
 
       attachCheckpoint(
         "destructive-actions",
@@ -498,6 +496,22 @@ final class DaylineUITests: XCTestCase {
     return value
   }
 
+  @discardableResult
+  private func waitForRemoval(
+    _ element: XCUIElement,
+    timeout: TimeInterval = 8,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) -> Bool {
+    let expectation = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "exists == false"),
+      object: element
+    )
+    let removed = XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    XCTAssertTrue(removed, "Expected \(element.identifier) to disappear", file: file, line: line)
+    return removed
+  }
+
   private func assertEnabled(
     _ identifier: String,
     timeout: TimeInterval = 5,
@@ -551,7 +565,11 @@ final class DaylineUITests: XCTestCase {
         ? String(sourceLine.dropFirst(2))
         : sourceLine
       if !line.isEmpty {
-        editor.typeText(line)
+        let characters = Array(line)
+        for offset in stride(from: 0, to: characters.count, by: 28) {
+          let end = min(offset + 28, characters.count)
+          editor.typeText(String(characters[offset..<end]))
+        }
       }
     }
   }
