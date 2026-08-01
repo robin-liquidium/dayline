@@ -89,14 +89,16 @@ struct MarkdownRenderingIntegrationTests {
     condition: (NSTextView) -> Bool
   ) throws -> NSTextView {
     let deadline = Date().addingTimeInterval(2)
+    var matchingTextView: NSTextView?
     repeat {
       hostingView.layoutSubtreeIfNeeded()
       if let textView = findTextView(in: hostingView), condition(textView) {
-        return textView
+        matchingTextView = textView
+        break
       }
       RunLoop.main.run(until: Date().addingTimeInterval(0.01))
     } while Date() < deadline
-    return try #require(findTextView(in: hostingView))
+    return try #require(matchingTextView)
   }
 
   private func findTextView(in view: NSView) -> NSTextView? {
