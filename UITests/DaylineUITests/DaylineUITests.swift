@@ -60,6 +60,9 @@ final class DaylineUITests: XCTestCase {
       assertExists("dayline.refresh")
       assertExists("dayline.settings")
       assertExists("dayline.quit")
+      let updateButton = element("dayline.update")
+      assertExists("dayline.update")
+      XCTAssertFalse(updateButton.isEnabled, "Mock Update button should not advertise an unavailable action")
       assertExists("calendar.event.mock-standup")
       assertExists("linear.issue.DAY-104")
       assertExists("notes.note.mock-note-1")
@@ -68,7 +71,7 @@ final class DaylineUITests: XCTestCase {
       attachCheckpoint(
         "core-menu",
         identifiers: [
-          "dayline.refresh", "dayline.settings", "dayline.quit",
+          "dayline.refresh", "dayline.settings", "dayline.quit", "dayline.update",
           "calendar.event.mock-standup", "linear.issue.DAY-104", "notes.note.mock-note-1",
         ]
       )
