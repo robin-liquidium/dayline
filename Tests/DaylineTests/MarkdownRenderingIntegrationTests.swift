@@ -21,9 +21,17 @@ struct MarkdownRenderingIntegrationTests {
     let hostingView = NSHostingView(rootView: editor.frame(width: 700, height: 400))
     hostingView.frame = NSRect(x: 0, y: 0, width: 700, height: 400)
     hostingView.layoutSubtreeIfNeeded()
-    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
 
-    let textView = try #require(findTextView(in: hostingView))
+    let deadline = Date().addingTimeInterval(2)
+    var foundTextView: NSTextView?
+    repeat {
+      hostingView.layoutSubtreeIfNeeded()
+      foundTextView = findTextView(in: hostingView)
+      if foundTextView?.textStorage?.string == source { break }
+      RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+    } while Date() < deadline
+
+    let textView = try #require(foundTextView)
     let rendered = try #require(textView.textStorage)
     #expect(rendered.string == source)
     #expect(rendered.string.contains("🚀 and café"))

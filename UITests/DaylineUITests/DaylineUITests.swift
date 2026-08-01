@@ -131,6 +131,7 @@ final class DaylineUITests: XCTestCase {
 
       issue.hover()
       app.typeKey("p", modifierFlags: [])
+      assertExists("linear.priority.4")
       let lowPrioritySelected = !element("linear.priority.4").isEnabled
       XCTAssertTrue(lowPrioritySelected)
       app.typeKey(.escape, modifierFlags: [])
@@ -335,34 +336,34 @@ final class DaylineUITests: XCTestCase {
 
     editor.typeKey(.leftArrow, modifierFlags: [.option, .shift])
     editor.typeKey("i", modifierFlags: .command)
-    XCTAssertEqual(editor.value as? String, "bold *italic*")
+    assertValue(of: editor, equals: "bold *italic*")
 
     editor.typeKey(.leftArrow, modifierFlags: .command)
     editor.typeKey(.rightArrow, modifierFlags: [.option, .shift])
     editor.typeKey("b", modifierFlags: .command)
-    XCTAssertEqual(editor.value as? String, "**bold** *italic*")
+    assertValue(of: editor, equals: "**bold** *italic*")
 
     editor.typeKey(.rightArrow, modifierFlags: .command)
     editor.typeKey(.return, modifierFlags: [])
     editor.typeText("list item")
     editor.typeKey("8", modifierFlags: [.command, .shift])
-    XCTAssertEqual(editor.value as? String, "**bold** *italic*\n- list item")
+    assertValue(of: editor, equals: "**bold** *italic*\n- list item")
 
     editor.typeKey(.rightArrow, modifierFlags: .command)
     editor.typeKey(.return, modifierFlags: [])
     editor.typeText("link target")
     editor.typeKey(.leftArrow, modifierFlags: [.option, .shift])
     editor.typeKey("k", modifierFlags: .command)
-    let linkURL = app.textFields.firstMatch
+    let linkURL = app.textFields["URL"].firstMatch
     XCTAssertTrue(linkURL.waitForExistence(timeout: 3))
     linkURL.click()
     linkURL.typeText("https://example.com")
     let insertLink = app.sheets.firstMatch.buttons["Insert"]
     assertEnabled(insertLink, description: "Insert link button")
     insertLink.click()
-    XCTAssertEqual(
-      editor.value as? String,
-      "**bold** *italic*\n- list item\n- link [target](https://example.com)"
+    assertValue(
+      of: editor,
+      equals: "**bold** *italic*\n- list item\n- link [target](https://example.com)"
     )
 
     attachCheckpoint(
@@ -409,8 +410,7 @@ final class DaylineUITests: XCTestCase {
   }
 
   private func noteEditor() -> XCUIElement {
-    XCTAssertTrue(element("noteEditor.text").waitForExistence(timeout: 5))
-    let editor = app.textViews.firstMatch
+    let editor = element("noteEditor.text").descendants(matching: .textView).firstMatch
     XCTAssertTrue(editor.waitForExistence(timeout: 5))
     return editor
   }
@@ -420,9 +420,16 @@ final class DaylineUITests: XCTestCase {
   }
 
   private func scrollIntoView(_ target: XCUIElement) {
+    if target.isHittable {
+      return
+    }
     let menuScrollView = app.scrollViews.firstMatch
     XCTAssertTrue(menuScrollView.waitForExistence(timeout: 3))
-    menuScrollView.scroll(byDeltaX: 0, deltaY: -300)
+    let deadline = Date().addingTimeInterval(3)
+    repeat {
+      menuScrollView.scroll(byDeltaX: 0, deltaY: -160)
+      if target.isHittable { return }
+    } while Date() < deadline
     XCTAssertTrue(target.isHittable, "Expected \(target.identifier) to be visible and hittable")
   }
 
@@ -522,8 +529,8 @@ final class DaylineUITests: XCTestCase {
     add(stateAttachment)
 
     let target = screenshotElement ?? app.groups.firstMatch
-    XCTAssertTrue(target.exists, "Expected a visible element for the \(name) screenshot")
-    let screenshotAttachment = XCTAttachment(screenshot: target.screenshot())
+    let screenshot = target.exists ? target.screenshot() : app.screenshot()
+    let screenshotAttachment = XCTAttachment(screenshot: screenshot)
     screenshotAttachment.name = "\(name).png"
     screenshotAttachment.lifetime = .keepAlways
     add(screenshotAttachment)

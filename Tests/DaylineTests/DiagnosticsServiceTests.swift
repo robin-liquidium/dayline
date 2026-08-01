@@ -5,6 +5,7 @@ import Testing
 struct DiagnosticsServiceTests {
   @Test func UItestRunIDAllowsOnlyShortOpaqueTokens() {
     #expect(DaylineDiagnostics.validatedUITestRunID("run-2026_08.01") == "run-2026_08.01")
+    #expect(DaylineDiagnostics.validatedUITestRunID(String(repeating: "a", count: 64)) != nil)
     #expect(DaylineDiagnostics.validatedUITestRunID("") == nil)
     #expect(DaylineDiagnostics.validatedUITestRunID(String(repeating: "a", count: 65)) == nil)
     #expect(DaylineDiagnostics.validatedUITestRunID("run\nforged") == nil)
