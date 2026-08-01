@@ -132,7 +132,8 @@ final class DaylineUITests: XCTestCase {
       issue.hover()
       app.typeKey("p", modifierFlags: [])
       assertExists("linear.priority.4")
-      let lowPrioritySelected = !element("linear.priority.4").isEnabled
+      assertValue(of: element("linear.priority.4"), equals: "Selected")
+      let lowPrioritySelected = element("linear.priority.4").value as? String == "Selected"
       XCTAssertTrue(lowPrioritySelected)
       app.typeKey(.escape, modifierFlags: [])
 

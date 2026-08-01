@@ -1063,6 +1063,7 @@ private struct PriorityPickerPopover: View {
             }
           }
           .accessibilityLabel(priority.label)
+          .accessibilityValue(priority.value == issue.priority ? "Selected" : "Not selected")
           .accessibilityHint("Change issue priority")
           .accessibilityIdentifier("linear.priority.\(priority.value)")
         }
