@@ -16,18 +16,17 @@ final class UpdateService: NSObject, ObservableObject {
 
   /// Whether this app bundle includes the configuration required to run Sparkle.
   var isUpdaterAvailable: Bool {
-    updaterController != nil
+    updaterController != nil || injectedCheckForUpdatesAction != nil
   }
 
-  private let isMock: Bool
   private var updaterController: SPUStandardUpdaterController?
+  private var injectedCheckForUpdatesAction: (() -> Void)?
   private var automaticallyDownloadsObservation: NSKeyValueObservation?
   private var canCheckForUpdatesObservation: NSKeyValueObservation?
-  private var immediateInstallationHandler: (() -> Void)?
+  private var pendingInstallOnQuitVersion: String?
 
   /// Creates either the production Sparkle updater or the isolated mock used for UI testing.
   init(isMock: Bool, mockVersion: String? = nil) {
-    self.isMock = isMock
     availableVersion = mockVersion
     super.init()
 
@@ -71,24 +70,68 @@ final class UpdateService: NSObject, ObservableObject {
     }
   }
 
+  /// Creates an isolated updater action for unit tests without starting Sparkle.
+  init(canCheckForUpdates: Bool, checkForUpdatesAction: @escaping () -> Void) {
+    self.canCheckForUpdates = canCheckForUpdates
+    injectedCheckForUpdatesAction = checkForUpdatesAction
+    super.init()
+  }
+
   /// Persists the user's automatic-install preference in Sparkle's own defaults domain.
   func setAutomaticallyInstallsUpdates(_ isEnabled: Bool) {
     automaticallyInstallsUpdates = isEnabled
     updaterController?.updater.automaticallyDownloadsUpdates = isEnabled
   }
 
-  /// Installs a staged update immediately, or brings Sparkle's native update UI forward.
-  func performUpdate() {
-    if let immediateInstallationHandler {
-      immediateInstallationHandler()
-    } else if !isMock {
-      updaterController?.updater.checkForUpdates()
-    }
-  }
-
   /// Runs a user-initiated update check, letting Sparkle present its standard UI.
   func checkForUpdates() {
+    guard canCheckForUpdates else {
+      return
+    }
+    if let injectedCheckForUpdatesAction {
+      injectedCheckForUpdatesAction()
+      return
+    }
     updaterController?.checkForUpdates(nil)
+  }
+
+  /// Keeps the footer reminder for an update Sparkle has staged to install on quit.
+  func recordPendingInstallOnQuit(version: String) {
+    pendingInstallOnQuitVersion = version
+    availableVersion = version
+  }
+
+  /// Removes staged state when Sparkle cancels that installation after a user choice.
+  func clearPendingInstallOnQuit(version: String) {
+    guard pendingInstallOnQuitVersion == version else {
+      return
+    }
+    pendingInstallOnQuitVersion = nil
+    availableVersion = nil
+  }
+}
+
+extension UpdateService: SPUUpdaterDelegate {
+  /// Keeps Dayline's reminder visible while leaving installation and relaunch UI to Sparkle.
+  func updater(
+    _ updater: SPUUpdater,
+    willInstallUpdateOnQuit item: SUAppcastItem,
+    immediateInstallationBlock _: @escaping () -> Void
+  ) -> Bool {
+    recordPendingInstallOnQuit(version: item.displayVersionString)
+    return false
+  }
+
+  func updater(
+    _: SPUUpdater,
+    userDidMake choice: SPUUserUpdateChoice,
+    forUpdate item: SUAppcastItem,
+    state _: SPUUserUpdateState
+  ) {
+    guard choice == .skip else {
+      return
+    }
+    clearPendingInstallOnQuit(version: item.displayVersionString)
   }
 }
 
@@ -118,24 +161,8 @@ extension UpdateService: @preconcurrency SPUStandardUserDriverDelegate {
     availableVersion = update.displayVersionString
   }
 
-  /// Removes a reminder after Sparkle finishes a dismissed, skipped, or failed session.
+  /// Finishes footer state by keeping only an update still staged to install on quit.
   func standardUserDriverWillFinishUpdateSession() {
-    guard immediateInstallationHandler == nil else {
-      return
-    }
-    availableVersion = nil
-  }
-}
-
-extension UpdateService: SPUUpdaterDelegate {
-  /// Retains Sparkle's supported install-and-relaunch operation once a download is staged.
-  func updater(
-    _ updater: SPUUpdater,
-    willInstallUpdateOnQuit item: SUAppcastItem,
-    immediateInstallationBlock immediateInstallHandler: @escaping () -> Void
-  ) -> Bool {
-    availableVersion = item.displayVersionString
-    immediateInstallationHandler = immediateInstallHandler
-    return true
+    availableVersion = pendingInstallOnQuitVersion
   }
 }

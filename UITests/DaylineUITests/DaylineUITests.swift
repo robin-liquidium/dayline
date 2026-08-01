@@ -30,7 +30,7 @@ final class DaylineUITests: XCTestCase {
     }
 
     app = XCUIApplication(url: appURL)
-    app.launchArguments = ["--mock", "--ui-testing"]
+    app.launchArguments = ["--mock", "--ui-testing", "-AppleShowScrollBars", "Always"]
     if let testRunID = ProcessInfo.processInfo.environment["DAYLINE_UI_TEST_RUN_ID"] {
       app.launchArguments += ["--ui-test-run-id", testRunID]
     }
@@ -60,15 +60,19 @@ final class DaylineUITests: XCTestCase {
       assertExists("dayline.refresh")
       assertExists("dayline.settings")
       assertExists("dayline.quit")
+      let updateButton = element("dayline.update")
+      assertExists("dayline.update")
+      XCTAssertFalse(updateButton.isEnabled, "Mock Update button should not advertise an unavailable action")
       assertExists("calendar.event.mock-standup")
       assertExists("linear.issue.DAY-104")
       assertExists("notes.note.mock-note-1")
+      assertNoVisibleScrollBars()
       element("dayline.refresh").click()
       assertExists("dayline.refresh")
       attachCheckpoint(
         "core-menu",
         identifiers: [
-          "dayline.refresh", "dayline.settings", "dayline.quit",
+          "dayline.refresh", "dayline.settings", "dayline.quit", "dayline.update",
           "calendar.event.mock-standup", "linear.issue.DAY-104", "notes.note.mock-note-1",
         ]
       )
@@ -181,10 +185,12 @@ final class DaylineUITests: XCTestCase {
 
   func testSwipeDestructiveActionsCancelAndConfirm() throws {
     try openMenu()
+    assertNoVisibleScrollBars()
 
     XCTContext.runActivity(named: "Cancel then confirm Linear issue cancellation") { _ in
       let issue = element("linear.issue.DAY-112")
       revealDestructiveAction(on: issue)
+      assertNoVisibleScrollBars()
       element("linear.cancel.DAY-112").click()
       let cancelButton = app.buttons["Cancel"].firstMatch
       XCTAssertTrue(cancelButton.waitForExistence(timeout: 3))
@@ -205,6 +211,7 @@ final class DaylineUITests: XCTestCase {
       let note = element("notes.note.mock-note-2")
       scrollIntoView(note)
       revealDestructiveAction(on: note)
+      assertNoVisibleScrollBars()
       element("notes.delete.mock-note-2").click()
       let cancelButton = app.buttons["Cancel"].firstMatch
       XCTAssertTrue(cancelButton.waitForExistence(timeout: 3))
@@ -232,6 +239,22 @@ final class DaylineUITests: XCTestCase {
         facts: ["note_deleted=true", "linear_issue_canceled=true"]
       )
     }
+  }
+
+  func testDestructiveContextMenusAreAvailable() throws {
+    try openMenu()
+
+    let issue = element("linear.issue.DAY-112")
+    issue.rightClick()
+    assertExists("linear.cancelContext.DAY-112")
+    app.typeKey(.escape, modifierFlags: [])
+
+    let note = element("notes.note.mock-note-2")
+    scrollIntoView(note)
+    note.rightClick()
+    assertExists("notes.deleteContext.mock-note-2")
+    app.typeKey(.escape, modifierFlags: [])
+    assertNoVisibleScrollBars()
   }
 
   func testEditsExistingNote() throws {
@@ -317,7 +340,7 @@ final class DaylineUITests: XCTestCase {
         .matching(NSPredicate(
           format: "identifier BEGINSWITH %@ AND label BEGINSWITH %@",
           "notes.note.",
-          "# Markdown regression"
+          "Markdown regression"
         ))
         .firstMatch
       XCTAssertTrue(savedNote.waitForExistence(timeout: 5))
@@ -327,6 +350,29 @@ final class DaylineUITests: XCTestCase {
         facts: ["saved_note_visible=\(savedNote.exists)"]
       )
     }
+  }
+
+  func testSquareBracketDoesNotAutoClose() throws {
+    try openMenu()
+    element("notes.new").click()
+
+    let editor = noteEditor()
+    let cancelButton = element("noteEditor.cancel")
+    XCTAssertLessThanOrEqual(
+      editor.frame.maxY,
+      cancelButton.frame.minY,
+      "The editor must end above the glass controls"
+    )
+    editor.click()
+    editor.typeText("[")
+    assertValue(of: editor, equals: "[")
+
+    attachCheckpoint(
+      "markdown-no-auto-close",
+      identifiers: ["noteEditor.text", "noteEditor.cancel"],
+      facts: ["square_bracket_remains_single=true"],
+      screenshotElement: editor
+    )
   }
 
   func testKeyboardFormattingShortcuts() throws {
@@ -438,6 +484,21 @@ final class DaylineUITests: XCTestCase {
 
   private func revealDestructiveAction(on row: XCUIElement) {
     row.swipeLeft()
+  }
+
+  private func assertNoVisibleScrollBars(
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) {
+    let visibleScrollBars = app.scrollBars.allElementsBoundByAccessibilityElement.filter {
+      $0.exists && !$0.frame.isEmpty
+    }
+    XCTAssertTrue(
+      visibleScrollBars.isEmpty,
+      "Expected no visible scroll bars with AppleShowScrollBars=Always, found \(visibleScrollBars.count)",
+      file: file,
+      line: line
+    )
   }
 
   private func scrollIntoView(_ target: XCUIElement) {

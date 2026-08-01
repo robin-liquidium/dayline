@@ -1,5 +1,11 @@
+import AppKit
 import MarkdownEngine
 import SwiftUI
+
+/// Native visual defaults shared by the note editor and its rendering tests.
+enum NoteEditorAppearance {
+  static let bodyFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+}
 
 /// Stock SwiftUI window for creating notes and editing note text locally.
 struct NoteEditorView: View {
@@ -19,42 +25,50 @@ struct NoteEditorView: View {
       NativeTextViewWrapper(
         text: $draft.text,
         configuration: draft.markdownConfiguration,
+        fontName: NoteEditorAppearance.bodyFont.fontName,
+        fontSize: NoteEditorAppearance.bodyFont.pointSize,
         documentId: existingNoteID ?? draft.editorDocumentID
       )
         .accessibilityIdentifier("noteEditor.text")
         .padding(.horizontal, 8)
         .padding(.top, 4)
 
-      if let errorMessage = draft.errorMessage {
-        Text(errorMessage)
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .padding(.horizontal, 14)
-          .padding(.vertical, 6)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .accessibilityIdentifier("noteEditor.error")
-      }
+      HStack(alignment: .bottom, spacing: 12) {
+        if let errorMessage = draft.errorMessage {
+          Text(errorMessage)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .help(errorMessage)
+            .accessibilityIdentifier("noteEditor.error")
+        }
 
-      Divider()
-
-      HStack {
         Spacer()
 
-        Button("Cancel") {
-          dismiss()
-        }
-        .keyboardShortcut(.cancelAction)
-        .accessibilityIdentifier("noteEditor.cancel")
+        GlassEffectContainer(spacing: 8) {
+          HStack(spacing: 8) {
+            Button("Cancel") {
+              dismiss()
+            }
+            .buttonStyle(.glass)
+            .buttonBorderShape(.capsule)
+            .keyboardShortcut(.cancelAction)
+            .accessibilityIdentifier("noteEditor.cancel")
 
-        Button(saveButtonTitle) {
-          Task { await save() }
+            Button(saveButtonTitle) {
+              Task { await save() }
+            }
+            .buttonStyle(.glassProminent)
+            .buttonBorderShape(.capsule)
+            .keyboardShortcut(.defaultAction)
+            .disabled(!canSave)
+            .accessibilityIdentifier("noteEditor.save")
+          }
         }
-        .keyboardShortcut(.defaultAction)
-        .disabled(!canSave)
-        .accessibilityIdentifier("noteEditor.save")
       }
       .padding(.horizontal, 14)
-      .padding(.vertical, 10)
+      .padding(.bottom, 12)
     }
     .frame(minWidth: 440, minHeight: 320)
     .navigationTitle(request.isExisting ? "Note" : "New Note")

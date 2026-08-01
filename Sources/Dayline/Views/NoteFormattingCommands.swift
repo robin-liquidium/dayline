@@ -124,6 +124,7 @@ final class NoteFormattingBridge {
       applyOrderedListRequest: orderedList,
       applyLinkRequest: link
     )
+    configuration.lists.autoClosePairsEnabled = false
     configuration.extensions = [StrikethroughExtension()]
     return configuration
   }()

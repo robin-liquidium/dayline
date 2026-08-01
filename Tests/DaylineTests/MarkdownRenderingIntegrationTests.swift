@@ -1,10 +1,27 @@
 import AppKit
+@testable import Dayline
 import MarkdownEngine
 import SwiftUI
 import Testing
 
 @MainActor
 struct MarkdownRenderingIntegrationTests {
+  @Test func noteEditorUsesProductionFont() throws {
+    let store = StatusStore(mockData: MockData.make())
+    let editor = NoteEditorView(request: .existing("mock-note-1"))
+      .environmentObject(store)
+      .frame(width: 500, height: 420)
+    let hostingView = NSHostingView(rootView: editor)
+    hostingView.frame = NSRect(x: 0, y: 0, width: 500, height: 420)
+
+    let textView = try waitForTextView(in: hostingView) {
+      $0.textStorage?.string.hasPrefix("Landing page ideas") == true
+    }
+    let font = try #require(textView.font)
+    #expect(font.familyName == NoteEditorAppearance.bodyFont.familyName)
+    #expect(font.pointSize == NoteEditorAppearance.bodyFont.pointSize)
+  }
+
   @Test func complexMarkdownUsesEngineRenderedSemanticsWithoutLosingUnicode() throws {
     let source = """
     Plain *italic words* and **bold words** remain visible.
@@ -12,31 +29,33 @@ struct MarkdownRenderingIntegrationTests {
     * First bullet with *nested emphasis*
     * Second bullet keeps emoji 🚀 and café.
     """
-    let configuration = MarkdownEditorConfiguration.default
+    let configuration = NoteFormattingBridge().configuration
+    #expect(configuration.lists.helpersEnabled)
+    #expect(!configuration.lists.autoClosePairsEnabled)
+
     let editor = NativeTextViewWrapper(
       text: .constant(source),
       configuration: configuration,
+      fontName: NoteEditorAppearance.bodyFont.fontName,
+      fontSize: NoteEditorAppearance.bodyFont.pointSize,
       documentId: "markdown-rendering-integration"
     )
     let hostingView = NSHostingView(rootView: editor.frame(width: 700, height: 400))
     hostingView.frame = NSRect(x: 0, y: 0, width: 700, height: 400)
     hostingView.layoutSubtreeIfNeeded()
 
-    let deadline = Date().addingTimeInterval(2)
-    var foundTextView: NSTextView?
-    repeat {
-      hostingView.layoutSubtreeIfNeeded()
-      foundTextView = findTextView(in: hostingView)
-      if foundTextView?.textStorage?.string == source { break }
-      RunLoop.main.run(until: Date().addingTimeInterval(0.01))
-    } while Date() < deadline
-
-    let textView = try #require(foundTextView)
+    let textView = try waitForTextView(in: hostingView) {
+      $0.textStorage?.string == source
+    }
     let rendered = try #require(textView.textStorage)
     #expect(rendered.string == source)
     #expect(rendered.string.contains("🚀 and café"))
 
     let sourceNSString = source as NSString
+    let bodyFont = try #require(rendered.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+    #expect(bodyFont.pointSize == NSFont.systemFontSize)
+    #expect(bodyFont.familyName == NoteEditorAppearance.bodyFont.familyName)
+
     let italicContent = sourceNSString.range(of: "italic words")
     let italicFont = try #require(rendered.attribute(.font, at: italicContent.location, effectiveRange: nil) as? NSFont)
     #expect(italicFont.fontDescriptor.symbolicTraits.contains(.italic))
@@ -62,12 +81,35 @@ struct MarkdownRenderingIntegrationTests {
     #expect(bulletStyle.headIndent > bulletStyle.firstLineHeadIndent)
   }
 
-  private func findTextView(in view: NSView) -> NSTextView? {
-    if let textView = view as? NSTextView {
+  private func waitForTextView(
+    in hostingView: NSView,
+    condition: (NSTextView) -> Bool
+  ) throws -> NSTextView {
+    let deadline = Date().addingTimeInterval(2)
+    repeat {
+      hostingView.layoutSubtreeIfNeeded()
+      if let textView = findTextView(in: hostingView, condition: condition) {
+        return textView
+      }
+      RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+    } while Date() < deadline
+    hostingView.layoutSubtreeIfNeeded()
+    let matchingTextView = findTextView(in: hostingView, condition: condition)
+    return try #require(
+      matchingTextView,
+      "Timed out waiting for a matching NSTextView"
+    )
+  }
+
+  private func findTextView(
+    in view: NSView,
+    condition: (NSTextView) -> Bool
+  ) -> NSTextView? {
+    if let textView = view as? NSTextView, condition(textView) {
       return textView
     }
     for subview in view.subviews {
-      if let textView = findTextView(in: subview) {
+      if let textView = findTextView(in: subview, condition: condition) {
         return textView
       }
     }
