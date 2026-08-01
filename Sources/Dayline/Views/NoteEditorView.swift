@@ -38,6 +38,8 @@ struct NoteEditorView: View {
           Text(errorMessage)
             .font(.caption)
             .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.tail)
             .accessibilityIdentifier("noteEditor.error")
         }
 

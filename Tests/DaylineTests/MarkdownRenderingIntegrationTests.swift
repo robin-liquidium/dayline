@@ -6,6 +6,25 @@ import Testing
 
 @MainActor
 struct MarkdownRenderingIntegrationTests {
+  @Test func noteEditorUsesProductionFontAndBottomSafeArea() throws {
+    let store = StatusStore(mockData: MockData.make())
+    let editor = NoteEditorView(request: .existing("mock-note-1"))
+      .environmentObject(store)
+      .frame(width: 500, height: 420)
+    let hostingView = NSHostingView(rootView: editor)
+    hostingView.frame = NSRect(x: 0, y: 0, width: 500, height: 420)
+
+    let textView = try waitForTextView(in: hostingView) {
+      $0.textStorage?.string.hasPrefix("Landing page ideas") == true
+    }
+    let font = try #require(textView.font)
+    #expect(font.familyName == NoteEditorAppearance.bodyFont.familyName)
+    #expect(font.pointSize == NoteEditorAppearance.bodyFont.pointSize)
+
+    let configuration = NoteFormattingBridge().configuration
+    #expect(configuration.safeAreaInsets.bottom == 58)
+  }
+
   @Test func complexMarkdownUsesEngineRenderedSemanticsWithoutLosingUnicode() throws {
     let source = """
     Plain *italic words* and **bold words** remain visible.
@@ -28,16 +47,9 @@ struct MarkdownRenderingIntegrationTests {
     hostingView.frame = NSRect(x: 0, y: 0, width: 700, height: 400)
     hostingView.layoutSubtreeIfNeeded()
 
-    let deadline = Date().addingTimeInterval(2)
-    var foundTextView: NSTextView?
-    repeat {
-      hostingView.layoutSubtreeIfNeeded()
-      foundTextView = findTextView(in: hostingView)
-      if foundTextView?.textStorage?.string == source { break }
-      RunLoop.main.run(until: Date().addingTimeInterval(0.01))
-    } while Date() < deadline
-
-    let textView = try #require(foundTextView)
+    let textView = try waitForTextView(in: hostingView) {
+      $0.textStorage?.string == source
+    }
     let rendered = try #require(textView.textStorage)
     #expect(rendered.string == source)
     #expect(rendered.string.contains("🚀 and café"))
@@ -70,6 +82,21 @@ struct MarkdownRenderingIntegrationTests {
     )
     #expect(bulletStyle.firstLineHeadIndent > 0)
     #expect(bulletStyle.headIndent > bulletStyle.firstLineHeadIndent)
+  }
+
+  private func waitForTextView(
+    in hostingView: NSView,
+    condition: (NSTextView) -> Bool
+  ) throws -> NSTextView {
+    let deadline = Date().addingTimeInterval(2)
+    repeat {
+      hostingView.layoutSubtreeIfNeeded()
+      if let textView = findTextView(in: hostingView), condition(textView) {
+        return textView
+      }
+      RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+    } while Date() < deadline
+    return try #require(findTextView(in: hostingView))
   }
 
   private func findTextView(in view: NSView) -> NSTextView? {

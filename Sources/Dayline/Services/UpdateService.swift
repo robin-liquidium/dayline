@@ -16,10 +16,11 @@ final class UpdateService: NSObject, ObservableObject {
 
   /// Whether this app bundle includes the configuration required to run Sparkle.
   var isUpdaterAvailable: Bool {
-    updaterController != nil
+    updaterController != nil || injectedCheckForUpdatesAction != nil
   }
 
   private var updaterController: SPUStandardUpdaterController?
+  private var injectedCheckForUpdatesAction: (() -> Void)?
   private var automaticallyDownloadsObservation: NSKeyValueObservation?
   private var canCheckForUpdatesObservation: NSKeyValueObservation?
 
@@ -68,6 +69,13 @@ final class UpdateService: NSObject, ObservableObject {
     }
   }
 
+  /// Creates an isolated updater action for unit tests without starting Sparkle.
+  init(canCheckForUpdates: Bool, checkForUpdatesAction: @escaping () -> Void) {
+    self.canCheckForUpdates = canCheckForUpdates
+    injectedCheckForUpdatesAction = checkForUpdatesAction
+    super.init()
+  }
+
   /// Persists the user's automatic-install preference in Sparkle's own defaults domain.
   func setAutomaticallyInstallsUpdates(_ isEnabled: Bool) {
     automaticallyInstallsUpdates = isEnabled
@@ -76,6 +84,13 @@ final class UpdateService: NSObject, ObservableObject {
 
   /// Runs a user-initiated update check, letting Sparkle present its standard UI.
   func checkForUpdates() {
+    guard canCheckForUpdates else {
+      return
+    }
+    if let injectedCheckForUpdatesAction {
+      injectedCheckForUpdatesAction()
+      return
+    }
     updaterController?.checkForUpdates(nil)
   }
 }

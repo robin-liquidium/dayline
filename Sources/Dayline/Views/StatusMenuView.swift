@@ -2174,6 +2174,17 @@ private struct IssueRow: View {
       .clipped()
     }
     .frame(height: workItemRowHeight)
+    .contextMenu {
+      Button("Cancel Issue", systemImage: "trash", role: .destructive) {
+        confirmDestructiveAction(
+          title: "Cancel issue?",
+          message: "Move \(issue.id) to its canceled Linear state.",
+          confirmationLabel: "Cancel Linear issue",
+          action: cancel
+        )
+      }
+      .accessibilityIdentifier("linear.cancelContext.\(issue.id)")
+    }
   }
 
   /// Single-line summary of the issue's labels.
@@ -2383,17 +2394,31 @@ private struct CompactDestructiveActionButton: View {
       action()
       return
     }
+    confirmDestructiveAction(
+      title: confirmationTitle,
+      message: confirmationMessage ?? "",
+      confirmationLabel: accessibilityLabel,
+      action: action
+    )
+  }
+}
 
-    let alert = NSAlert()
-    alert.alertStyle = .warning
-    alert.messageText = confirmationTitle
-    alert.informativeText = confirmationMessage ?? ""
-    alert.addButton(withTitle: accessibilityLabel)
-    alert.addButton(withTitle: "Cancel")
+/// Runs a destructive row action after the same confirmation from swipe or context menu.
+private func confirmDestructiveAction(
+  title: String,
+  message: String,
+  confirmationLabel: String,
+  action: () -> Void
+) {
+  let alert = NSAlert()
+  alert.alertStyle = .warning
+  alert.messageText = title
+  alert.informativeText = message
+  alert.addButton(withTitle: confirmationLabel)
+  alert.addButton(withTitle: "Cancel")
 
-    if alert.runModal() == .alertFirstButtonReturn {
-      action()
-    }
+  if alert.runModal() == .alertFirstButtonReturn {
+    action()
   }
 }
 
@@ -2442,6 +2467,17 @@ private struct NoteRow: View {
       .clipped()
     }
     .frame(height: workItemRowHeight)
+    .contextMenu {
+      Button("Delete Note", systemImage: "trash", role: .destructive) {
+        confirmDestructiveAction(
+          title: "Delete note?",
+          message: "Delete \(note.title.compactLine(limit: 64)) from local notes.",
+          confirmationLabel: "Delete note",
+          action: delete
+        )
+      }
+      .accessibilityIdentifier("notes.deleteContext.\(note.id)")
+    }
   }
 
   /// Main note content that slides left to expose the delete action.
