@@ -1,6 +1,27 @@
 {
   "releases": [
     {
+      "version": "0.2.2",
+      "date": "2026-08-01",
+      "fixed": [
+        {
+          "title": "Polished Markdown notes",
+          "text": "Note titles now show the rendered first line without Markdown markers, the editor uses the system font, its controls stay clear of your text, and a single opening bracket remains literal while typing.",
+          "pr": 57
+        },
+        {
+          "title": "Native update flow",
+          "text": "The menu-bar Update button now opens Sparkle’s standard update window so you can review, install, and relaunch normally, while updates staged for quit remain visible until they are installed or skipped.",
+          "pr": 57
+        },
+        {
+          "title": "Cleaner menu scrolling",
+          "text": "Unwanted scroll bars no longer cut across issue and note rows. Right-click menus keep cancel and delete actions available without exposing those scroll bars.",
+          "pr": 57
+        }
+      ]
+    },
+    {
       "version": "0.2.1",
       "date": "2026-08-01",
       "new": [
