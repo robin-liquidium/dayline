@@ -295,7 +295,7 @@ fi
 APP_ENTITLEMENTS="$STAGING_DIR/DaylineDev.entitlements"
 cp "$ENTITLEMENTS_SOURCE" "$APP_ENTITLEMENTS"
 if [[ "$MODE" == "--debug" || "$MODE" == "debug" ]]; then
-  /usr/bin/plutil -insert com.apple.security.get-task-allow -bool YES "$APP_ENTITLEMENTS"
+  /usr/bin/plutil -insert 'com\.apple\.security\.get-task-allow' -bool YES "$APP_ENTITLEMENTS"
 fi
 
 /usr/bin/codesign --force --options runtime --sign "$DEV_SIGNING_IDENTITY" "$APP_FRAMEWORKS/Sparkle.framework"
@@ -303,10 +303,19 @@ fi
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 
 eventkit_entitlement="$(/usr/bin/codesign -d --entitlements :- "$APP_BUNDLE" 2>/dev/null \
-  | /usr/bin/plutil -extract 'com\.apple\.security\.personal-information\.calendars' raw -o - - 2>/dev/null || true)"
+  | /usr/bin/plutil -extract 'com\.apple\.security\.personal-information\.calendars' raw -expect bool -o - - 2>/dev/null || true)"
 if [[ "$eventkit_entitlement" != "true" ]]; then
   echo "Dayline Dev was signed without the EventKit entitlement." >&2
   exit 2
+fi
+
+if [[ "$MODE" == "--debug" || "$MODE" == "debug" ]]; then
+  debug_entitlement="$(/usr/bin/codesign -d --entitlements :- "$APP_BUNDLE" 2>/dev/null \
+    | /usr/bin/plutil -extract 'com\.apple\.security\.get-task-allow' raw -expect bool -o - - 2>/dev/null || true)"
+  if [[ "$debug_entitlement" != "true" ]]; then
+    echo "Dayline Dev debug build was signed without get-task-allow." >&2
+    exit 2
+  fi
 fi
 
 signature_details="$(/usr/bin/codesign -dvvv "$APP_BUNDLE" 2>&1)"

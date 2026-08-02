@@ -50,7 +50,7 @@ assert_missing() {
 assert_eventkit_entitlement() {
   local value
   value="$(/usr/bin/codesign -d --entitlements :- "$1" 2>/dev/null \
-    | /usr/bin/plutil -extract 'com\.apple\.security\.personal-information\.calendars' raw -o - - 2>/dev/null || true)"
+    | /usr/bin/plutil -extract 'com\.apple\.security\.personal-information\.calendars' raw -expect bool -o - - 2>/dev/null || true)"
   [[ "$value" == "true" ]] || fail "$1 is missing the EventKit entitlement"
 }
 

@@ -255,7 +255,7 @@ sign_app_bundle() {
 verify_eventkit_entitlement() {
   local value
   value="$(/usr/bin/codesign -d --entitlements :- "$APP_BUNDLE" 2>/dev/null \
-    | /usr/bin/plutil -extract 'com\.apple\.security\.personal-information\.calendars' raw -o - - 2>/dev/null || true)"
+    | /usr/bin/plutil -extract 'com\.apple\.security\.personal-information\.calendars' raw -expect bool -o - - 2>/dev/null || true)"
   if [[ "$value" != "true" ]]; then
     echo "Signed Dayline app is missing the EventKit entitlement." >&2
     exit 2
