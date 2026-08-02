@@ -22,6 +22,7 @@ ICON_SOURCE="$ROOT_DIR/Resources/DaylineIcon.icns"
 ICON_FILE="DaylineIcon.icns"
 WORDMARK_SOURCE="$ROOT_DIR/Resources/DaylineWordmark.pdf"
 WORDMARK_FILE="DaylineWordmark.pdf"
+ENTITLEMENTS_SOURCE="$ROOT_DIR/Resources/Dayline.entitlements"
 LINEAR_CLIENT_ID="${DAYLINE_LINEAR_CLIENT_ID:-00c88957100199ecb91362294a3f6e55}"
 GITHUB_CLIENT_ID="${DAYLINE_GITHUB_CLIENT_ID:-Ov23litV6nyANcKL6p4l}"
 LINEAR_URL_SCHEME="${DAYLINE_LINEAR_CALLBACK_SCHEME:-dayline-dev}"
@@ -291,17 +292,22 @@ if [[ -z "$DEV_SIGNING_IDENTITY" ]]; then
   fi
 fi
 
-SIGNING_ARGS=(--force --options runtime --sign "$DEV_SIGNING_IDENTITY")
+APP_ENTITLEMENTS="$STAGING_DIR/DaylineDev.entitlements"
+cp "$ENTITLEMENTS_SOURCE" "$APP_ENTITLEMENTS"
 if [[ "$MODE" == "--debug" || "$MODE" == "debug" ]]; then
-  DEBUG_ENTITLEMENTS="$STAGING_DIR/DaylineDevDebug.entitlements"
-  /usr/bin/plutil -create xml1 "$DEBUG_ENTITLEMENTS"
-  /usr/bin/plutil -insert com.apple.security.get-task-allow -bool YES "$DEBUG_ENTITLEMENTS"
-  SIGNING_ARGS+=(--entitlements "$DEBUG_ENTITLEMENTS")
+  /usr/bin/plutil -insert com.apple.security.get-task-allow -bool YES "$APP_ENTITLEMENTS"
 fi
 
-/usr/bin/codesign "${SIGNING_ARGS[@]}" "$APP_FRAMEWORKS/Sparkle.framework"
-/usr/bin/codesign "${SIGNING_ARGS[@]}" "$APP_BUNDLE"
+/usr/bin/codesign --force --options runtime --sign "$DEV_SIGNING_IDENTITY" "$APP_FRAMEWORKS/Sparkle.framework"
+/usr/bin/codesign --force --options runtime --entitlements "$APP_ENTITLEMENTS" --sign "$DEV_SIGNING_IDENTITY" "$APP_BUNDLE"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
+
+eventkit_entitlement="$(/usr/bin/codesign -d --entitlements :- "$APP_BUNDLE" 2>/dev/null \
+  | /usr/bin/plutil -extract 'com\.apple\.security\.personal-information\.calendars' raw -o - - 2>/dev/null || true)"
+if [[ "$eventkit_entitlement" != "true" ]]; then
+  echo "Dayline Dev was signed without the EventKit entitlement." >&2
+  exit 2
+fi
 
 signature_details="$(/usr/bin/codesign -dvvv "$APP_BUNDLE" 2>&1)"
 if [[ "$signature_details" != *"runtime"* ]]; then
