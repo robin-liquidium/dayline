@@ -9,7 +9,8 @@ TEST_GOOGLE_CLIENT_ID="1234567890-dayline-dev-contract.apps.googleusercontent.co
 TEST_GOOGLE_SCHEME="com.googleusercontent.apps.1234567890-dayline-dev-contract"
 INSTALLER_LOCK_DIR="${TMPDIR:-/tmp}/dayline-dev-installer.lock"
 LOG_FILE="$(mktemp -t dayline-bundle-contract.XXXXXX)"
-trap 'rm -f "$LOG_FILE"; rm -rf "$INSTALLER_LOCK_DIR"' EXIT
+MALFORMED_PLIST="$(mktemp -t dayline-malformed-plist.XXXXXX)"
+trap 'rm -f "$LOG_FILE" "$MALFORMED_PLIST"; rm -rf "$INSTALLER_LOCK_DIR"' EXIT
 
 cd "$ROOT_DIR"
 
@@ -48,6 +49,7 @@ url_schemes() {
   local plist="$1"
   local type_index=0
   local scheme_index value
+  /usr/bin/plutil -lint "$plist" >/dev/null 2>&1 || fail "$plist is not a readable property list"
   while /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:$type_index" "$plist" >/dev/null 2>&1; do
     scheme_index=0
     while value="$(/usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:$type_index:CFBundleURLSchemes:$scheme_index" "$plist" 2>/dev/null)"; do
@@ -71,6 +73,11 @@ assert_no_google_url_scheme() {
     fail "$1 unexpectedly registers a Google URL scheme"
   fi
 }
+
+printf '%s\n' 'not a property list' >"$MALFORMED_PLIST"
+if (url_schemes "$MALFORMED_PLIST" >/dev/null 2>&1); then
+  fail "malformed property list unexpectedly passed URL-scheme extraction"
+fi
 
 rm -rf "$INSTALLER_LOCK_DIR"
 mkdir "$INSTALLER_LOCK_DIR"
