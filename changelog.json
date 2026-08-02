@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.2.4",
+      "date": "2026-08-02",
+      "fixed": [
+        {
+          "title": "Apple Reminders access",
+          "text": "Approving Reminders access now works correctly in signed Dayline builds, so connected lists load normally instead of continuing to show the System Settings permission warning.",
+          "pr": 61
+        }
+      ]
+    },
+    {
       "version": "0.2.3",
       "date": "2026-08-02",
       "new": [
