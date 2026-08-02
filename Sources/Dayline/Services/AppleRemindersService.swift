@@ -129,7 +129,7 @@ final class AppleRemindersService: AppleRemindersServing {
   func setReminderCompleted(id: String) throws {
     let reminder = try writableReminder(with: id)
     reminder.isCompleted = true
-    try eventStore.save(reminder, commit: true)
+    try saveModifiedReminder(reminder)
   }
 
   /// Changes a reminder's EventKit priority.
@@ -139,7 +139,7 @@ final class AppleRemindersService: AppleRemindersServing {
   ) throws -> AppleReminderItem {
     let reminder = try writableReminder(with: id)
     reminder.priority = priority.rawValue
-    try eventStore.save(reminder, commit: true)
+    try saveModifiedReminder(reminder)
     return Self.item(from: reminder)
   }
 
@@ -154,7 +154,7 @@ final class AppleRemindersService: AppleRemindersServing {
     } else {
       reminder.dueDateComponents = nil
     }
-    try eventStore.save(reminder, commit: true)
+    try saveModifiedReminder(reminder)
     return Self.item(from: reminder)
   }
 
@@ -256,6 +256,16 @@ final class AppleRemindersService: AppleRemindersServing {
       throw AppleRemindersServiceError.readOnlyList
     }
     return reminder
+  }
+
+  /// Saves a fetched reminder and discards its cached mutation if persistence fails.
+  private func saveModifiedReminder(_ reminder: EKReminder) throws {
+    do {
+      try eventStore.save(reminder, commit: true)
+    } catch {
+      eventStore.reset()
+      throw error
+    }
   }
 
   /// Returns one writable Reminders list from this service's event store.
