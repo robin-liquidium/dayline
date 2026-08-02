@@ -26,6 +26,10 @@ struct MeetingAlertTests {
       == start.addingTimeInterval(10 * 60))
     #expect(StatusStore.meetingAlertEligibilityEnd(
       for: event,
+      snoozedUntil: start.addingTimeInterval(-10 * 60)
+    ) == start.addingTimeInterval(10 * 60))
+    #expect(StatusStore.meetingAlertEligibilityEnd(
+      for: event,
       snoozedUntil: start.addingTimeInterval(15 * 60)
     ) == start.addingTimeInterval(25 * 60))
     #expect(StatusStore.meetingAlertEligibilityEnd(

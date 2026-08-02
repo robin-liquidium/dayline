@@ -3856,7 +3856,8 @@ final class StatusStore: ObservableObject {
   ) -> Date {
     min(
       event.endDate,
-      (snoozedUntil ?? event.startDate).addingTimeInterval(Self.meetingAlertPostStartGrace)
+      max(event.startDate, snoozedUntil ?? event.startDate)
+        .addingTimeInterval(Self.meetingAlertPostStartGrace)
     )
   }
 
