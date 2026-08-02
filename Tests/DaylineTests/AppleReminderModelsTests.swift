@@ -53,8 +53,7 @@ struct AppleReminderModelsTests {
     let (calendar, now) = try overdueTestClock()
     let dueDate = try #require(calendar.date(byAdding: .hour, value: -1, to: now))
     #expect(AppleReminderDueDate.timed(dueDate, timeZoneIdentifier: nil).isOverdue(
-      at: now,
-      calendar: calendar
+      at: now
     ))
   }
 
@@ -62,8 +61,7 @@ struct AppleReminderModelsTests {
     let (calendar, now) = try overdueTestClock()
     let dueDate = try #require(calendar.date(byAdding: .hour, value: 1, to: now))
     #expect(!AppleReminderDueDate.timed(dueDate, timeZoneIdentifier: nil).isOverdue(
-      at: now,
-      calendar: calendar
+      at: now
     ))
   }
 
@@ -71,7 +69,7 @@ struct AppleReminderModelsTests {
     let (calendar, now) = try overdueTestClock()
     #expect(!AppleReminderDueDate.dateOnly(year: 2026, month: 8, day: 2).isOverdue(
       at: now,
-      calendar: calendar
+      timeZone: calendar.timeZone
     ))
   }
 
@@ -79,7 +77,27 @@ struct AppleReminderModelsTests {
     let (calendar, now) = try overdueTestClock()
     #expect(AppleReminderDueDate.dateOnly(year: 2026, month: 8, day: 1).isOverdue(
       at: now,
-      calendar: calendar
+      timeZone: calendar.timeZone
+    ))
+  }
+
+  @Test func dateOnlyReminderAlwaysUsesGregorianCalendarInUserTimeZone() throws {
+    let timeZone = try #require(TimeZone(identifier: "Asia/Bangkok"))
+    var gregorian = Calendar(identifier: .gregorian)
+    gregorian.timeZone = timeZone
+    let now = try #require(gregorian.date(from: DateComponents(
+      year: 2026,
+      month: 8,
+      day: 2,
+      hour: 12
+    )))
+    var userCalendar = Calendar(identifier: .buddhist)
+    userCalendar.timeZone = timeZone
+
+    #expect(userCalendar.component(.year, from: now) == 2569)
+    #expect(!AppleReminderDueDate.dateOnly(year: 2026, month: 8, day: 2).isOverdue(
+      at: now,
+      timeZone: timeZone
     ))
   }
 
@@ -170,6 +188,27 @@ struct AppleReminderModelsTests {
 @MainActor
 @Suite(.serialized)
 struct AppleReminderStatusStoreTests {
+  @Test func staleDisconnectedLoadCannotClearNewerReminderSnapshot() {
+    #expect(StatusStore.appleReminderLoadIsCurrent(
+      capturedRevision: 4,
+      capturedConnected: false,
+      currentRevision: 4,
+      currentConnected: false
+    ))
+    #expect(!StatusStore.appleReminderLoadIsCurrent(
+      capturedRevision: 4,
+      capturedConnected: false,
+      currentRevision: 5,
+      currentConnected: false
+    ))
+    #expect(!StatusStore.appleReminderLoadIsCurrent(
+      capturedRevision: 4,
+      capturedConnected: false,
+      currentRevision: 4,
+      currentConnected: true
+    ))
+  }
+
   @Test func creatorRequestStillAdvancesWithoutWritableEnabledLists() {
     let store = StatusStore(mockData: MockData.make(issueSources: [.reminders]))
     for list in store.appleReminderLists where list.allowsModifications {

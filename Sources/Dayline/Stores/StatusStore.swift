@@ -1,6 +1,12 @@
 import AppKit
 import Foundation
 
+/// Connection state that one asynchronous Reminders load was launched against.
+private struct AppleRemindersLoadContext {
+  let revision: Int
+  let connected: Bool
+}
+
 /// Main actor store that owns refreshed calendar and Linear state for the UI.
 @MainActor
 final class StatusStore: ObservableObject {
@@ -858,13 +864,16 @@ final class StatusStore: ObservableObject {
     await refreshConnectionStatus()
     let googleRevision = connectionRevisions[.google, default: 0]
     let capturedAppleCalendarRevision = appleCalendarRevision
-    let capturedAppleRemindersRevision = appleRemindersRevision
+    let appleRemindersLoadContext = AppleRemindersLoadContext(
+      revision: appleRemindersRevision,
+      connected: appleRemindersConnected
+    )
     let linearRevision = connectionRevisions[.linear, default: 0]
     let githubRevision = connectionRevisions[.github, default: 0]
 
     let shouldLoadLinear = isConnected(.linear) && !dismissedProviders.contains(.linear)
     let shouldLoadGitHub = isConnected(.github) && !dismissedProviders.contains(.github)
-    let shouldLoadReminders = appleRemindersConnected
+    let shouldLoadReminders = appleRemindersLoadContext.connected
     let shouldLoadCalendar = hasConnectedGoogleAccount || appleCalendarConnected
 
     async let calendarResult: CalendarAgendaLoadResult? =
@@ -953,7 +962,7 @@ final class StatusStore: ObservableObject {
 
     applyAppleReminderLoadResult(
       await reminderResult,
-      capturedRevision: capturedAppleRemindersRevision
+      context: appleRemindersLoadContext
     )
 
     lastUpdatedAt = Date()
@@ -1758,9 +1767,12 @@ final class StatusStore: ObservableObject {
     repeat {
       appleRemindersRefreshRequested = false
       refreshAppleRemindersConnectionState()
-      let capturedRevision = appleRemindersRevision
-      let result = appleRemindersConnected ? await loadAppleReminders() : nil
-      applyAppleReminderLoadResult(result, capturedRevision: capturedRevision)
+      let context = AppleRemindersLoadContext(
+        revision: appleRemindersRevision,
+        connected: appleRemindersConnected
+      )
+      let result = context.connected ? await loadAppleReminders() : nil
+      applyAppleReminderLoadResult(result, context: context)
       lastUpdatedAt = Date()
     } while appleRemindersRefreshRequested
     isRefreshingAppleReminders = false
@@ -1774,27 +1786,42 @@ final class StatusStore: ObservableObject {
   /// Applies one Reminders snapshot only when its connection and selection state is still current.
   private func applyAppleReminderLoadResult(
     _ result: Result<[AppleReminderItem], Error>?,
-    capturedRevision: Int
+    context: AppleRemindersLoadContext
   ) {
-    switch result {
-    case .success(let fetchedReminders)?
-      where appleRemindersRevision == capturedRevision && appleRemindersConnected:
+    guard Self.appleReminderLoadIsCurrent(
+      capturedRevision: context.revision,
+      capturedConnected: context.connected,
+      currentRevision: appleRemindersRevision,
+      currentConnected: appleRemindersConnected
+    ) else { return }
+
+    switch (context.connected, result) {
+    case (true, .success(let fetchedReminders)?):
       allAppleReminders = fetchedReminders
       applyAppleReminderOrder()
       appleRemindersError = nil
-    case .failure(let error)?
-      where appleRemindersRevision == capturedRevision && appleRemindersConnected:
+    case (true, .failure(let error)?):
       appleRemindersError = error.localizedDescription
-    case .some(_):
-      break
-    case nil:
+    case (false, nil):
       allAppleReminders = []
       applyAppleReminderOrder()
       let optedIn = UserDefaults.standard.object(forKey: Self.appleRemindersEnabledKey) as? Bool ?? false
-      if !appleRemindersConnected && !optedIn {
+      if !optedIn {
         appleRemindersError = nil
       }
+    case (true, nil), (false, .some(_)):
+      break
     }
+  }
+
+  /// Whether an asynchronous Reminders result still belongs to the active connection state.
+  static func appleReminderLoadIsCurrent(
+    capturedRevision: Int,
+    capturedConnected: Bool,
+    currentRevision: Int,
+    currentConnected: Bool
+  ) -> Bool {
+    capturedRevision == currentRevision && capturedConnected == currentConnected
   }
 
   /// Persists the Reminders list selected by default in the creator.

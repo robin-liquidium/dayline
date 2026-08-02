@@ -83,10 +83,16 @@ enum AppleReminderDueDate: Equatable, Sendable {
     return false
   }
 
-  /// Whether this due value has passed, preserving floating date-only semantics.
-  func isOverdue(at now: Date = Date(), calendar: Calendar = .current) -> Bool {
+  /// Whether this due value has passed.
+  ///
+  /// EventKit stores date-only components in the Gregorian calendar. Interpret those
+  /// components as a floating Gregorian day in the user's time zone. Timed values are
+  /// absolute instants, so their stored time-zone identity does not affect this comparison.
+  func isOverdue(at now: Date = Date(), timeZone: TimeZone = .current) -> Bool {
     switch self {
     case .dateOnly(let year, let month, let day):
+      var calendar = Calendar(identifier: .gregorian)
+      calendar.timeZone = timeZone
       guard let dueDay = calendar.date(from: DateComponents(
         year: year,
         month: month,
