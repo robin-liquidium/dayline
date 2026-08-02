@@ -313,11 +313,26 @@ final class StatusStore: ObservableObject {
     }
   }
 
+  /// Default number of minutes used by the full-screen alert's Snooze action.
+  @Published var meetingAlertSnoozeMinutes: Int {
+    didSet {
+      let clampedValue = Self.clampedMeetingAlertSnoozeMinutes(meetingAlertSnoozeMinutes)
+      guard meetingAlertSnoozeMinutes == clampedValue else {
+        meetingAlertSnoozeMinutes = clampedValue
+        return
+      }
+      UserDefaults.standard.set(meetingAlertSnoozeMinutes, forKey: Self.meetingAlertSnoozeMinutesKey)
+    }
+  }
+
   /// Event currently presented by the full-screen meeting alert, if any.
   @Published private(set) var meetingAlertEvent: CalendarEventItem?
 
   /// Session-only set of events whose full-screen alert was dismissed.
   private var dismissedMeetingAlertEventIDs = Set<String>()
+
+  /// Session-only snooze deadline for each alerted meeting occurrence.
+  private var snoozedMeetingAlertUntilByEventID: [String: Date] = [:]
 
   /// What the copy shortcut places on the clipboard.
   @Published var linearCopyStyle: LinearCopyStyle {
@@ -546,6 +561,7 @@ final class StatusStore: ObservableObject {
   private static let appleRemindersEnabledKey = "appleRemindersEnabled"
   private static let meetingAlertEnabledKey = "meetingAlertEnabled"
   private static let meetingAlertLeadMinutesKey = "meetingAlertLeadMinutes"
+  private static let meetingAlertSnoozeMinutesKey = "meetingAlertSnoozeMinutes"
   private static let issueSourceKey = "issueSource"
   private static let dismissedProvidersKey = "dismissedProviders"
   private static let linearIssueOrderKey = "linearIssueOrder"
@@ -573,6 +589,7 @@ final class StatusStore: ObservableObject {
   private static let newAppleReminderShortcutKey = "newAppleReminderGlobalShortcut"
   private static let defaultMenuBarEventLeadTimeMinutes = 30
   private static let defaultMenuBarEventPostStartGraceMinutes = 0
+  static let defaultMeetingAlertSnoozeMinutes = 5
   private static let fallbackDefaultVisibleNoteCount = 3
   private static let menuBarClockRefreshSeconds: TimeInterval = 15
   /// Post-start window during which the full-screen meeting alert may still appear.
@@ -734,6 +751,10 @@ final class StatusStore: ObservableObject {
       .map(IssueRowFields.init(rawValue:)) ?? .default
     self.meetingAlertEnabled = defaults.object(forKey: Self.meetingAlertEnabledKey) as? Bool ?? true
     self.meetingAlertLeadMinutes = Self.storedInteger(forKey: Self.meetingAlertLeadMinutesKey, defaultValue: 0)
+    self.meetingAlertSnoozeMinutes = Self.clampedMeetingAlertSnoozeMinutes(Self.storedInteger(
+      forKey: Self.meetingAlertSnoozeMinutesKey,
+      defaultValue: Self.defaultMeetingAlertSnoozeMinutes
+    ))
     self.issueSource = IssueSource(rawValue: defaults.string(forKey: Self.issueSourceKey) ?? "") ?? .linear
     self.dismissedProviders = Set(
       (defaults.stringArray(forKey: Self.dismissedProvidersKey) ?? []).compactMap(AuthProvider.init(rawValue:))
@@ -1926,6 +1947,25 @@ final class StatusStore: ObservableObject {
   /// Persists how early the full-screen meeting alert may appear.
   func setMeetingAlertLead(minutes: Int) {
     meetingAlertLeadMinutes = minutes
+  }
+
+  /// Persists the duration used when the full-screen alert is snoozed.
+  func setMeetingAlertSnooze(minutes: Int) {
+    meetingAlertSnoozeMinutes = minutes
+  }
+
+  /// Temporarily hides the current alert until its configured snooze deadline.
+  func snoozeMeetingAlert() {
+    guard let event = meetingAlertEvent else { return }
+    let eventID = event.deduplicationKey ?? event.id
+    snoozedMeetingAlertUntilByEventID[eventID] = Date().addingTimeInterval(
+      TimeInterval(meetingAlertSnoozeMinutes * 60)
+    )
+    meetingAlertEvent = nil
+    DaylineDiagnostics.record(
+      "Meeting alert snoozed for \(meetingAlertSnoozeMinutes) minutes",
+      category: .interaction
+    )
   }
 
   /// Dismisses the full-screen meeting alert for the current event.
@@ -3480,9 +3520,13 @@ final class StatusStore: ObservableObject {
       .filter { event in
         // Skip all-day style events that would fire the alert at midnight.
         guard event.endDate.timeIntervalSince(event.startDate) < 24 * 60 * 60 else { return false }
+        let eventID = event.deduplicationKey ?? event.id
+        if let snoozedUntil = snoozedMeetingAlertUntilByEventID[eventID], now < snoozedUntil {
+          return false
+        }
         return now >= event.startDate.addingTimeInterval(-lead)
           && now < min(event.endDate, event.startDate.addingTimeInterval(Self.meetingAlertPostStartGrace))
-          && !dismissedMeetingAlertEventIDs.contains(event.deduplicationKey ?? event.id)
+          && !dismissedMeetingAlertEventIDs.contains(eventID)
       }
       .min { $0.startDate < $1.startDate }
   }
@@ -3796,6 +3840,11 @@ final class StatusStore: ObservableObject {
   /// Keeps the post-start title window in a practical Settings range.
   private static func clampedMenuBarPostStartGrace(_ minutes: Int) -> Int {
     min(max(minutes, 0), 60)
+  }
+
+  /// Keeps meeting-alert snoozes useful without allowing accidental zero or day-long values.
+  static func clampedMeetingAlertSnoozeMinutes(_ minutes: Int) -> Int {
+    min(max(minutes, 1), 120)
   }
 
   /// Keeps the default note count in a practical menu range.

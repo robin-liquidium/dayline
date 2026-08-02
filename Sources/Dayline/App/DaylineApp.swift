@@ -156,7 +156,9 @@ private struct MenuBarLabelView: View {
       if let event = store.meetingAlertEvent {
         MeetingAlertWindowController.shared.show(
           event: event,
+          snoozeMinutes: store.meetingAlertSnoozeMinutes,
           onJoin: { store.joinMeetingAlert() },
+          onSnooze: { store.snoozeMeetingAlert() },
           onDismiss: { store.dismissMeetingAlert() }
         )
       } else {

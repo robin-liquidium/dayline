@@ -616,7 +616,27 @@ final class DaylineUITests: XCTestCase {
         identifiers: ["settings", "settings.launchAtLogin", "settings.refreshCadence"],
         screenshotElement: app.windows["settings"]
       )
+
+      let calendarTab = app.staticTexts["Calendar"].firstMatch
+      XCTAssertTrue(calendarTab.waitForExistence(timeout: 5))
+      calendarTab.click()
+      assertExists("settings.meetingAlertSnooze")
     }
+  }
+
+  func testMeetingAlertShowsCurrentTimeAndSnoozes() throws {
+    app.terminate()
+    app.launchArguments.append("--mock-meeting-alert")
+    app.launch()
+
+    let alert = element("meetingAlert.view")
+    XCTAssertTrue(alert.waitForExistence(timeout: 5))
+    assertExists("meetingAlert.currentTime")
+    assertExists("meetingAlert.snooze")
+    assertExists("meetingAlert.dismiss")
+
+    element("meetingAlert.snooze").click()
+    XCTAssertFalse(alert.waitForExistence(timeout: 2))
   }
 
   private func openMenu() throws {

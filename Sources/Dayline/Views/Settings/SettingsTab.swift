@@ -75,6 +75,7 @@ enum SettingsSearchCatalog {
     SettingsSearchItem(id: "showsCalendarSourceNames", title: "Show calendar names", section: "Menu", tab: .calendar, keywords: ["source names", "account names"]),
     SettingsSearchItem(id: "meetingAlertEnabled", title: "Full-screen meeting alerts", section: "Meeting Alerts", tab: .calendar, keywords: ["alert", "reminder", "notification"]),
     SettingsSearchItem(id: "meetingAlertLead", title: "Show alert", section: "Meeting Alerts", tab: .calendar, keywords: ["alert lead", "minutes before", "reminder"]),
+    SettingsSearchItem(id: "meetingAlertSnooze", title: "Default snooze", section: "Meeting Alerts", tab: .calendar, keywords: ["snooze", "delay", "remind me later"]),
 
     SettingsSearchItem(id: "linearCreateDefaultTeam", title: "Default team", section: "New Linear Issue Defaults", tab: .issues, keywords: ["linear defaults", "new issue"]),
     SettingsSearchItem(id: "linearCreateDefaultStatus", title: "Default status", section: "New Linear Issue Defaults", tab: .issues, keywords: ["linear defaults", "new issue", "workflow state"]),
