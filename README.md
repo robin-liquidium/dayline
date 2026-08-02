@@ -368,6 +368,8 @@ push to `main`, so it does not use the local mouse or interrupt local work.
 - `reminderEditor.notes`
 - `reminderEditor.list`
 - `reminderEditor.priority`
+- `reminderEditor.dueDate.add`
+- `reminderEditor.dueTimeEnabled`
 - `reminderEditor.create`
 - `reminderEditor.cancel`
 - `notes.new`

@@ -348,18 +348,9 @@ fi
 mv "$INSTALL_CANDIDATE" "$INSTALLED_APP"
 register_app "$INSTALLED_APP"
 
-if [[ -d "$LEGACY_APP" ]]; then
-  legacy_bundle_id="$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$LEGACY_APP/Contents/Info.plist" 2>/dev/null || true)"
-  if [[ "$legacy_bundle_id" == "build.local.Dayline" ]]; then
-    stop_executable "$LEGACY_BINARY"
-    unregister_app "$LEGACY_APP"
-    rm -rf "$LEGACY_APP"
-  fi
-fi
-
 if [[ "$MODE" == "--reset-privacy" || "$MODE" == "reset-privacy" ]]; then
-  /usr/bin/tccutil reset Calendar "$BUNDLE_ID"
-  /usr/bin/tccutil reset Reminders "$BUNDLE_ID"
+  /usr/bin/tccutil reset Calendar "$BUNDLE_ID" || echo "Warning: could not reset Calendar access for $BUNDLE_ID." >&2
+  /usr/bin/tccutil reset Reminders "$BUNDLE_ID" || echo "Warning: could not reset Reminders access for $BUNDLE_ID." >&2
 fi
 
 open_and_verify() {
@@ -382,6 +373,19 @@ commit_install() {
   if [[ "$LOCK_HELD" == true ]]; then
     rm -rf "$LOCK_DIR"
     LOCK_HELD=false
+  fi
+
+  if [[ -d "$LEGACY_APP" ]]; then
+    local legacy_bundle_id
+    legacy_bundle_id="$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$LEGACY_APP/Contents/Info.plist" 2>/dev/null || true)"
+    if [[ "$legacy_bundle_id" == "build.local.Dayline" ]]; then
+      if stop_executable "$LEGACY_BINARY"; then
+        unregister_app "$LEGACY_APP"
+        rm -rf "$LEGACY_APP" || echo "Warning: could not remove obsolete $LEGACY_APP." >&2
+      else
+        echo "Warning: leaving the running obsolete app at $LEGACY_APP." >&2
+      fi
+    fi
   fi
 }
 
