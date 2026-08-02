@@ -2602,7 +2602,7 @@ final class StatusStore: ObservableObject {
       lastUpdatedAt = Date()
       DaylineDiagnostics.record("Apple Reminder completed", category: .interaction)
       if reminder.isRecurring, mockData == nil {
-        Task { await refresh() }
+        Task { await refreshAppleRemindersOnly() }
       }
     } catch {
       appleRemindersError = error.localizedDescription
