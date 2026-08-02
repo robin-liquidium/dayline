@@ -70,9 +70,9 @@ struct MeetingAlertView: View {
           .font(.system(size: 24, weight: .medium, design: .rounded))
           .foregroundStyle(.secondary)
           .monospacedDigit()
-          .accessibilityLabel("Current time")
-          .accessibilityIdentifier("meetingAlert.currentTime")
       }
+      .accessibilityElement(children: .combine)
+      .accessibilityIdentifier("meetingAlert.currentTime")
       .padding(.top, 48)
       .padding(.trailing, 56)
     }
