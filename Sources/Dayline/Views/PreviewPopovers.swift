@@ -95,6 +95,56 @@ struct GitHubIssuePreviewPopover: View {
   }
 }
 
+/// Detail preview for an Apple Reminder.
+struct AppleReminderPreviewPopover: View {
+  let reminder: AppleReminderItem
+
+  var body: some View {
+    PreviewCard(title: reminder.title, subtitle: reminder.listTitle) {
+      PreviewRow(label: "Status", value: "Incomplete", systemImage: "circle")
+      PreviewRow(label: "Priority", value: reminder.priority.label, systemImage: "flag")
+
+      if let dueDate = reminder.dueDate {
+        PreviewRow(
+          label: "Due",
+          value: DisplayFormatters.appleReminderDueDate(dueDate),
+          systemImage: "calendar"
+        )
+      }
+
+      if reminder.isRecurring {
+        PreviewRow(label: "Repeats", value: "Recurring reminder", systemImage: "repeat")
+      }
+
+      if let updatedAt = reminder.updatedAt {
+        PreviewRow(
+          label: "Updated",
+          value: DisplayFormatters.relative.localizedString(
+            fromTimeInterval: updatedAt.timeIntervalSinceNow
+          ),
+          systemImage: "clock"
+        )
+      }
+
+      if let notes = reminder.notes, !notes.isEmpty {
+        PreviewRow(label: "Notes", value: notes, systemImage: "text.alignleft", maxLines: 8)
+      }
+
+      if let url = Self.safeAttachedURL(reminder.url) {
+        PreviewOpenButton(title: "Open attached URL", url: url)
+      }
+    }
+    .accessibilityIdentifier("reminders.preview.\(reminder.id)")
+  }
+
+  static func safeAttachedURL(_ url: URL?) -> URL? {
+    guard let url, let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) else {
+      return nil
+    }
+    return url
+  }
+}
+
 /// Shared preview layout: title block plus labeled detail rows and actions.
 private struct PreviewCard<Content: View>: View {
   let title: String
@@ -128,6 +178,7 @@ private struct PreviewRow: View {
   let label: String
   let value: String
   let systemImage: String
+  var maxLines: Int? = nil
 
   var body: some View {
     LabeledContent {
@@ -135,6 +186,8 @@ private struct PreviewRow: View {
         .font(.callout)
         .foregroundStyle(.primary)
         .multilineTextAlignment(.trailing)
+        .lineLimit(maxLines)
+        .truncationMode(.tail)
         .fixedSize(horizontal: false, vertical: true)
     } label: {
       Label(label, systemImage: systemImage)

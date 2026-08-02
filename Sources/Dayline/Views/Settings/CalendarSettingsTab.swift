@@ -51,6 +51,14 @@ struct CalendarSettingsTab: View {
         }
         .disabled(!store.meetingAlertEnabled)
         .accessibilityIdentifier("settings.meetingAlertLead")
+
+        Picker("Default snooze", selection: meetingAlertSnoozeBinding) {
+          ForEach(meetingAlertSnoozePickerOptions, id: \.self) { minutes in
+            Text(minutesLabel(for: minutes)).tag(minutes)
+          }
+        }
+        .disabled(!store.meetingAlertEnabled)
+        .accessibilityIdentifier("settings.meetingAlertSnooze")
       } header: {
         Label("Meeting Alerts", systemImage: "bell.badge")
       }
@@ -120,6 +128,19 @@ struct CalendarSettingsTab: View {
   /// Alert lead choices plus any existing custom stored value.
   private var meetingAlertLeadPickerOptions: [Int] {
     Array(Set([0, 1, 2, 5, 10, 15, 30] + [store.meetingAlertLeadMinutes])).sorted()
+  }
+
+  /// Binding that persists the duration used by the meeting alert's Snooze button.
+  private var meetingAlertSnoozeBinding: Binding<Int> {
+    Binding(
+      get: { store.meetingAlertSnoozeMinutes },
+      set: { store.setMeetingAlertSnooze(minutes: $0) }
+    )
+  }
+
+  /// Practical snooze choices plus any existing custom stored value.
+  private var meetingAlertSnoozePickerOptions: [Int] {
+    Array(Set([1, 2, 5, 10, 15, 30] + [store.meetingAlertSnoozeMinutes])).sorted()
   }
 
   /// Returns a compact label for a minute-based menu bar title setting.

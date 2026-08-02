@@ -16,9 +16,21 @@ final class MeetingAlertWindowController {
   }
 
   /// Shows the alert for a meeting, updating the content in place when already visible.
-  func show(event: CalendarEventItem, onJoin: @escaping () -> Void, onDismiss: @escaping () -> Void) {
+  func show(
+    event: CalendarEventItem,
+    snoozeMinutes: Int,
+    onJoin: @escaping () -> Void,
+    onSnooze: @escaping () -> Void,
+    onDismiss: @escaping () -> Void
+  ) {
     guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
-    let rootView = MeetingAlertView(event: event, onJoin: onJoin, onDismiss: onDismiss)
+    let rootView = MeetingAlertView(
+      event: event,
+      snoozeMinutes: snoozeMinutes,
+      onJoin: onJoin,
+      onSnooze: onSnooze,
+      onDismiss: onDismiss
+    )
 
     if let window, let hostingView = window.contentView as? NSHostingView<MeetingAlertView> {
       hostingView.rootView = rootView

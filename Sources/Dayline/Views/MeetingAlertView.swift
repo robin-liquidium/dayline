@@ -3,7 +3,9 @@ import SwiftUI
 /// Zen full-screen alert shown when a meeting starts.
 struct MeetingAlertView: View {
   let event: CalendarEventItem
+  let snoozeMinutes: Int
   let onJoin: () -> Void
+  let onSnooze: () -> Void
   let onDismiss: () -> Void
 
   var body: some View {
@@ -13,8 +15,8 @@ struct MeetingAlertView: View {
 
       Spacer()
 
-      TimelineView(.periodic(from: .now, by: 15)) { _ in
-        Text(startLabel)
+      TimelineView(.periodic(from: .now, by: 15)) { context in
+        Text(startLabel(at: context.date))
           .font(.system(size: 20, weight: .medium, design: .rounded))
           .foregroundStyle(.secondary)
           .padding(.bottom, 16)
@@ -42,6 +44,11 @@ struct MeetingAlertView: View {
             .accessibilityIdentifier("meetingAlert.join")
         }
 
+        Button(snoozeButtonLabel, action: onSnooze)
+          .buttonStyle(.bordered)
+          .controlSize(.extraLarge)
+          .accessibilityIdentifier("meetingAlert.snooze")
+
         Button("Dismiss", action: onDismiss)
           .buttonStyle(.bordered)
           .controlSize(.extraLarge)
@@ -57,6 +64,19 @@ struct MeetingAlertView: View {
         .overlay(backdropColor.opacity(0.55))
         .ignoresSafeArea()
     }
+    .overlay(alignment: .topTrailing) {
+      TimelineView(.everyMinute) { context in
+        Text(context.date, format: .dateTime.hour().minute())
+          .font(.system(size: 24, weight: .medium, design: .rounded))
+          .foregroundStyle(.secondary)
+          .monospacedDigit()
+          .accessibilityLabel("Current time")
+          .accessibilityValue(Text(context.date, format: .dateTime.hour().minute()))
+      }
+      .accessibilityElement(children: .combine)
+      .padding(.top, 48)
+      .padding(.trailing, 56)
+    }
     .onExitCommand(perform: onDismiss)
     .accessibilityIdentifier("meetingAlert.view")
   }
@@ -70,13 +90,17 @@ struct MeetingAlertView: View {
 
   /// Lead text re-evaluated by the periodic TimelineView so it ticks down
   /// and flips to "Starting now" while the alert is visible.
-  private var startLabel: String {
-    let secondsUntilStart = event.startDate.timeIntervalSince(Date())
+  private func startLabel(at date: Date) -> String {
+    let secondsUntilStart = event.startDate.timeIntervalSince(date)
     guard secondsUntilStart > 30 else {
       return "Starting now"
     }
     let minutes = max(1, Int(ceil(secondsUntilStart / 60)))
     return minutes == 1 ? "Starts in 1 minute" : "Starts in \(minutes) minutes"
+  }
+
+  private var snoozeButtonLabel: String {
+    "Snooze \(snoozeMinutes) min"
   }
 
   /// "Join Meeting" only when the open URL is a real meeting link; when it

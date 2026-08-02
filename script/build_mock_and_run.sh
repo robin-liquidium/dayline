@@ -60,6 +60,10 @@ cat >"$INFO_PLIST" <<PLIST
   <string>$VERSION</string>
   <key>CFBundleVersion</key>
   <string>$BUILD_NUMBER</string>
+  <key>DaylineApplicationSupportFolder</key>
+  <string>Dayline Mock</string>
+  <key>DaylineOAuthKeychainService</key>
+  <string>build.local.DaylineMock.oauth</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>LSMultipleInstancesProhibited</key>
@@ -70,6 +74,8 @@ cat >"$INFO_PLIST" <<PLIST
   <string>Dayline shows your upcoming Apple Calendar events in the menu bar.</string>
   <key>NSCalendarsFullAccessUsageDescription</key>
   <string>Dayline shows your upcoming Apple Calendar events in the menu bar.</string>
+  <key>NSRemindersFullAccessUsageDescription</key>
+  <string>Dayline shows and manages your Apple Reminders from the menu bar.</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
 </dict>

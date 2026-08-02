@@ -2,6 +2,7 @@ import Foundation
 
 /// Deterministic-looking sample data used by the isolated screenshot build.
 struct MockData {
+  let issueSources: Set<IssueSource>
   let availableUpdateVersion: String?
   let events: [CalendarEventItem]
   let tomorrowEvents: [CalendarEventItem]
@@ -10,6 +11,8 @@ struct MockData {
   let connectionStatuses: [ConnectionStatus]
   let googleAccounts: [GoogleAccountStatus]
   let githubIssues: [GitHubIssueItem]
+  let appleReminderLists: [AppleReminderList]
+  let appleReminders: [AppleReminderItem]
   let teams: [LinearTeamOption]
   let users: [LinearUserOption]
   let projects: [LinearProjectOption]
@@ -17,7 +20,10 @@ struct MockData {
   let labels: [LinearLabelOption]
   let milestones: [LinearMilestoneOption]
 
-  static func make(now: Date = Date()) -> MockData {
+  static func make(
+    now: Date = Date(),
+    issueSources: Set<IssueSource> = Set(IssueSource.allCases)
+  ) -> MockData {
     let calendar = Calendar.current
     let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) ?? now
     let workflowStates = [
@@ -107,6 +113,75 @@ struct MockData {
       issue("DAY-121", "Investigate occasional sync delay", priority: 0, priorityLabel: "No priority", stateID: "mock-backlog", stateName: "Backlog", stateType: "backlog")
     ]
 
+    let reminderLists = [
+      AppleReminderList(
+        id: "mock-reminders-work",
+        title: "Work",
+        sourceName: "iCloud",
+        sourceID: "mock-icloud",
+        isEnabled: true,
+        allowsModifications: true
+      ),
+      AppleReminderList(
+        id: "mock-reminders-personal",
+        title: "Personal",
+        sourceName: "iCloud",
+        sourceID: "mock-icloud",
+        isEnabled: true,
+        allowsModifications: true
+      ),
+      AppleReminderList(
+        id: "mock-reminders-shared",
+        title: "Shared read-only",
+        sourceName: "Shared",
+        sourceID: "mock-shared",
+        isEnabled: true,
+        allowsModifications: false
+      )
+    ]
+
+    func reminder(
+      _ id: String,
+      _ title: String,
+      list: AppleReminderList,
+      priority: AppleReminderPriority,
+      dueInDays: Int? = nil,
+      includesTime: Bool = false,
+      notes: String? = nil,
+      url: URL? = nil,
+      recurring: Bool = false
+    ) -> AppleReminderItem {
+      let dueDate = dueInDays.flatMap { days -> AppleReminderDueDate? in
+        guard let date = calendar.date(byAdding: .day, value: days, to: now) else { return nil }
+        return includesTime
+          ? .timed(date, timeZoneIdentifier: TimeZone.current.identifier)
+          : .dateOnly(from: date)
+      }
+      return AppleReminderItem(
+        id: id,
+        title: title,
+        notes: notes,
+        listID: list.id,
+        listTitle: list.title,
+        priority: priority,
+        dueDate: dueDate,
+        updatedAt: calendar.date(byAdding: .hour, value: -2, to: now),
+        url: url,
+        isRecurring: recurring,
+        allowsModifications: list.allowsModifications
+      )
+    }
+
+    let reminders = [
+      reminder("mock-reminder-1", "Review launch checklist", list: reminderLists[0], priority: .high, dueInDays: -1, notes: "Confirm the final screenshots and release copy."),
+      reminder("mock-reminder-2", "Send weekly update", list: reminderLists[0], priority: .medium, dueInDays: 0, includesTime: true, recurring: true),
+      reminder("mock-reminder-3", "Book dentist appointment", list: reminderLists[1], priority: .low, dueInDays: 2),
+      reminder("mock-reminder-4", "Read EventKit documentation", list: reminderLists[0], priority: .none, url: URL(string: "https://developer.apple.com/documentation/eventkit")),
+      reminder("mock-reminder-5", "Buy coffee beans", list: reminderLists[1], priority: .none),
+      reminder("mock-reminder-6", "Shared planning item", list: reminderLists[2], priority: .none, dueInDays: 3),
+      reminder("mock-reminder-7", "Archive old reminders", list: reminderLists[0], priority: .none)
+    ]
+
     let teams = [
       LinearTeamOption(
         id: "mock-team",
@@ -139,6 +214,7 @@ struct MockData {
     )
 
     return MockData(
+      issueSources: issueSources,
       availableUpdateVersion: "0.2.0",
       events: [
         event("mock-standup", "Product stand-up", startsIn: 30, duration: 25, source: "Product Team"),
@@ -158,8 +234,18 @@ struct MockData {
       ],
       connectionStatuses: [
         ConnectionStatus(provider: .google, state: .connected, detail: nil, accountLabel: "2 accounts"),
-        ConnectionStatus(provider: .linear, state: .connected, detail: nil, accountLabel: "Dayline"),
-        ConnectionStatus(provider: .github, state: .connected, detail: nil, accountLabel: "alex")
+        ConnectionStatus(
+          provider: .linear,
+          state: issueSources.contains(.linear) ? .connected : .disconnected,
+          detail: nil,
+          accountLabel: issueSources.contains(.linear) ? "Dayline" : nil
+        ),
+        ConnectionStatus(
+          provider: .github,
+          state: issueSources.contains(.github) ? .connected : .disconnected,
+          detail: nil,
+          accountLabel: issueSources.contains(.github) ? "alex" : nil
+        )
       ],
       googleAccounts: [
         GoogleAccountStatus(account: workAccount, state: .connected, detail: nil),
@@ -197,6 +283,8 @@ struct MockData {
           assignees: [GitHubAssigneeOption(login: "alex")]
         )
       ],
+      appleReminderLists: reminderLists,
+      appleReminders: reminders,
       teams: teams,
       users: [
         LinearUserOption(id: "mock-user", name: "Alex Morgan", displayName: "alex", isActive: true)

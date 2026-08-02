@@ -110,6 +110,17 @@ struct ShortcutsSettingsTab: View {
         }
         .accessibilityIdentifier("settings.newGitHubIssueShortcut")
 
+        LabeledContent("New Apple Reminder") {
+          ShortcutRecorderView(
+            shortcut: store.newAppleReminderShortcut,
+            defaultShortcut: .newAppleReminderDefault,
+            accessibilityLabel: "New Apple Reminder shortcut"
+          ) { candidate in
+            recordNewAppleReminderShortcut(candidate)
+          }
+        }
+        .accessibilityIdentifier("settings.newAppleReminderShortcut")
+
         LabeledContent("Open Google Calendar") {
           ShortcutRecorderView(
             shortcut: store.openGoogleCalendarShortcut,
@@ -204,6 +215,13 @@ struct ShortcutsSettingsTab: View {
     recordShortcut(candidate, excluding: store.newGitHubIssueShortcut) { store.setNewGitHubIssueShortcut($0) }
   }
 
+  /// Persists the Apple Reminder shortcut unless it collides with another global shortcut.
+  private func recordNewAppleReminderShortcut(_ candidate: GlobalShortcut) {
+    recordShortcut(candidate, excluding: store.newAppleReminderShortcut) {
+      store.setNewAppleReminderShortcut($0)
+    }
+  }
+
   /// Rejects candidates already bound to another global shortcut, otherwise persists via `apply`.
   private func recordShortcut(
     _ candidate: GlobalShortcut,
@@ -214,7 +232,8 @@ struct ShortcutsSettingsTab: View {
       store.newNoteShortcut,
       store.newLinearIssueShortcut,
       store.openGoogleCalendarShortcut,
-      store.newGitHubIssueShortcut
+      store.newGitHubIssueShortcut,
+      store.newAppleReminderShortcut
     ].filter { $0 != current }
     guard !others.contains(candidate) else {
       globalShortcutError = "\(candidate.displayString) is already used by another global shortcut."

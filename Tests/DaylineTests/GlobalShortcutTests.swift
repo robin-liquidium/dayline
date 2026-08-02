@@ -10,12 +10,17 @@ struct GlobalShortcutTests {
       GlobalShortcut.newNoteDefault,
       GlobalShortcut.newLinearIssueDefault,
       GlobalShortcut.openGoogleCalendarDefault,
-      GlobalShortcut.newGitHubIssueDefault
+      GlobalShortcut.newGitHubIssueDefault,
+      GlobalShortcut.newAppleReminderDefault
     ]
     #expect(Set(defaults.map { "\($0.keyCode)-\($0.carbonModifiers)" }).count == defaults.count)
     #expect(GlobalShortcut.newGitHubIssueFallbacks.allSatisfy { $0 != GlobalShortcut.newNoteDefault })
     #expect(GlobalShortcut.newGitHubIssueFallbacks.allSatisfy { $0 != GlobalShortcut.newLinearIssueDefault })
     #expect(GlobalShortcut.newGitHubIssueFallbacks.allSatisfy { $0 != GlobalShortcut.openGoogleCalendarDefault })
+    #expect(GlobalShortcut.newAppleReminderFallbacks.allSatisfy { $0 != GlobalShortcut.newNoteDefault })
+    #expect(GlobalShortcut.newAppleReminderFallbacks.allSatisfy { $0 != GlobalShortcut.newLinearIssueDefault })
+    #expect(GlobalShortcut.newAppleReminderFallbacks.allSatisfy { $0 != GlobalShortcut.openGoogleCalendarDefault })
+    #expect(GlobalShortcut.newAppleReminderFallbacks.allSatisfy { $0 != GlobalShortcut.newGitHubIssueDefault })
   }
 
   @Test func allDefaultsAndFallbacksArePairwiseUnique() {
@@ -23,7 +28,9 @@ struct GlobalShortcutTests {
     let shortcuts = [
       GlobalShortcut.newNoteDefault,
       GlobalShortcut.newLinearIssueDefault
-    ] + GlobalShortcut.newGitHubIssueFallbacks + GlobalShortcut.openGoogleCalendarFallbacks
+    ] + GlobalShortcut.newGitHubIssueFallbacks
+      + GlobalShortcut.openGoogleCalendarFallbacks
+      + GlobalShortcut.newAppleReminderFallbacks
     #expect(Set(shortcuts.map { "\($0.keyCode)-\($0.carbonModifiers)" }).count == shortcuts.count)
   }
 
@@ -33,6 +40,7 @@ struct GlobalShortcutTests {
     #expect(GlobalShortcut.newLinearIssueDefault.carbonModifiers == expectedModifiers)
     #expect(GlobalShortcut.openGoogleCalendarDefault.carbonModifiers == expectedModifiers)
     #expect(GlobalShortcut.newGitHubIssueDefault.carbonModifiers == expectedModifiers)
+    #expect(GlobalShortcut.newAppleReminderDefault.carbonModifiers == expectedModifiers)
   }
 
   @Test func codableRoundTrip() throws {
@@ -47,6 +55,7 @@ struct GlobalShortcutTests {
     #expect(GlobalShortcut.newLinearIssueDefault.displayString.hasSuffix("L"))
     #expect(GlobalShortcut.openGoogleCalendarDefault.displayString.hasSuffix("C"))
     #expect(GlobalShortcut.newGitHubIssueDefault.displayString.hasSuffix("G"))
+    #expect(GlobalShortcut.newAppleReminderDefault.displayString.hasSuffix("R"))
   }
 
   @Test func eventWithoutCommandControlOrOptionIsRejected() {

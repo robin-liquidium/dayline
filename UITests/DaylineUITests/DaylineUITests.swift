@@ -65,6 +65,7 @@ final class DaylineUITests: XCTestCase {
       XCTAssertFalse(updateButton.isEnabled, "Mock Update button should not advertise an unavailable action")
       assertExists("calendar.event.mock-standup")
       assertExists("linear.issue.DAY-104")
+      assertExists("issues.source.reminders")
       assertExists("notes.note.mock-note-1")
       assertNoVisibleScrollBars()
       element("dayline.refresh").click()
@@ -111,6 +112,14 @@ final class DaylineUITests: XCTestCase {
       assertExists("linear.issue.DAY-104")
       assertExists("linear.showMore")
       XCTAssertFalse(element("linear.issue.DAY-121").exists)
+
+      element("issues.source.reminders").click()
+      assertExists("reminders.issue.mock-reminder-1")
+      XCTAssertFalse(element("linear.issue.DAY-104").waitForExistence(timeout: 1))
+      XCTAssertFalse(element("github.issue.mock-gh-1").waitForExistence(timeout: 1))
+
+      element("issues.source.linear").click()
+      assertExists("linear.issue.DAY-104")
     }
 
     XCTContext.runActivity(named: "Expand Linear issue pagination") { _ in
@@ -148,6 +157,16 @@ final class DaylineUITests: XCTestCase {
       )
     }
 
+    XCTContext.runActivity(named: "Change Linear due date through generalized picker state") { _ in
+      let issue = element("linear.issue.DAY-104")
+      XCTAssertTrue((issue.label as String).contains("Due"))
+      issue.hover()
+      app.typeKey("d", modifierFlags: [])
+      assertExists("linear.dueDate.remove.DAY-104")
+      element("linear.dueDate.remove.DAY-104").click()
+      assertLabel(of: issue, doesNotContain: "Due")
+    }
+
     XCTContext.runActivity(named: "Change Linear labels and assignee") { _ in
       let issue = element("linear.issue.DAY-104")
       issue.hover()
@@ -183,6 +202,94 @@ final class DaylineUITests: XCTestCase {
     }
   }
 
+  func testAppleReminderPickersPreviewAndCompletion() throws {
+    try openMenu()
+    element("issues.source.reminders").click()
+
+    let reminder = element("reminders.issue.mock-reminder-1")
+    assertExists("reminders.issue.mock-reminder-1")
+
+    reminder.hover()
+    app.typeKey(.space, modifierFlags: [])
+    assertExists("reminders.preview.mock-reminder-1")
+    app.typeKey(.escape, modifierFlags: [])
+
+    reminder.hover()
+    app.typeKey("p", modifierFlags: [])
+    assertExists("reminders.priority.9")
+    element("reminders.priority.9").click()
+
+    reminder.hover()
+    app.typeKey("p", modifierFlags: [])
+    assertValue(of: element("reminders.priority.9"), equals: "Selected")
+    app.typeKey(.escape, modifierFlags: [])
+
+    reminder.hover()
+    app.typeKey("d", modifierFlags: [])
+    assertExists("reminders.dueDate.remove.mock-reminder-1")
+    element("reminders.dueDate.remove.mock-reminder-1").click()
+    assertLabel(of: reminder, doesNotContain: "Due")
+    element("issues.source.reminders").hover()
+    reminder.hover()
+    app.typeKey("d", modifierFlags: [])
+    XCTAssertFalse(element("reminders.dueDate.remove.mock-reminder-1").exists)
+    assertExists("reminders.dueDate.calendar.mock-reminder-1")
+    app.typeKey(.escape, modifierFlags: [])
+
+    reminder.hover()
+    app.typeKey("l", modifierFlags: [])
+    XCTAssertFalse(element("issue.label.mock-label-bug").waitForExistence(timeout: 1))
+    app.typeKey("a", modifierFlags: [])
+    XCTAssertFalse(element("issue.assignee.mock-user").waitForExistence(timeout: 1))
+
+    let recurring = element("reminders.issue.mock-reminder-2")
+    recurring.hover()
+    app.typeKey("d", modifierFlags: [])
+    XCTAssertFalse(element("reminders.dueDate.calendar.mock-reminder-2").waitForExistence(timeout: 1))
+
+    if element("reminders.showMore").exists {
+      element("reminders.showMore").click()
+    }
+    let readOnly = element("reminders.issue.mock-reminder-6")
+    scrollIntoView(readOnly)
+    readOnly.hover()
+    app.typeKey("s", modifierFlags: [])
+    XCTAssertFalse(element("reminders.status.completed").waitForExistence(timeout: 1))
+    app.typeKey("p", modifierFlags: [])
+    XCTAssertFalse(element("reminders.priority.9").waitForExistence(timeout: 1))
+    app.typeKey("d", modifierFlags: [])
+    XCTAssertFalse(element("reminders.dueDate.calendar.mock-reminder-6").waitForExistence(timeout: 1))
+
+    scrollIntoView(reminder)
+    reminder.hover()
+    app.typeKey("s", modifierFlags: [])
+    assertExists("reminders.status.completed")
+    element("reminders.status.completed").click()
+    waitForRemoval(reminder)
+
+    attachCheckpoint(
+      "apple-reminder-actions",
+      identifiers: ["issues.source.reminders", "reminders.issue.mock-reminder-2"],
+      facts: ["preview_opened=true", "priority_changed=true", "due_date_removed=true", "completed=true"]
+    )
+  }
+
+  func testRemindersOnlyUsesSingleProviderHeading() throws {
+    app.terminate()
+    app.launchArguments.append("--mock-issue-providers=reminders")
+    app.launch()
+    try openMenu()
+
+    assertExists("reminders.new")
+    assertExists("reminders.issue.mock-reminder-1")
+    XCTAssertFalse(element("issues.source.reminders").exists)
+    XCTAssertFalse(element("linear.new").exists)
+    XCTAssertFalse(element("github.new").exists)
+    XCTAssertFalse(element("linear.issue.DAY-104").exists)
+    XCTAssertFalse(element("github.issue.mock-gh-1").exists)
+    assertNoVisibleScrollBars()
+  }
+
   func testSwipeDestructiveActionsCancelAndConfirm() throws {
     try openMenu()
     assertNoVisibleScrollBars()
@@ -193,7 +300,7 @@ final class DaylineUITests: XCTestCase {
       assertNoVisibleScrollBars()
       element("linear.cancel.DAY-112").click()
       let cancelButton = app.buttons["Cancel"].firstMatch
-      XCTAssertTrue(cancelButton.waitForExistence(timeout: 3))
+      XCTAssertTrue(cancelButton.waitForExistence(timeout: 5))
       cancelButton.click()
       try? openMenu()
       assertExists("linear.issue.DAY-112")
@@ -281,7 +388,7 @@ final class DaylineUITests: XCTestCase {
     )
   }
 
-  func testCreatesLinearAndGitHubIssues() throws {
+  func testCreatesLinearGitHubAndAppleReminder() throws {
     try openMenu()
 
     element("linear.new").click()
@@ -316,6 +423,64 @@ final class DaylineUITests: XCTestCase {
         .matching(NSPredicate(format: "label BEGINSWITH %@", "Automated GitHub issue"))
         .firstMatch.waitForExistence(timeout: 5)
     )
+
+    element("issues.source.reminders").click()
+    assertExists("reminders.issue.mock-reminder-1")
+    element("reminders.new").click()
+    let reminderTitle = element("reminderEditor.title")
+    XCTAssertTrue(reminderTitle.waitForExistence(timeout: 5))
+    reminderTitle.click()
+    reminderTitle.typeText("Automated Apple Reminder")
+    element("reminderEditor.list").click()
+    app.menuItems["Personal · iCloud"].click()
+    element("reminderEditor.priority").click()
+    app.menuItems["Low"].click()
+    element("reminderEditor.dueDate.add").click()
+    element("reminderEditor.dueTimeEnabled").click()
+    let reminderNotes = element("reminderEditor.notes")
+    reminderNotes.click()
+    reminderNotes.typeText("Created with list, priority, notes, and a timed due date.")
+    assertEnabled("reminderEditor.create")
+    element("reminderEditor.create").click()
+
+    try openMenu()
+    let createdReminder = app.descendants(matching: .any)
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "Automated Apple Reminder"))
+      .firstMatch
+    XCTAssertTrue(createdReminder.waitForExistence(timeout: 5))
+    XCTAssertTrue(createdReminder.label.contains("Low"))
+    XCTAssertTrue(createdReminder.label.contains("Personal"))
+    XCTAssertTrue(createdReminder.label.contains("Due"))
+  }
+
+  func testGlobalReminderShortcutOpensCreator() throws {
+    app.typeKey("r", modifierFlags: [.control, .option, .command])
+    XCTAssertTrue(element("reminderEditor.title").waitForExistence(timeout: 5))
+    assertExists("reminderEditor.list")
+    assertExists("reminderEditor.priority")
+    assertExists("reminderEditor.cancel")
+  }
+
+  func testGlobalReminderShortcutExplainsMissingWritableList() throws {
+    try openMenu()
+    element("dayline.settings").click()
+    XCTAssertTrue(app.windows["settings"].waitForExistence(timeout: 5))
+    let accountsTab = app.staticTexts["Accounts"].firstMatch
+    XCTAssertTrue(accountsTab.waitForExistence(timeout: 5))
+    accountsTab.click()
+
+    let inboxList = element("settings.account.reminders.list.mock-reminders-work")
+    let personalList = element("settings.account.reminders.list.mock-reminders-personal")
+    XCTAssertTrue(inboxList.waitForExistence(timeout: 5))
+    XCTAssertTrue(personalList.waitForExistence(timeout: 5))
+    inboxList.click()
+    personalList.click()
+    app.typeKey("w", modifierFlags: .command)
+
+    app.typeKey("r", modifierFlags: [.control, .option, .command])
+    assertExists("reminderEditor.noWritableList")
+    XCTAssertFalse(element("reminderEditor.create").isEnabled)
+    assertValue(of: element("reminderEditor.list"), equals: "No writable enabled list selected")
   }
 
   func testCreatesComplexMarkdownNote() throws {
@@ -453,7 +618,32 @@ final class DaylineUITests: XCTestCase {
         identifiers: ["settings", "settings.launchAtLogin", "settings.refreshCadence"],
         screenshotElement: app.windows["settings"]
       )
+
+      let calendarTab = app.staticTexts["Calendar"].firstMatch
+      XCTAssertTrue(calendarTab.waitForExistence(timeout: 5))
+      calendarTab.click()
+      assertExists("settings.meetingAlertSnooze")
     }
+  }
+
+  func testMeetingAlertShowsCurrentTimeAndSnoozes() throws {
+    app.terminate()
+    app.launchArguments.append("--mock-meeting-alert")
+    app.launch()
+
+    let alert = element("meetingAlert.view")
+    XCTAssertTrue(alert.waitForExistence(timeout: 5))
+    let currentTime = app.descendants(matching: .any)
+      .matching(NSPredicate(format: "label == %@", "Current time"))
+      .firstMatch
+    XCTAssertTrue(currentTime.waitForExistence(timeout: 5))
+    XCTAssertFalse((currentTime.value as? String ?? "").isEmpty)
+    let snooze = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Snooze ")).firstMatch
+    XCTAssertTrue(snooze.waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["Dismiss"].waitForExistence(timeout: 5))
+
+    snooze.click()
+    XCTAssertFalse(alert.waitForExistence(timeout: 2))
   }
 
   private func openMenu() throws {
@@ -534,6 +724,35 @@ final class DaylineUITests: XCTestCase {
       XCTWaiter.wait(for: [expectation], timeout: timeout),
       .completed,
       "Expected \(element.identifier) value to equal \(expected), got \(String(describing: element.value))",
+      file: file,
+      line: line
+    )
+  }
+
+  private func assertLabel(
+    of element: XCUIElement,
+    doesNotContain text: String,
+    timeout: TimeInterval = 5,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) {
+    guard element.waitForExistence(timeout: timeout) else {
+      XCTFail(
+        "Expected \(element.identifier) to exist before checking that its label does not contain \(text)",
+        file: file,
+        line: line
+      )
+      return
+    }
+
+    let expectation = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "NOT label CONTAINS %@", text),
+      object: element
+    )
+    XCTAssertEqual(
+      XCTWaiter.wait(for: [expectation], timeout: timeout),
+      .completed,
+      "Expected \(element.identifier) label not to contain \(text), got \(element.label)",
       file: file,
       line: line
     )

@@ -11,7 +11,7 @@ struct GoogleAccountRepository {
 
   init(
     defaults: UserDefaults = .standard,
-    credentials: any CredentialStore = KeychainStore(service: "build.local.Dayline.oauth")
+    credentials: any CredentialStore = KeychainStore(service: AppRuntimeConfig.oauthKeychainService)
   ) {
     self.defaults = defaults
     self.credentials = credentials

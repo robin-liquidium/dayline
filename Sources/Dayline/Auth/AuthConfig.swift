@@ -3,34 +3,63 @@ import Foundation
 /// OAuth client identifiers shipped with the app. Client IDs are public
 /// identifiers, not secrets; both providers use PKCE instead of a secret.
 enum AuthConfig {
-  /// Google OAuth client ID (iOS application type, bundle ID `build.local.Dayline`).
+  /// Google OAuth client ID for this packaged app identity.
   static var googleClientID: String {
-    ProcessInfo.processInfo.environment["DAYLINE_GOOGLE_CLIENT_ID"]
-      ?? Bundle.main.object(forInfoDictionaryKey: "DaylineGoogleClientID") as? String
-      ?? bundledGoogleClientID
+    configuredValue(
+      environmentValue: ProcessInfo.processInfo.environment["DAYLINE_GOOGLE_CLIENT_ID"],
+      bundleValue: Bundle.main.object(forInfoDictionaryKey: "DaylineGoogleClientID") as? String,
+      fallback: bundledGoogleClientID,
+      bundleIsAuthoritative: bundleOAuthIsAuthoritative
+    )
   }
 
   /// Linear OAuth client ID (public OAuth app with refresh tokens enabled).
   static var linearClientID: String {
-    ProcessInfo.processInfo.environment["DAYLINE_LINEAR_CLIENT_ID"]
-      ?? Bundle.main.object(forInfoDictionaryKey: "DaylineLinearClientID") as? String
-      ?? bundledLinearClientID
+    configuredValue(
+      environmentValue: ProcessInfo.processInfo.environment["DAYLINE_LINEAR_CLIENT_ID"],
+      bundleValue: Bundle.main.object(forInfoDictionaryKey: "DaylineLinearClientID") as? String,
+      fallback: bundledLinearClientID,
+      bundleIsAuthoritative: bundleOAuthIsAuthoritative
+    )
   }
 
   /// GitHub OAuth client ID (public OAuth app with device flow enabled).
   static var githubClientID: String {
-    ProcessInfo.processInfo.environment["DAYLINE_GITHUB_CLIENT_ID"]
-      ?? Bundle.main.object(forInfoDictionaryKey: "DaylineGitHubClientID") as? String
-      ?? bundledGitHubClientID
+    configuredValue(
+      environmentValue: ProcessInfo.processInfo.environment["DAYLINE_GITHUB_CLIENT_ID"],
+      bundleValue: Bundle.main.object(forInfoDictionaryKey: "DaylineGitHubClientID") as? String,
+      fallback: bundledGitHubClientID,
+      bundleIsAuthoritative: bundleOAuthIsAuthoritative
+    )
   }
 
   /// URL scheme Linear redirects back to after authorization. Dev builds use a
   /// distinct scheme so LaunchServices delivers the callback to the dev app
   /// instead of an installed production build.
   static var linearCallbackScheme: String {
-    ProcessInfo.processInfo.environment["DAYLINE_LINEAR_CALLBACK_SCHEME"]
-      ?? Bundle.main.object(forInfoDictionaryKey: "DaylineLinearCallbackScheme") as? String
-      ?? "dayline"
+    configuredValue(
+      environmentValue: ProcessInfo.processInfo.environment["DAYLINE_LINEAR_CALLBACK_SCHEME"],
+      bundleValue: Bundle.main.object(forInfoDictionaryKey: "DaylineLinearCallbackScheme") as? String,
+      fallback: "dayline",
+      bundleIsAuthoritative: bundleOAuthIsAuthoritative
+    )
+  }
+
+  /// Resolves embedded Dev OAuth metadata ahead of inherited shell variables.
+  static func configuredValue(
+    environmentValue: String?,
+    bundleValue: String?,
+    fallback: String,
+    bundleIsAuthoritative: Bool
+  ) -> String {
+    if bundleIsAuthoritative {
+      return bundleValue ?? ""
+    }
+    return environmentValue ?? bundleValue ?? fallback
+  }
+
+  private static var bundleOAuthIsAuthoritative: Bool {
+    Bundle.main.object(forInfoDictionaryKey: "DaylineOAuthConfigurationIsAuthoritative") as? Bool == true
   }
 
   /// Bundled Google OAuth client ID, empty until configured for distribution.

@@ -40,6 +40,7 @@ jobs:
         run: |
           bash -n script/*.sh
           bash script/notarization_release_test.sh
+          bash script/app_bundle_contract_test.sh
           ruby -e 'require "yaml"; %w[ci release notarization-continuation].each { |name| YAML.load_file(".github/workflows/#{name}.yml") }'
           git diff --check
           if ./script/tag_release.sh 1.2.3-beta >/dev/null 2>&1; then exit 1; fi

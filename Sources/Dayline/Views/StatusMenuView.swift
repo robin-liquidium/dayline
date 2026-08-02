@@ -50,7 +50,8 @@ struct StatusMenuView: View {
             IssuesSection(
               activeSource: activeSource,
               openNewIssue: { openLinearIssueCreator() },
-              openNewGitHubIssue: { openGitHubIssueCreator() }
+              openNewGitHubIssue: { openGitHubIssueCreator() },
+              openNewAppleReminder: { openAppleReminderCreator() }
             )
           }
 
@@ -110,7 +111,7 @@ struct StatusMenuView: View {
   /// Header row with title, freshness, and refresh action.
   private var header: some View {
     HStack(spacing: 10) {
-      DaylineWordmark()
+      DaylineWordmark(textOverride: AppRuntimeConfig.isDevelopmentInstall ? "Dev" : nil)
       .accessibilityElement(children: .ignore)
       .accessibilityLabel("Dayline")
 
@@ -131,7 +132,7 @@ struct StatusMenuView: View {
       .buttonStyle(.plain)
       .help("Refresh")
       .accessibilityLabel("Refresh")
-      .accessibilityHint("Refresh calendar events and Linear issues")
+      .accessibilityHint("Refresh calendar events, issues, reminders, and notes")
       .accessibilityIdentifier("dayline.refresh")
       .disabled(store.isRefreshing)
       .onHover { isHovered in
@@ -236,12 +237,21 @@ struct StatusMenuView: View {
     let eventRows = store.isCalendarSectionVisible ? CGFloat(max(store.events.count, 1)) * eventRowEstimate : 0
     let tomorrowRows = store.isCalendarSectionVisible && store.isTomorrowExpanded
       ? CGFloat(max(store.tomorrowEvents.count, 1)) * eventRowEstimate + 34 : 0
-    let bothIssueSourcesAvailable = store.availableIssueSources.count > 1
-    let visibleIssueCount = bothIssueSourcesAvailable
-      ? max(store.issues.count, store.githubIssues.count)
-      : (store.activeIssueSource == .github ? store.githubIssues.count : store.issues.count)
+    let issueCounts: [IssueSource: Int] = [
+      .linear: store.issues.count,
+      .github: store.githubIssues.count,
+      .reminders: store.appleReminders.count
+    ]
+    let visibleIssueCount = store.availableIssueSources.count > 1
+      ? store.availableIssueSources.map { issueCounts[$0, default: 0] }.max() ?? 0
+      : store.activeIssueSource.map { issueCounts[$0, default: 0] } ?? 0
     let issueRows = store.isIssuesSectionVisible ? CGFloat(max(visibleIssueCount, 1)) * workItemRowHeight : 0
-    let issueMoreRow: CGFloat = store.isIssuesSectionVisible && store.availableIssueSources.contains(.linear) && (store.hasMoreIssues || store.hasExpandedIssues) ? 34 : 0
+    let hasIssueMoreRow = switch store.activeIssueSource {
+    case .linear: store.hasMoreIssues || store.hasExpandedIssues
+    case .reminders: store.hasMoreAppleReminders || store.hasExpandedAppleReminders
+    case .github, nil: false
+    }
+    let issueMoreRow: CGFloat = store.isIssuesSectionVisible && hasIssueMoreRow ? 34 : 0
     let noteRows = store.showsNotesSection ? CGFloat(max(store.notes.count, 1)) * workItemRowHeight : 0
     let noteMoreRow: CGFloat = store.showsNotesSection && (store.hasMoreNotes || store.hasExpandedNotes) ? 34 : 0
     return 108 + setupRows + eventRows + tomorrowRows + issueRows + issueMoreRow + noteRows + noteMoreRow
@@ -312,6 +322,14 @@ struct StatusMenuView: View {
     store.requestGitHubIssueCreation()
     openWindow(id: "githubIssueCreator")
     GitHubIssueEditorWindowPresenter.bringIssueWindowToFront()
+  }
+
+  /// Opens the Apple Reminder creator window and brings the accessory app forward.
+  private func openAppleReminderCreator() {
+    guard store.canCreateAppleReminder else { return }
+    store.requestAppleReminderCreation()
+    openWindow(id: "appleReminderCreator")
+    AppleReminderEditorWindowPresenter.bringReminderWindowToFront()
   }
 }
 
@@ -430,7 +448,7 @@ private struct DismissProviderButton: View {
   }
 }
 
-/// Issues section with a tab switcher when both providers are connected.
+/// Work-item section with a tab switcher when multiple providers are connected.
 private struct IssuesSection: View {
   @EnvironmentObject private var store: StatusStore
 
@@ -442,6 +460,9 @@ private struct IssuesSection: View {
 
   /// Action run when the user creates a new GitHub issue.
   let openNewGitHubIssue: () -> Void
+
+  /// Action run when the user creates a new Apple Reminder.
+  let openNewAppleReminder: () -> Void
 
   /// Builds the issues section.
   var body: some View {
@@ -455,25 +476,37 @@ private struct IssuesSection: View {
 
         Spacer(minLength: 0)
 
-        if activeSource == .linear {
+        switch activeSource {
+        case .linear:
           newIssueButton(
             action: openNewIssue,
             controlID: .newLinearIssue,
             help: "New Linear issue",
             identifier: "linear.new"
           )
-        } else {
+        case .github:
           newIssueButton(
             action: openNewGitHubIssue,
             controlID: .newGitHubIssue,
             help: "New GitHub issue",
             identifier: "github.new"
           )
+        case .reminders:
+          newIssueButton(
+            action: openNewAppleReminder,
+            controlID: .newAppleReminder,
+            help: store.canCreateAppleReminder
+              ? "New Apple Reminder"
+              : "Enable a writable Reminders list in Settings",
+            identifier: "reminders.new",
+            isEnabled: store.canCreateAppleReminder
+          )
         }
       }
 
       ZStack(alignment: .topLeading) {
-        if activeSource == .github {
+        switch activeSource {
+        case .github:
           GitHubSection(
             issues: store.githubIssues,
             error: store.githubError,
@@ -481,15 +514,21 @@ private struct IssuesSection: View {
             copiedIssueTarget: store.copiedIssueTarget
           )
           .transition(.opacity)
-        } else {
+        case .linear:
           LinearSection(
             issues: store.issues,
             error: store.linearError,
             hoveredIssueTarget: store.hoveredIssueTarget,
             copiedIssueTarget: store.copiedIssueTarget,
             updatingIssueTarget: store.updatingIssueTarget,
-            updatingPriorityIssueID: store.updatingPriorityIssueID,
-            updatingDueDateIssueID: store.updatingDueDateIssueID
+            updatingPriorityTarget: store.updatingPriorityTarget,
+            updatingDueDateTarget: store.updatingDueDateTarget
+          )
+          .transition(.opacity)
+        case .reminders:
+          AppleRemindersSection(
+            reminders: store.appleReminders,
+            error: store.appleRemindersError
           )
           .transition(.opacity)
         }
@@ -503,7 +542,8 @@ private struct IssuesSection: View {
     action: @escaping () -> Void,
     controlID: MenuControlID,
     help: String,
-    identifier: String
+    identifier: String,
+    isEnabled: Bool = true
   ) -> some View {
     Button(action: action) {
       Image(systemName: "plus")
@@ -514,8 +554,9 @@ private struct IssuesSection: View {
     .buttonStyle(.plain)
     .help(help)
     .accessibilityLabel(help)
-    .accessibilityHint("Create an issue")
+    .accessibilityHint("Open the creation window")
     .accessibilityIdentifier(identifier)
+    .disabled(!isEnabled)
     .onHover { isHovered in
       store.setHoveredControl(isHovered ? controlID : nil)
     }
@@ -524,19 +565,23 @@ private struct IssuesSection: View {
 
 /// Spinner row shown in an issue section while a refresh is in flight.
 private struct LoadingIssuesRow: View {
+  var title = "Loading issues..."
+  var accessibilityTitle = "Loading issues"
+  var identifier = "issues.loading"
+
   var body: some View {
     HStack(spacing: 8) {
       ProgressView()
         .controlSize(.small)
-      Text("Loading issues...")
+      Text(title)
         .font(.callout)
         .foregroundStyle(.secondary)
     }
     .frame(maxWidth: .infinity, alignment: .center)
     .padding(.vertical, 8)
     .accessibilityElement(children: .combine)
-    .accessibilityLabel("Loading issues")
-    .accessibilityIdentifier("issues.loading")
+    .accessibilityLabel(accessibilityTitle)
+    .accessibilityIdentifier(identifier)
   }
 }
 
@@ -1102,7 +1147,8 @@ private struct PriorityPickerPopover: View {
       VStack(alignment: .leading, spacing: 0) {
         ForEach(LinearPriorityOption.allCases) { priority in
           PickerOptionRow(
-            isDisabled: priority.value == issue.priority || store.updatingPriorityIssueID == issue.id,
+            isDisabled: priority.value == issue.priority
+              || store.updatingPriorityTarget == .linear(issue.id),
             action: {
               Task {
                 await store.changeIssuePriority(issueID: issue.id, priority: priority)
@@ -1179,7 +1225,7 @@ private struct DueDatePickerPopover: View {
       Divider()
 
       GraphicalDatePicker(selection: $selectedDate)
-        .disabled(store.updatingDueDateIssueID == issue.id)
+        .disabled(store.updatingDueDateTarget == .linear(issue.id))
         .accessibilityIdentifier("linear.dueDate.calendar.\(issue.id)")
 
       if issue.dueDate != nil {
@@ -1190,13 +1236,13 @@ private struct DueDatePickerPopover: View {
             .font(.caption)
         }
         .buttonStyle(.plain)
-        .disabled(store.updatingDueDateIssueID == issue.id)
+        .disabled(store.updatingDueDateTarget == .linear(issue.id))
         .accessibilityIdentifier("linear.dueDate.remove.\(issue.id)")
       }
     }
     .padding(12)
     .onChange(of: selectedDate) { _, newDate in
-      guard store.updatingDueDateIssueID != issue.id else { return }
+      guard store.updatingDueDateTarget != .linear(issue.id) else { return }
       Task { await store.changeIssueDueDate(issueID: issue.id, dueDate: newDate) }
     }
   }
@@ -1399,10 +1445,10 @@ private struct LinearSection: View {
   let updatingIssueTarget: IssueActionTarget?
 
   /// Identifier for the issue whose priority is being updated.
-  let updatingPriorityIssueID: LinearIssueItem.ID?
+  let updatingPriorityTarget: IssueActionTarget?
 
   /// Identifier for the issue whose due date is being updated.
-  let updatingDueDateIssueID: LinearIssueItem.ID?
+  let updatingDueDateTarget: IssueActionTarget?
 
   /// Builds the Linear section.
   var body: some View {
@@ -1426,8 +1472,8 @@ private struct LinearSection: View {
               isHovered: hoveredIssueTarget == .linear(issue.id),
               isCopied: copiedIssueTarget == .linear(issue.id),
               isUpdating: updatingIssueTarget == .linear(issue.id)
-                || updatingPriorityIssueID == issue.id
-                || updatingDueDateIssueID == issue.id,
+                || updatingPriorityTarget == .linear(issue.id)
+                || updatingDueDateTarget == .linear(issue.id),
               copyHotkey: store.copyIssueHotkey,
               statusHotkey: store.statusPickerHotkey,
               priorityHotkey: store.priorityPickerHotkey,
@@ -1512,9 +1558,9 @@ private struct LinearSection: View {
   /// Binding that anchors the priority chooser to its selected issue row.
   private func priorityPickerBinding(for issueID: LinearIssueItem.ID) -> Binding<Bool> {
     Binding(
-      get: { store.priorityPickerIssueID == issueID },
+      get: { store.priorityPickerTarget == .linear(issueID) },
       set: { isPresented in
-        if !isPresented, store.priorityPickerIssueID == issueID {
+        if !isPresented, store.priorityPickerTarget == .linear(issueID) {
           store.dismissPriorityPicker()
         }
       }
@@ -1524,9 +1570,9 @@ private struct LinearSection: View {
   /// Binding that anchors the due date chooser to its selected issue row.
   private func dueDatePickerBinding(for issueID: LinearIssueItem.ID) -> Binding<Bool> {
     Binding(
-      get: { store.dueDatePickerIssueID == issueID },
+      get: { store.dueDatePickerTarget == .linear(issueID) },
       set: { isPresented in
-        if !isPresented, store.dueDatePickerIssueID == issueID {
+        if !isPresented, store.dueDatePickerTarget == .linear(issueID) {
           store.dismissDueDatePicker()
         }
       }
@@ -1628,6 +1674,378 @@ private struct GitHubSection: View {
 
   private func assigneePickerBinding(for target: IssueActionTarget) -> Binding<Bool> {
     Binding(get: { store.assigneePickerTarget == target }, set: { if !$0 { store.dismissAssigneePicker() } })
+  }
+}
+
+/// Apple Reminders section listing incomplete reminders from selected lists.
+private struct AppleRemindersSection: View {
+  @EnvironmentObject private var store: StatusStore
+
+  let reminders: [AppleReminderItem]
+  let error: String?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      if let error {
+        MessageRow(title: "Apple Reminders unavailable", detail: error)
+          .transition(.opacity)
+      } else if reminders.isEmpty {
+        if store.isRefreshing {
+          LoadingIssuesRow(
+            title: "Loading reminders...",
+            accessibilityTitle: "Loading reminders",
+            identifier: "reminders.loading"
+          )
+            .transition(.opacity)
+        } else {
+          MessageRow(title: "No incomplete reminders", detail: nil)
+            .transition(.opacity)
+        }
+      } else {
+        VStack(alignment: .leading, spacing: 0) {
+          ForEach(reminders) { reminder in
+            AppleReminderRow(reminder: reminder)
+              .onHover { isHovered in
+                store.setHoveredIssue(isHovered ? .reminder(reminder.id) : nil)
+              }
+              .popover(isPresented: statusPickerBinding(for: reminder.id), arrowEdge: .trailing) {
+                AppleReminderStatusPickerPopover(reminder: reminder)
+                  .environmentObject(store)
+              }
+              .popover(isPresented: priorityPickerBinding(for: reminder.id), arrowEdge: .trailing) {
+                AppleReminderPriorityPickerPopover(reminder: reminder)
+                  .environmentObject(store)
+              }
+              .popover(isPresented: dueDatePickerBinding(for: reminder.id), arrowEdge: .trailing) {
+                AppleReminderDueDatePickerPopover(reminder: reminder)
+                  .environmentObject(store)
+              }
+              .popover(isPresented: previewBinding(for: reminder.id), arrowEdge: .trailing) {
+                AppleReminderPreviewPopover(reminder: reminder)
+              }
+          }
+
+          if store.hasMoreAppleReminders || store.hasExpandedAppleReminders {
+            MoreIssuesControls(
+              canShowMore: store.hasMoreAppleReminders,
+              canShowLess: store.hasExpandedAppleReminders,
+              showMoreTitle: store.showMoreAppleRemindersLabel,
+              providerName: "Apple Reminders",
+              identifierPrefix: "reminders"
+            ) {
+              store.showMoreAppleReminders()
+            } showLess: {
+              store.showFewerAppleReminders()
+            }
+          }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+    }
+    .animation(.smooth(duration: 0.2), value: reminders.isEmpty)
+    .animation(.smooth(duration: 0.2), value: store.isRefreshing)
+  }
+
+  private func statusPickerBinding(for id: String) -> Binding<Bool> {
+    Binding(
+      get: { store.statusPickerTarget == .reminder(id) },
+      set: { if !$0, store.statusPickerTarget == .reminder(id) { store.dismissStatusPicker() } }
+    )
+  }
+
+  private func priorityPickerBinding(for id: String) -> Binding<Bool> {
+    Binding(
+      get: { store.priorityPickerTarget == .reminder(id) },
+      set: { if !$0, store.priorityPickerTarget == .reminder(id) { store.dismissPriorityPicker() } }
+    )
+  }
+
+  private func dueDatePickerBinding(for id: String) -> Binding<Bool> {
+    Binding(
+      get: { store.dueDatePickerTarget == .reminder(id) },
+      set: { if !$0, store.dueDatePickerTarget == .reminder(id) { store.dismissDueDatePicker() } }
+    )
+  }
+
+  private func previewBinding(for id: String) -> Binding<Bool> {
+    let target = PreviewTarget.issue(.reminder(id))
+    return Binding(
+      get: { store.previewTarget == target },
+      set: { if !$0, store.previewTarget == target { store.dismissPreview() } }
+    )
+  }
+}
+
+/// Binary incomplete/completed status selector for an Apple Reminder.
+private struct AppleReminderStatusPickerPopover: View {
+  @EnvironmentObject private var store: StatusStore
+  let reminder: AppleReminderItem
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Change Status").font(.headline)
+      Text(reminder.title).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+      Divider()
+      PickerOptionRow(isDisabled: true, action: {}) {
+        Label("Incomplete", systemImage: "checkmark")
+      }
+      .accessibilityValue("Selected")
+      .accessibilityIdentifier("reminders.status.incomplete")
+      PickerOptionRow(isDisabled: store.updatingIssueTarget == .reminder(reminder.id)) {
+        Task { await store.completeAppleReminder(id: reminder.id) }
+      } content: {
+        Label("Completed", systemImage: "checkmark.circle.fill")
+      }
+      .accessibilityIdentifier("reminders.status.completed")
+    }
+    .padding(12)
+    .frame(width: 240)
+  }
+}
+
+/// Priority selector backed by Apple Reminders' native four priority levels.
+private struct AppleReminderPriorityPickerPopover: View {
+  @EnvironmentObject private var store: StatusStore
+  let reminder: AppleReminderItem
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Change Priority").font(.headline)
+      Text(reminder.title).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+      Divider()
+      ForEach(AppleReminderPriority.allCases) { priority in
+        PickerOptionRow(
+          isDisabled: priority == reminder.priority
+            || store.updatingPriorityTarget == .reminder(reminder.id),
+          action: {
+            Task { await store.changeAppleReminderPriority(id: reminder.id, priority: priority) }
+          }
+        ) {
+          HStack(spacing: 8) {
+            Image(systemName: priority == reminder.priority ? "checkmark" : priorityStyle(priority).systemImage)
+              .frame(width: 16)
+              .foregroundStyle(priorityStyle(priority).color)
+            Text(priority.label)
+            Spacer(minLength: 0)
+          }
+        }
+        .accessibilityValue(priority == reminder.priority ? "Selected" : "Not selected")
+        .accessibilityIdentifier("reminders.priority.\(priority.rawValue)")
+      }
+    }
+    .padding(12)
+    .frame(width: 240)
+  }
+}
+
+/// Date-only editor for a nonrecurring Apple Reminder, preserving any existing due time.
+private struct AppleReminderDueDatePickerPopover: View {
+  @EnvironmentObject private var store: StatusStore
+  let reminder: AppleReminderItem
+  @State private var selectedDate: Date
+
+  init(reminder: AppleReminderItem) {
+    self.reminder = reminder
+    _selectedDate = State(initialValue: reminder.dueDate?.date ?? Calendar.current.startOfDay(for: Date()))
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Change Due Date").font(.headline)
+      Text(reminder.title).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+      Divider()
+      GraphicalDatePicker(selection: $selectedDate)
+        .disabled(store.updatingDueDateTarget == .reminder(reminder.id))
+        .accessibilityIdentifier("reminders.dueDate.calendar.\(reminder.id)")
+
+      if reminder.dueDate != nil {
+        Button(role: .destructive) {
+          Task { await store.changeAppleReminderDueDate(id: reminder.id, dueDate: nil) }
+        } label: {
+          Label("Remove due date", systemImage: "xmark.circle")
+            .font(.caption)
+        }
+        .buttonStyle(.plain)
+        .disabled(store.updatingDueDateTarget == .reminder(reminder.id))
+        .accessibilityIdentifier("reminders.dueDate.remove.\(reminder.id)")
+      }
+    }
+    .padding(12)
+    .onChange(of: selectedDate) { _, newDate in
+      guard store.updatingDueDateTarget != .reminder(reminder.id) else { return }
+      Task { await store.changeAppleReminderDueDate(id: reminder.id, dueDate: newDate) }
+    }
+  }
+}
+
+/// One compact Apple Reminder row with provider-supported metadata and actions.
+private struct AppleReminderRow: View {
+  @EnvironmentObject private var store: StatusStore
+  let reminder: AppleReminderItem
+
+  private var target: IssueActionTarget { .reminder(reminder.id) }
+
+  var body: some View {
+    Button {
+      store.setHoveredIssue(target)
+      _ = store.presentPreviewForHovered()
+    } label: {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(reminder.title.compactLine(limit: 72))
+          .font(.callout.weight(.semibold))
+          .foregroundStyle(.primary)
+          .lineLimit(1)
+          .multilineTextAlignment(.leading)
+
+        HStack(spacing: 6) {
+          MetadataPill(title: "Incomplete", systemImage: "circle", color: .secondary)
+
+          let style = priorityStyle(reminder.priority)
+          MetadataPill(
+            title: reminder.priority.label,
+            systemImage: style.systemImage,
+            color: style.color
+          )
+
+          MetadataPill(title: reminder.listTitle, systemImage: "list.bullet", color: .secondary)
+
+          if let dueDate = reminder.dueDate, store.issueRowFields.contains(.dueDate) {
+            MetadataPill(
+              title: DisplayFormatters.appleReminderDueDate(dueDate),
+              systemImage: "calendar",
+              color: dueDate.isOverdue() ? .red : .secondary
+            )
+          }
+
+          if reminder.isRecurring {
+            MetadataPill(title: "Repeats", systemImage: "repeat", color: .secondary)
+          }
+
+          if !reminder.allowsModifications {
+            MetadataPill(title: "Read-only", systemImage: "lock", color: .secondary)
+          }
+
+          if store.copiedIssueTarget == target {
+            Spacer(minLength: 0)
+            Label("Copied", systemImage: "checkmark")
+              .font(.caption)
+              .foregroundStyle(.green)
+          }
+
+          if store.updatingIssueTarget == target
+              || store.updatingPriorityTarget == target
+              || store.updatingDueDateTarget == target {
+            Spacer(minLength: 0)
+            ProgressView().controlSize(.small)
+          }
+        }
+      }
+      .padding(.horizontal, 16)
+      .padding(.vertical, 3)
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+      .background {
+        if store.hoveredIssueTarget == target {
+          RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(Color.primary.opacity(0.06))
+        }
+      }
+    }
+    .buttonStyle(.plain)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(accessibilityLabel)
+    .accessibilityHint(accessibilityHint)
+    .accessibilityIdentifier("reminders.issue.\(reminder.id)")
+    .frame(height: workItemRowHeight)
+    .contextMenu {
+      if reminder.allowsModifications {
+        Button("Mark Completed", systemImage: "checkmark.circle") {
+          Task { await store.completeAppleReminder(id: reminder.id) }
+        }
+        .accessibilityIdentifier("reminders.completeContext.\(reminder.id)")
+      }
+    }
+    .modifier(AppleReminderAccessibilityActions(reminder: reminder))
+  }
+
+  private var accessibilityLabel: String {
+    var parts = [reminder.title, "Incomplete", reminder.priority.label, reminder.listTitle]
+    if let dueDate = reminder.dueDate {
+      parts.append("Due \(DisplayFormatters.appleReminderDueDate(dueDate))")
+    }
+    if !reminder.allowsModifications { parts.append("Read-only") }
+    return parts.joined(separator: ", ")
+  }
+
+  private var accessibilityHint: String {
+    guard reminder.allowsModifications else {
+      return "Show reminder details. This Reminders list is read-only."
+    }
+    let copyHint = reminder.url == nil
+      ? ""
+      : ", \(store.copyIssueHotkey.uppercased()) to copy its attached URL"
+    let dueHint = reminder.isRecurring
+      ? ""
+      : ", or \(store.dueDatePickerHotkey.uppercased()) for due date"
+    return "Show reminder details. While hovering, press Space to preview\(copyHint), \(store.statusPickerHotkey.uppercased()) for status, \(store.priorityPickerHotkey.uppercased()) for priority\(dueHint)."
+  }
+}
+
+/// Provider-supported reminder mutations exposed as named VoiceOver actions.
+private struct AppleReminderAccessibilityActions: ViewModifier {
+  @EnvironmentObject private var store: StatusStore
+  let reminder: AppleReminderItem
+
+  @ViewBuilder
+  func body(content: Content) -> some View {
+    if reminder.allowsModifications, !reminder.isRecurring {
+      let target = IssueActionTarget.reminder(reminder.id)
+      content
+        .accessibilityAction(named: "Mark completed") {
+          Task { await store.completeAppleReminder(id: reminder.id) }
+        }
+        .accessibilityAction(named: "Change status") {
+          store.setHoveredIssue(target)
+          _ = store.presentStatusPickerForHoveredIssue()
+        }
+        .accessibilityAction(named: "Change priority") {
+          store.setHoveredIssue(target)
+          _ = store.presentPriorityPickerForHoveredIssue()
+        }
+        .accessibilityAction(named: "Change due date") {
+          store.setHoveredIssue(target)
+          _ = store.presentDueDatePickerForHoveredIssue()
+        }
+    } else if reminder.allowsModifications {
+      let target = IssueActionTarget.reminder(reminder.id)
+      content
+        .accessibilityAction(named: "Mark completed") {
+          Task { await store.completeAppleReminder(id: reminder.id) }
+        }
+        .accessibilityAction(named: "Change status") {
+          store.setHoveredIssue(target)
+          _ = store.presentStatusPickerForHoveredIssue()
+        }
+        .accessibilityAction(named: "Change priority") {
+          store.setHoveredIssue(target)
+          _ = store.presentPriorityPickerForHoveredIssue()
+        }
+    } else {
+      content
+    }
+  }
+}
+
+/// Shared visual treatment for Apple Reminders priority metadata and options.
+private func priorityStyle(_ priority: AppleReminderPriority) -> MetadataStyle {
+  switch priority {
+  case .high:
+    MetadataStyle(systemImage: "exclamationmark.circle.fill", color: .orange)
+  case .medium:
+    MetadataStyle(systemImage: "equal.circle.fill", color: .yellow)
+  case .low:
+    MetadataStyle(systemImage: "arrow.down.circle.fill", color: .secondary)
+  case .none:
+    MetadataStyle(systemImage: "ellipsis.circle", color: .secondary)
   }
 }
 
@@ -1906,6 +2324,12 @@ private struct MoreIssuesControls: View {
   /// Reveal-more button title.
   let showMoreTitle: String
 
+  /// Provider name used by assistive technologies.
+  var providerName = "Linear"
+
+  /// Stable provider-specific accessibility identifier prefix.
+  var identifierPrefix = "linear"
+
   /// Action run when the user asks for more issues.
   let showMore: () -> Void
 
@@ -1933,8 +2357,8 @@ private struct MoreIssuesControls: View {
           store.setHoveredControl(isHovered ? .moreIssues : nil)
         }
         .accessibilityLabel(showMoreTitle)
-        .accessibilityHint("Show more Linear issues")
-        .accessibilityIdentifier("linear.showMore")
+        .accessibilityHint("Show more \(providerName) items")
+        .accessibilityIdentifier("\(identifierPrefix).showMore")
       }
 
       Spacer(minLength: 0)
@@ -1957,8 +2381,8 @@ private struct MoreIssuesControls: View {
           store.setHoveredControl(isHovered ? .fewerIssues : nil)
         }
         .accessibilityLabel("Show less")
-        .accessibilityHint("Collapse extra Linear issues")
-        .accessibilityIdentifier("linear.showLess")
+        .accessibilityHint("Collapse extra \(providerName) items")
+        .accessibilityIdentifier("\(identifierPrefix).showLess")
       }
     }
     .padding(.horizontal, 10)

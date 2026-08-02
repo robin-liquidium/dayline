@@ -163,9 +163,8 @@ final class DiagnosticLogRecorder: @unchecked Sendable {
     }
 
     let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-    let appFolder = Bundle.main.bundleIdentifier == "build.local.DaylineMock" ? "Dayline Mock" : "Dayline"
     return root
-      .appendingPathComponent(appFolder, isDirectory: true)
+      .appendingPathComponent(AppRuntimeConfig.applicationSupportFolderName, isDirectory: true)
       .appendingPathComponent("Diagnostics", isDirectory: true)
   }
 }

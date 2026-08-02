@@ -45,59 +45,104 @@ struct IssuesSettingsTab: View {
       }
 
       Section {
+        if store.appleRemindersConnected {
+          Picker("Default list", selection: appleReminderDefaultListBinding) {
+            if !store.writableAppleReminderLists.contains(where: {
+              $0.id == store.appleReminderCreateDefaultListID
+            }) {
+              Text("No writable enabled list").tag(store.appleReminderCreateDefaultListID)
+            }
+            ForEach(store.writableAppleReminderLists) { list in
+              Text("\(list.title) · \(list.sourceName)").tag(list.id)
+            }
+          }
+          .disabled(store.writableAppleReminderLists.isEmpty)
+          .accessibilityIdentifier("settings.appleReminderDefaultList")
+
+          LabeledContent("Default priority") {
+            ColoredMenuPicker(
+              selection: appleReminderDefaultPriorityBinding,
+              items: AppleReminderPriority.allCases.map { priority in
+                let style = appleReminderPriorityStyle(priority)
+                return ColoredMenuPickerItem(
+                  tag: String(priority.rawValue),
+                  title: priority.label,
+                  symbolName: style.systemImage,
+                  color: style.color
+                )
+              }
+            )
+          }
+          .accessibilityIdentifier("settings.appleReminderDefaultPriority")
+        } else {
+          Text("Connect Apple Reminders in Accounts to configure new reminder defaults.")
+            .foregroundStyle(.secondary)
+        }
+      } header: {
+        Label("New Apple Reminder Defaults", systemImage: "checklist")
+      }
+
+      Section {
         Toggle("Show issues in menu", isOn: showsLinearSectionBinding)
           .accessibilityIdentifier("settings.showsLinearSection")
 
-        Picker("Linear issue order", selection: linearIssueOrderBinding) {
-          ForEach(LinearIssueOrder.allCases) { order in
-            Text(order.label).tag(order)
+        if isLinearConnected {
+          Picker("Linear issue order", selection: linearIssueOrderBinding) {
+            ForEach(LinearIssueOrder.allCases) { order in
+              Text(order.label).tag(order)
+            }
           }
+          .accessibilityIdentifier("settings.linearIssueOrder")
         }
-        .accessibilityIdentifier("settings.linearIssueOrder")
       } header: {
         Label("Menu", systemImage: "list.bullet")
       }
 
       Section {
-        Toggle("Assignee", isOn: issueRowFieldBinding(for: .assignee))
-          .accessibilityIdentifier("settings.issueRowFieldAssignee")
-        Toggle("Labels", isOn: issueRowFieldBinding(for: .labels))
-          .accessibilityIdentifier("settings.issueRowFieldLabels")
-        Toggle("Project (Linear)", isOn: issueRowFieldBinding(for: .project))
-          .accessibilityIdentifier("settings.issueRowFieldProject")
-        Toggle("Last updated", isOn: issueRowFieldBinding(for: .updated))
-          .accessibilityIdentifier("settings.issueRowFieldUpdated")
-        Toggle("Due date (Linear)", isOn: issueRowFieldBinding(for: .dueDate))
-          .accessibilityIdentifier("settings.issueRowFieldDueDate")
+        if isLinearConnected || isGitHubConnected {
+          Toggle("Assignee", isOn: issueRowFieldBinding(for: .assignee))
+            .accessibilityIdentifier("settings.issueRowFieldAssignee")
+          Toggle("Labels", isOn: issueRowFieldBinding(for: .labels))
+            .accessibilityIdentifier("settings.issueRowFieldLabels")
+        }
+        if isLinearConnected {
+          Toggle("Project (Linear)", isOn: issueRowFieldBinding(for: .project))
+            .accessibilityIdentifier("settings.issueRowFieldProject")
+        }
+        if isLinearConnected || isGitHubConnected {
+          Toggle("Last updated", isOn: issueRowFieldBinding(for: .updated))
+            .accessibilityIdentifier("settings.issueRowFieldUpdated")
+        }
+        if isLinearConnected || store.appleRemindersConnected {
+          Toggle("Due date", isOn: issueRowFieldBinding(for: .dueDate))
+            .accessibilityIdentifier("settings.issueRowFieldDueDate")
+        }
       } header: {
         Label("Row Fields", systemImage: "text.line.first.and.arrowtriangle.forward")
       }
 
-      Section {
-        if isLinearConnected {
-          Picker("Linear issues", selection: linearIssueFilterBinding) {
-            ForEach(IssueAssigneeFilter.allCases) { filter in
-              Text(filter.label).tag(filter)
+      if isLinearConnected || isGitHubConnected {
+        Section {
+          if isLinearConnected {
+            Picker("Linear issues", selection: linearIssueFilterBinding) {
+              ForEach(IssueAssigneeFilter.allCases) { filter in
+                Text(filter.label).tag(filter)
+              }
             }
+            .accessibilityIdentifier("settings.linearIssueFilter")
           }
-          .accessibilityIdentifier("settings.linearIssueFilter")
-        }
 
-        if isGitHubConnected {
-          Picker("GitHub issues", selection: githubIssueFilterBinding) {
-            ForEach(IssueAssigneeFilter.allCases) { filter in
-              Text(filter.label).tag(filter)
+          if isGitHubConnected {
+            Picker("GitHub issues", selection: githubIssueFilterBinding) {
+              ForEach(IssueAssigneeFilter.allCases) { filter in
+                Text(filter.label).tag(filter)
+              }
             }
+            .accessibilityIdentifier("settings.githubIssueFilter")
           }
-          .accessibilityIdentifier("settings.githubIssueFilter")
+        } header: {
+          Label("Shown Issues", systemImage: "line.3.horizontal.decrease.circle")
         }
-
-        if !isLinearConnected && !isGitHubConnected {
-          Text("Connect Linear or GitHub in Accounts to choose which issues appear.")
-            .foregroundStyle(.secondary)
-        }
-      } header: {
-        Label("Shown Issues", systemImage: "line.3.horizontal.decrease.circle")
       }
     }
     .formStyle(.grouped)
@@ -154,6 +199,38 @@ struct IssuesSettingsTab: View {
       get: { store.githubIssueCreateDefaultRepo },
       set: { store.githubIssueCreateDefaultRepo = $0 }
     )
+  }
+
+  /// Binding that persists the list preselected by the Apple Reminder creator.
+  private var appleReminderDefaultListBinding: Binding<String> {
+    Binding(
+      get: { store.appleReminderCreateDefaultListID },
+      set: { store.setAppleReminderCreateDefaultListID($0) }
+    )
+  }
+
+  /// Binding that persists the priority preselected by the Apple Reminder creator.
+  private var appleReminderDefaultPriorityBinding: Binding<String> {
+    Binding(
+      get: { String(store.appleReminderCreateDefaultPriority.rawValue) },
+      set: {
+        store.setAppleReminderCreateDefaultPriority(
+          AppleReminderPriority(eventKitValue: Int($0) ?? 0)
+        )
+      }
+    )
+  }
+
+  /// Visual treatment for Apple Reminders' native priority levels.
+  private func appleReminderPriorityStyle(
+    _ priority: AppleReminderPriority
+  ) -> (systemImage: String, color: Color) {
+    switch priority {
+    case .high: ("exclamationmark.circle.fill", .orange)
+    case .medium: ("equal.circle.fill", .yellow)
+    case .low: ("arrow.down.circle.fill", .secondary)
+    case .none: ("ellipsis.circle", .secondary)
+    }
   }
 
   /// Linear-specific defaults shown when Linear is connected.

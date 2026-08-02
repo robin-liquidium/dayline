@@ -117,7 +117,7 @@ actor OAuthSession {
   /// Creates a session for one provider.
   init(
     provider: AuthProvider,
-    credentials: any CredentialStore = KeychainStore(service: "build.local.Dayline.oauth"),
+    credentials: any CredentialStore = KeychainStore(service: AppRuntimeConfig.oauthKeychainService),
     credentialAccount: String? = nil
   ) {
     self.provider = provider
