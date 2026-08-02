@@ -49,6 +49,54 @@ struct AppleReminderModelsTests {
     #expect(components.minute == 45)
   }
 
+  @Test func timedReminderEarlierTodayIsOverdue() throws {
+    let (calendar, now) = try overdueTestClock()
+    let dueDate = try #require(calendar.date(byAdding: .hour, value: -1, to: now))
+    #expect(AppleReminderDueDate.timed(dueDate, timeZoneIdentifier: nil).isOverdue(
+      at: now,
+      calendar: calendar
+    ))
+  }
+
+  @Test func timedReminderLaterTodayIsNotOverdue() throws {
+    let (calendar, now) = try overdueTestClock()
+    let dueDate = try #require(calendar.date(byAdding: .hour, value: 1, to: now))
+    #expect(!AppleReminderDueDate.timed(dueDate, timeZoneIdentifier: nil).isOverdue(
+      at: now,
+      calendar: calendar
+    ))
+  }
+
+  @Test func dateOnlyReminderDueTodayIsNotOverdue() throws {
+    let (calendar, now) = try overdueTestClock()
+    #expect(!AppleReminderDueDate.dateOnly(year: 2026, month: 8, day: 2).isOverdue(
+      at: now,
+      calendar: calendar
+    ))
+  }
+
+  @Test func dateOnlyReminderDueYesterdayIsOverdue() throws {
+    let (calendar, now) = try overdueTestClock()
+    #expect(AppleReminderDueDate.dateOnly(year: 2026, month: 8, day: 1).isOverdue(
+      at: now,
+      calendar: calendar
+    ))
+  }
+
+  private func overdueTestClock() throws -> (Calendar, Date) {
+    let timeZone = try #require(TimeZone(identifier: "Europe/Berlin"))
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = timeZone
+    let now = try #require(calendar.date(from: DateComponents(
+      timeZone: timeZone,
+      year: 2026,
+      month: 8,
+      day: 2,
+      hour: 12
+    )))
+    return (calendar, now)
+  }
+
   @Test func listSelectionsSurviveIdentifierChangesOnlyWhenFallbackIsUnique() {
     let original = AppleReminderList(
       id: "old-id",

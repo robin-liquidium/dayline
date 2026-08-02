@@ -54,7 +54,9 @@ Linear issues also support `P` for priority and `D` for due date. The shortcuts 
 
 Apple Reminders can occupy the same section instead of, or alongside, Linear
 and GitHub. Dayline can show selected reminder lists, create reminders, mark
-them complete, and change priority or due date without leaving the menu.
+them complete, and change priority or due date without leaving the menu when
+the reminder and its list permit the action. Mutations require writable
+reminders and lists, and recurring reminder due dates cannot be changed.
 
 <p align="center">
   <img src="website/public/images/linear-issue-list.webp" width="720" alt="Dayline showing active Linear issues with their status, priority, and due date">
@@ -149,7 +151,7 @@ On first launch, connect any integrations you want from the menu:
   Google Calendar are enabled by default.
 - **Linear:** read/write access for assigned issues and issue actions, filtered by user-selected teams.
 - **GitHub:** assigned issues from user-selected repositories, with status, label, and assignee actions.
-- **Apple Reminders:** incomplete reminders from user-selected lists, with create, complete, priority, and due-date actions.
+- **Apple Reminders:** incomplete reminders from user-selected lists, with create, complete, priority, and due-date actions when the reminder and list are writable. Recurring reminder due dates cannot be changed.
 
 Google and Linear use OAuth 2.0 with PKCE; GitHub uses OAuth's device flow.
 GitHub's OAuth `repo` scope grants Dayline access to every repository the

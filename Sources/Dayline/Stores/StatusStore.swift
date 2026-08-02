@@ -595,6 +595,8 @@ final class StatusStore: ObservableObject {
   private var refreshTimer: Timer?
   private var menuBarClockTimer: Timer?
   private var refreshRequested = false
+  private var isRefreshingAppleReminders = false
+  private var appleRemindersRefreshRequested = false
   private var appleCalendarRevision = 0
   private var appleRemindersRevision = 0
   private var appleRemindersAuthorizationRevision = 0
@@ -821,7 +823,8 @@ final class StatusStore: ObservableObject {
     if mockData == nil {
       self.appleRemindersService.setChangeHandler { [weak self] in
         guard let self, self.appleRemindersConnected else { return }
-        Task { await self.refresh() }
+        self.appleRemindersRevision += 1
+        Task { await self.refreshAppleRemindersOnly() }
       }
     }
     startGlobalHotkeys()
@@ -948,25 +951,10 @@ final class StatusStore: ObservableObject {
       githubError = nil
     }
 
-    switch await reminderResult {
-    case .success(let fetchedReminders)?
-      where appleRemindersRevision == capturedAppleRemindersRevision && appleRemindersConnected:
-      allAppleReminders = fetchedReminders
-      applyAppleReminderOrder()
-      appleRemindersError = nil
-    case .failure(let error)?
-      where appleRemindersRevision == capturedAppleRemindersRevision && appleRemindersConnected:
-      appleRemindersError = error.localizedDescription
-    case .some(_):
-      break
-    case nil:
-      allAppleReminders = []
-      applyAppleReminderOrder()
-      let optedIn = UserDefaults.standard.object(forKey: Self.appleRemindersEnabledKey) as? Bool ?? false
-      if !appleRemindersConnected && !optedIn {
-        appleRemindersError = nil
-      }
-    }
+    applyAppleReminderLoadResult(
+      await reminderResult,
+      capturedRevision: capturedAppleRemindersRevision
+    )
 
     lastUpdatedAt = Date()
     isRefreshing = false
@@ -1750,7 +1738,62 @@ final class StatusStore: ObservableObject {
     persistAppleReminderSelections()
     repairAppleReminderCreateDefaults()
     if mockData == nil {
-      Task { await refresh() }
+      Task { await refreshAppleRemindersOnly() }
+    }
+  }
+
+  /// Coalesces EventKit-driven refreshes without reloading unrelated providers.
+  private func refreshAppleRemindersOnly() async {
+    guard mockData == nil else { return }
+    guard !isRefreshingAppleReminders else {
+      appleRemindersRefreshRequested = true
+      DaylineDiagnostics.record(
+        "Apple Reminders refresh coalesced while one was active",
+        category: .refresh
+      )
+      return
+    }
+
+    isRefreshingAppleReminders = true
+    repeat {
+      appleRemindersRefreshRequested = false
+      refreshAppleRemindersConnectionState()
+      let capturedRevision = appleRemindersRevision
+      let result = appleRemindersConnected ? await loadAppleReminders() : nil
+      applyAppleReminderLoadResult(result, capturedRevision: capturedRevision)
+      lastUpdatedAt = Date()
+    } while appleRemindersRefreshRequested
+    isRefreshingAppleReminders = false
+
+    DaylineDiagnostics.record(
+      "Apple Reminders refresh completed reminders \(appleReminders.count)",
+      category: .refresh
+    )
+  }
+
+  /// Applies one Reminders snapshot only when its connection and selection state is still current.
+  private func applyAppleReminderLoadResult(
+    _ result: Result<[AppleReminderItem], Error>?,
+    capturedRevision: Int
+  ) {
+    switch result {
+    case .success(let fetchedReminders)?
+      where appleRemindersRevision == capturedRevision && appleRemindersConnected:
+      allAppleReminders = fetchedReminders
+      applyAppleReminderOrder()
+      appleRemindersError = nil
+    case .failure(let error)?
+      where appleRemindersRevision == capturedRevision && appleRemindersConnected:
+      appleRemindersError = error.localizedDescription
+    case .some(_):
+      break
+    case nil:
+      allAppleReminders = []
+      applyAppleReminderOrder()
+      let optedIn = UserDefaults.standard.object(forKey: Self.appleRemindersEnabledKey) as? Bool ?? false
+      if !appleRemindersConnected && !optedIn {
+        appleRemindersError = nil
+      }
     }
   }
 

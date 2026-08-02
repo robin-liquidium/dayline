@@ -1913,7 +1913,7 @@ private struct AppleReminderRow: View {
             MetadataPill(
               title: DisplayFormatters.appleReminderDueDate(dueDate),
               systemImage: "calendar",
-              color: dueDate.date < Calendar.current.startOfDay(for: Date()) ? .red : .secondary
+              color: dueDate.isOverdue() ? .red : .secondary
             )
           }
 

@@ -83,6 +83,21 @@ enum AppleReminderDueDate: Equatable, Sendable {
     return false
   }
 
+  /// Whether this due value has passed, preserving floating date-only semantics.
+  func isOverdue(at now: Date = Date(), calendar: Calendar = .current) -> Bool {
+    switch self {
+    case .dateOnly(let year, let month, let day):
+      guard let dueDay = calendar.date(from: DateComponents(
+        year: year,
+        month: month,
+        day: day
+      )) else { return false }
+      return dueDay < calendar.startOfDay(for: now)
+    case .timed(let date, _):
+      return date < now
+    }
+  }
+
   /// Returns a due value on a new day while preserving any existing time and time zone.
   func replacingDay(with date: Date) -> AppleReminderDueDate {
     switch self {
