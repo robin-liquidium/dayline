@@ -94,11 +94,13 @@ final class AppleRemindersService: AppleRemindersServing {
     )
     return try await withCheckedThrowingContinuation { continuation in
       eventStore.fetchReminders(matching: predicate) { reminders in
-        guard let reminders else {
-          continuation.resume(throwing: AppleRemindersServiceError.fetchFailed)
-          return
+        Task { @MainActor in
+          guard let reminders else {
+            continuation.resume(throwing: AppleRemindersServiceError.fetchFailed)
+            return
+          }
+          continuation.resume(returning: reminders.map(Self.item(from:)))
         }
-        continuation.resume(returning: reminders.map(Self.item(from:)))
       }
     }
   }
