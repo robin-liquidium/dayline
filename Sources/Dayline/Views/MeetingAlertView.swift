@@ -70,6 +70,8 @@ struct MeetingAlertView: View {
           .font(.system(size: 24, weight: .medium, design: .rounded))
           .foregroundStyle(.secondary)
           .monospacedDigit()
+          .accessibilityLabel("Current time")
+          .accessibilityValue(Text(context.date, format: .dateTime.hour().minute()))
       }
       .accessibilityElement(children: .combine)
       .accessibilityIdentifier("meetingAlert.currentTime")

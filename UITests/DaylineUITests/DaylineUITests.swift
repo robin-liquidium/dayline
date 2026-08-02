@@ -631,7 +631,9 @@ final class DaylineUITests: XCTestCase {
 
     let alert = element("meetingAlert.view")
     XCTAssertTrue(alert.waitForExistence(timeout: 5))
+    let currentTime = element("meetingAlert.currentTime")
     assertExists("meetingAlert.currentTime")
+    XCTAssertTrue(currentTime.label.contains("Current time"))
     assertExists("meetingAlert.snooze")
     assertExists("meetingAlert.dismiss")
 
