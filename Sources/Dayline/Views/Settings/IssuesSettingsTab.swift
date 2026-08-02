@@ -47,6 +47,11 @@ struct IssuesSettingsTab: View {
       Section {
         if store.appleRemindersConnected {
           Picker("Default list", selection: appleReminderDefaultListBinding) {
+            if !store.writableAppleReminderLists.contains(where: {
+              $0.id == store.appleReminderCreateDefaultListID
+            }) {
+              Text("No writable enabled list").tag(store.appleReminderCreateDefaultListID)
+            }
             ForEach(store.writableAppleReminderLists) { list in
               Text("\(list.title) · \(list.sourceName)").tag(list.id)
             }
@@ -81,56 +86,63 @@ struct IssuesSettingsTab: View {
         Toggle("Show issues in menu", isOn: showsLinearSectionBinding)
           .accessibilityIdentifier("settings.showsLinearSection")
 
-        Picker("Linear issue order", selection: linearIssueOrderBinding) {
-          ForEach(LinearIssueOrder.allCases) { order in
-            Text(order.label).tag(order)
+        if isLinearConnected {
+          Picker("Linear issue order", selection: linearIssueOrderBinding) {
+            ForEach(LinearIssueOrder.allCases) { order in
+              Text(order.label).tag(order)
+            }
           }
+          .accessibilityIdentifier("settings.linearIssueOrder")
         }
-        .accessibilityIdentifier("settings.linearIssueOrder")
       } header: {
         Label("Menu", systemImage: "list.bullet")
       }
 
       Section {
-        Toggle("Assignee", isOn: issueRowFieldBinding(for: .assignee))
-          .accessibilityIdentifier("settings.issueRowFieldAssignee")
-        Toggle("Labels", isOn: issueRowFieldBinding(for: .labels))
-          .accessibilityIdentifier("settings.issueRowFieldLabels")
-        Toggle("Project (Linear)", isOn: issueRowFieldBinding(for: .project))
-          .accessibilityIdentifier("settings.issueRowFieldProject")
-        Toggle("Last updated", isOn: issueRowFieldBinding(for: .updated))
-          .accessibilityIdentifier("settings.issueRowFieldUpdated")
-        Toggle("Due date (Linear and Reminders)", isOn: issueRowFieldBinding(for: .dueDate))
-          .accessibilityIdentifier("settings.issueRowFieldDueDate")
+        if isLinearConnected || isGitHubConnected {
+          Toggle("Assignee", isOn: issueRowFieldBinding(for: .assignee))
+            .accessibilityIdentifier("settings.issueRowFieldAssignee")
+          Toggle("Labels", isOn: issueRowFieldBinding(for: .labels))
+            .accessibilityIdentifier("settings.issueRowFieldLabels")
+        }
+        if isLinearConnected {
+          Toggle("Project (Linear)", isOn: issueRowFieldBinding(for: .project))
+            .accessibilityIdentifier("settings.issueRowFieldProject")
+        }
+        if isLinearConnected || isGitHubConnected {
+          Toggle("Last updated", isOn: issueRowFieldBinding(for: .updated))
+            .accessibilityIdentifier("settings.issueRowFieldUpdated")
+        }
+        if isLinearConnected || store.appleRemindersConnected {
+          Toggle("Due date", isOn: issueRowFieldBinding(for: .dueDate))
+            .accessibilityIdentifier("settings.issueRowFieldDueDate")
+        }
       } header: {
         Label("Row Fields", systemImage: "text.line.first.and.arrowtriangle.forward")
       }
 
-      Section {
-        if isLinearConnected {
-          Picker("Linear issues", selection: linearIssueFilterBinding) {
-            ForEach(IssueAssigneeFilter.allCases) { filter in
-              Text(filter.label).tag(filter)
+      if isLinearConnected || isGitHubConnected {
+        Section {
+          if isLinearConnected {
+            Picker("Linear issues", selection: linearIssueFilterBinding) {
+              ForEach(IssueAssigneeFilter.allCases) { filter in
+                Text(filter.label).tag(filter)
+              }
             }
+            .accessibilityIdentifier("settings.linearIssueFilter")
           }
-          .accessibilityIdentifier("settings.linearIssueFilter")
-        }
 
-        if isGitHubConnected {
-          Picker("GitHub issues", selection: githubIssueFilterBinding) {
-            ForEach(IssueAssigneeFilter.allCases) { filter in
-              Text(filter.label).tag(filter)
+          if isGitHubConnected {
+            Picker("GitHub issues", selection: githubIssueFilterBinding) {
+              ForEach(IssueAssigneeFilter.allCases) { filter in
+                Text(filter.label).tag(filter)
+              }
             }
+            .accessibilityIdentifier("settings.githubIssueFilter")
           }
-          .accessibilityIdentifier("settings.githubIssueFilter")
+        } header: {
+          Label("Shown Issues", systemImage: "line.3.horizontal.decrease.circle")
         }
-
-        if !isLinearConnected && !isGitHubConnected {
-          Text("Connect Linear or GitHub in Accounts to choose which issues appear.")
-            .foregroundStyle(.secondary)
-        }
-      } header: {
-        Label("Shown Issues", systemImage: "line.3.horizontal.decrease.circle")
       }
     }
     .formStyle(.grouped)

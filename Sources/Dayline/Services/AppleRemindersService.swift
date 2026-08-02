@@ -145,16 +145,10 @@ final class AppleRemindersService: AppleRemindersServing {
   func updateReminderDueDate(id: String, dueDate: Date?) throws -> AppleReminderItem {
     let reminder = try writableReminder(with: id)
     if let dueDate {
-      let existing = reminder.dueDateComponents
-      let includesTime = existing?.hour != nil || existing?.minute != nil || existing?.second != nil
-      var components = Self.dateComponents(for: dueDate, includesTime: includesTime)
-      if includesTime {
-        components.hour = existing?.hour
-        components.minute = existing?.minute
-        components.second = existing?.second
-        components.timeZone = existing?.timeZone ?? .current
-      }
-      reminder.dueDateComponents = components
+      reminder.dueDateComponents = Self.dueDateComponents(
+        replacingDayWith: dueDate,
+        existing: reminder.dueDateComponents
+      )
     } else {
       reminder.dueDateComponents = nil
     }
@@ -208,6 +202,31 @@ final class AppleRemindersService: AppleRemindersServing {
     return components
   }
 
+  /// Replaces the calendar day shown by Dayline while preserving EventKit's existing time semantics.
+  static func dueDateComponents(
+    replacingDayWith selectedDate: Date,
+    existing: DateComponents?,
+    currentTimeZone: TimeZone = .current
+  ) -> DateComponents {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = currentTimeZone
+    let selectedDay = calendar.dateComponents([.year, .month, .day], from: selectedDate)
+    let includesTime = existing?.hour != nil || existing?.minute != nil || existing?.second != nil
+    var components = DateComponents(
+      calendar: Calendar(identifier: .gregorian),
+      timeZone: includesTime ? existing?.timeZone : nil,
+      year: selectedDay.year,
+      month: selectedDay.month,
+      day: selectedDay.day
+    )
+    if includesTime {
+      components.hour = existing?.hour
+      components.minute = existing?.minute
+      components.second = existing?.second
+    }
+    return components
+  }
+
   /// Preserves EventKit's floating date-only and timed due-date semantics.
   private static func dueDate(from components: DateComponents) -> AppleReminderDueDate? {
     let includesTime = components.hour != nil || components.minute != nil || components.second != nil
@@ -248,6 +267,28 @@ final class AppleRemindersService: AppleRemindersServing {
     }
     return calendar
   }
+}
+
+/// Inert service used by mock and UI-test stores so they never touch the user's EventKit data.
+@MainActor
+final class InertAppleRemindersService: AppleRemindersServing {
+  var hasFullAccess: Bool { false }
+  func requestFullAccess() async throws -> Bool { false }
+  func reminderLists() -> [AppleReminderList] { [] }
+  func defaultReminderListID() -> String? { nil }
+  func fetchIncompleteReminders(in listIDs: Set<String>) async throws -> [AppleReminderItem] { [] }
+  func createReminder(_ draft: AppleReminderCreateDraft) throws -> AppleReminderItem {
+    throw AppleRemindersServiceError.accessDenied
+  }
+  func setReminderCompleted(id: String) throws { throw AppleRemindersServiceError.accessDenied }
+  func updateReminderPriority(
+    id: String,
+    priority: AppleReminderPriority
+  ) throws -> AppleReminderItem { throw AppleRemindersServiceError.accessDenied }
+  func updateReminderDueDate(id: String, dueDate: Date?) throws -> AppleReminderItem {
+    throw AppleRemindersServiceError.accessDenied
+  }
+  func setChangeHandler(_ handler: (@MainActor () -> Void)?) {}
 }
 
 /// User-facing failures from EventKit reminder operations.

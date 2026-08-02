@@ -129,8 +129,12 @@ struct AccountsSettingsTab: View {
             Button {
               Task { await store.connectAppleReminders() }
             } label: {
-              Label("Connect Apple Reminders", systemImage: "plus")
+              Label(
+                store.isAppleRemindersAuthorizationInProgress ? "Connecting..." : "Connect Apple Reminders",
+                systemImage: store.isAppleRemindersAuthorizationInProgress ? "hourglass" : "plus"
+              )
             }
+            .disabled(store.isAppleRemindersAuthorizationInProgress)
             .accessibilityIdentifier("settings.account.reminders.connect")
 
             if let error = store.appleRemindersError {

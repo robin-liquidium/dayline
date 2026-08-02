@@ -281,6 +281,9 @@ final class StatusStore: ObservableObject {
   /// Whether Dayline is opted in and currently authorized to access Reminders.
   @Published private(set) var appleRemindersConnected = false
 
+  /// Whether a Reminders authorization request is currently awaiting the system response.
+  @Published private(set) var isAppleRemindersAuthorizationInProgress = false
+
   /// Optional metadata fields shown on issue rows in the menu.
   @Published var issueRowFields: IssueRowFields {
     didSet {
@@ -594,6 +597,7 @@ final class StatusStore: ObservableObject {
   private var refreshRequested = false
   private var appleCalendarRevision = 0
   private var appleRemindersRevision = 0
+  private var appleRemindersAuthorizationRevision = 0
 
   /// Creates a live store and immediately starts the background refresh loop.
   init(
@@ -619,7 +623,8 @@ final class StatusStore: ObservableObject {
     self.linearService = linearService
     self.notesService = notesService
     self.appleCalendarService = appleCalendarService
-    self.appleRemindersService = appleRemindersService ?? AppleRemindersService()
+    self.appleRemindersService = appleRemindersService
+      ?? (mockData == nil ? AppleRemindersService() : InertAppleRemindersService())
     self.authSessions = authSessions
     self.googleAccountRepository = googleAccountRepository
     self.linearAccountRepository = linearAccountRepository
@@ -813,9 +818,11 @@ final class StatusStore: ObservableObject {
       Task { await refresh() }
     }
     repairAppleReminderCreateDefaults()
-    self.appleRemindersService.setChangeHandler { [weak self] in
-      guard let self, self.appleRemindersConnected else { return }
-      Task { await self.refresh() }
+    if mockData == nil {
+      self.appleRemindersService.setChangeHandler { [weak self] in
+        guard let self, self.appleRemindersConnected else { return }
+        Task { await self.refresh() }
+      }
     }
     startGlobalHotkeys()
     scheduleMenuBarClockTimer()
@@ -955,7 +962,8 @@ final class StatusStore: ObservableObject {
     case nil:
       allAppleReminders = []
       applyAppleReminderOrder()
-      if !appleRemindersConnected {
+      let optedIn = UserDefaults.standard.object(forKey: Self.appleRemindersEnabledKey) as? Bool ?? false
+      if !appleRemindersConnected && !optedIn {
         appleRemindersError = nil
       }
     }
@@ -1687,9 +1695,20 @@ final class StatusStore: ObservableObject {
 
   /// Requests Reminders access and discovers the user's lists.
   func connectAppleReminders() async {
-    guard mockData == nil, AppleRemindersService.canRequestAccess else { return }
+    guard mockData == nil,
+          AppleRemindersService.canRequestAccess,
+          !isAppleRemindersAuthorizationInProgress else { return }
+    appleRemindersAuthorizationRevision += 1
+    let requestRevision = appleRemindersAuthorizationRevision
+    isAppleRemindersAuthorizationInProgress = true
+    defer {
+      if appleRemindersAuthorizationRevision == requestRevision {
+        isAppleRemindersAuthorizationInProgress = false
+      }
+    }
     do {
       let granted = try await appleRemindersService.requestFullAccess()
+      guard appleRemindersAuthorizationRevision == requestRevision else { return }
       appleRemindersRevision += 1
       appleRemindersConnected = granted
       UserDefaults.standard.set(granted, forKey: Self.appleRemindersEnabledKey)
@@ -1701,12 +1720,15 @@ final class StatusStore: ObservableObject {
         await refresh()
       }
     } catch {
+      guard appleRemindersAuthorizationRevision == requestRevision else { return }
       appleRemindersError = error.localizedDescription.compactLine(limit: 160)
     }
   }
 
   /// Disconnects Apple Reminders locally without changing the system permission.
   func disconnectAppleReminders() {
+    appleRemindersAuthorizationRevision += 1
+    isAppleRemindersAuthorizationInProgress = false
     appleRemindersRevision += 1
     appleRemindersConnected = false
     appleReminderLists = []
@@ -1727,7 +1749,9 @@ final class StatusStore: ObservableObject {
     }
     persistAppleReminderSelections()
     repairAppleReminderCreateDefaults()
-    Task { await refresh() }
+    if mockData == nil {
+      Task { await refresh() }
+    }
   }
 
   /// Persists the Reminders list selected by default in the creator.
@@ -1776,22 +1800,36 @@ final class StatusStore: ObservableObject {
 
   /// Stores both direct and uniquely reconcilable list selection identities.
   private func persistAppleReminderSelections() {
-    var selections: [String: Bool] = [:]
-    for list in appleReminderLists {
+    let persisted = UserDefaults.standard.dictionary(
+      forKey: Self.appleReminderSelectionsKey
+    ) as? [String: Bool] ?? [:]
+    let selections = Self.mergingAppleReminderSelections(
+      persisted: persisted,
+      discoveredLists: appleReminderLists
+    )
+    UserDefaults.standard.set(selections, forKey: Self.appleReminderSelectionsKey)
+  }
+
+  static func mergingAppleReminderSelections(
+    persisted: [String: Bool],
+    discoveredLists: [AppleReminderList]
+  ) -> [String: Bool] {
+    var selections = persisted
+    for list in discoveredLists {
       selections[list.id] = list.isEnabled
       selections[list.fallbackSelectionKey] = list.isEnabled
     }
-    UserDefaults.standard.set(selections, forKey: Self.appleReminderSelectionsKey)
+    return selections
   }
 
   /// Repairs a stale or read-only creation default using EventKit's preferred writable list.
   private func repairAppleReminderCreateDefaults() {
     let writableLists = writableAppleReminderLists
+    guard appleRemindersConnected, !writableLists.isEmpty else { return }
     guard !writableLists.contains(where: { $0.id == appleReminderCreateDefaultListID }) else { return }
-    let systemDefaultID = appleRemindersService.defaultReminderListID()
+    let systemDefaultID = mockData == nil ? appleRemindersService.defaultReminderListID() : nil
     appleReminderCreateDefaultListID = writableLists.first(where: { $0.id == systemDefaultID })?.id
-      ?? writableLists.first?.id
-      ?? ""
+      ?? writableLists[0].id
   }
 
   /// Requests the Linear issue creator, resetting any previously entered draft.
@@ -1806,7 +1844,7 @@ final class StatusStore: ObservableObject {
 
   /// Requests the Apple Reminder creator, resetting any previously entered draft.
   func requestAppleReminderCreation() {
-    guard canCreateAppleReminder else { return }
+    guard appleRemindersConnected else { return }
     appleReminderCreationRequestID = UUID()
   }
 
@@ -2487,6 +2525,7 @@ final class StatusStore: ObservableObject {
       if mockData == nil {
         try appleRemindersService.setReminderCompleted(id: id)
       }
+      appleRemindersRevision += 1
       allAppleReminders.removeAll { $0.id == id }
       applyAppleReminderOrder()
       appleRemindersError = nil
@@ -2514,6 +2553,7 @@ final class StatusStore: ObservableObject {
       let updated = mockData == nil
         ? try appleRemindersService.updateReminderPriority(id: id, priority: priority)
         : reminder.replacing(priority: priority, updatedAt: .some(Date()))
+      appleRemindersRevision += 1
       replaceAppleReminder(updated)
       appleRemindersError = nil
       DaylineDiagnostics.record("Apple Reminder priority changed", category: .interaction)
@@ -2543,6 +2583,7 @@ final class StatusStore: ObservableObject {
         }
         updated = reminder.replacing(dueDate: .some(normalizedDueDate), updatedAt: .some(Date()))
       }
+      appleRemindersRevision += 1
       replaceAppleReminder(updated)
       appleRemindersError = nil
       DaylineDiagnostics.record("Apple Reminder due date changed", category: .interaction)
@@ -2883,6 +2924,10 @@ final class StatusStore: ObservableObject {
 
     allAppleReminders.removeAll { $0.id == created.id }
     allAppleReminders.append(created)
+    appleRemindersRevision += 1
+    if let createdIndex = sortedAppleReminders(allAppleReminders).firstIndex(where: { $0.id == created.id }) {
+      visibleAppleReminderCount = max(visibleAppleReminderCount, createdIndex + 1)
+    }
     applyAppleReminderOrder()
     appleRemindersError = nil
     lastUpdatedAt = Date()

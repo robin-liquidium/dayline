@@ -89,12 +89,12 @@ enum AppleReminderDueDate: Equatable, Sendable {
     case .dateOnly:
       return Self.dateOnly(from: date)
     case .timed(let existingDate, let timeZoneIdentifier):
-      var calendar = Calendar(identifier: .gregorian)
-      calendar.timeZone = timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .current
-      let day = calendar.dateComponents([.year, .month, .day], from: date)
-      let time = calendar.dateComponents([.hour, .minute, .second], from: existingDate)
+      let day = Calendar.current.dateComponents([.year, .month, .day], from: date)
+      var reminderCalendar = Calendar(identifier: .gregorian)
+      reminderCalendar.timeZone = timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .current
+      let time = reminderCalendar.dateComponents([.hour, .minute, .second], from: existingDate)
       let components = DateComponents(
-        timeZone: calendar.timeZone,
+        timeZone: reminderCalendar.timeZone,
         year: day.year,
         month: day.month,
         day: day.day,
@@ -102,7 +102,10 @@ enum AppleReminderDueDate: Equatable, Sendable {
         minute: time.minute,
         second: time.second
       )
-      return .timed(calendar.date(from: components) ?? date, timeZoneIdentifier: timeZoneIdentifier)
+      return .timed(
+        reminderCalendar.date(from: components) ?? date,
+        timeZoneIdentifier: timeZoneIdentifier
+      )
     }
   }
 

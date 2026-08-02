@@ -132,7 +132,7 @@ struct StatusMenuView: View {
       .buttonStyle(.plain)
       .help("Refresh")
       .accessibilityLabel("Refresh")
-      .accessibilityHint("Refresh calendar events and Linear issues")
+      .accessibilityHint("Refresh calendar events, issues, reminders, and notes")
       .accessibilityIdentifier("dayline.refresh")
       .disabled(store.isRefreshing)
       .onHover { isHovered in
@@ -566,6 +566,8 @@ private struct IssuesSection: View {
 /// Spinner row shown in an issue section while a refresh is in flight.
 private struct LoadingIssuesRow: View {
   var title = "Loading issues..."
+  var accessibilityTitle = "Loading issues"
+  var identifier = "issues.loading"
 
   var body: some View {
     HStack(spacing: 8) {
@@ -578,8 +580,8 @@ private struct LoadingIssuesRow: View {
     .frame(maxWidth: .infinity, alignment: .center)
     .padding(.vertical, 8)
     .accessibilityElement(children: .combine)
-    .accessibilityLabel("Loading issues")
-    .accessibilityIdentifier("issues.loading")
+    .accessibilityLabel(accessibilityTitle)
+    .accessibilityIdentifier(identifier)
   }
 }
 
@@ -1689,7 +1691,11 @@ private struct AppleRemindersSection: View {
           .transition(.opacity)
       } else if reminders.isEmpty {
         if store.isRefreshing {
-          LoadingIssuesRow(title: "Loading reminders...")
+          LoadingIssuesRow(
+            title: "Loading reminders...",
+            accessibilityTitle: "Loading reminders",
+            identifier: "reminders.loading"
+          )
             .transition(.opacity)
         } else {
           MessageRow(title: "No incomplete reminders", detail: nil)
@@ -1723,7 +1729,9 @@ private struct AppleRemindersSection: View {
             MoreIssuesControls(
               canShowMore: store.hasMoreAppleReminders,
               canShowLess: store.hasExpandedAppleReminders,
-              showMoreTitle: store.showMoreAppleRemindersLabel
+              showMoreTitle: store.showMoreAppleRemindersLabel,
+              providerName: "Apple Reminders",
+              identifierPrefix: "reminders"
             ) {
               store.showMoreAppleReminders()
             } showLess: {
@@ -1781,6 +1789,8 @@ private struct AppleReminderStatusPickerPopover: View {
       PickerOptionRow(isDisabled: true, action: {}) {
         Label("Incomplete", systemImage: "checkmark")
       }
+      .accessibilityValue("Selected")
+      .accessibilityIdentifier("reminders.status.incomplete")
       PickerOptionRow(isDisabled: store.updatingIssueTarget == .reminder(reminder.id)) {
         Task { await store.completeAppleReminder(id: reminder.id) }
       } content: {
@@ -1954,6 +1964,7 @@ private struct AppleReminderRow: View {
         .accessibilityIdentifier("reminders.completeContext.\(reminder.id)")
       }
     }
+    .modifier(AppleReminderAccessibilityActions(reminder: reminder))
   }
 
   private var accessibilityLabel: String {
@@ -1976,6 +1987,51 @@ private struct AppleReminderRow: View {
       ? ""
       : ", or \(store.dueDatePickerHotkey.uppercased()) for due date"
     return "Show reminder details. While hovering, press Space to preview\(copyHint), \(store.statusPickerHotkey.uppercased()) for status, \(store.priorityPickerHotkey.uppercased()) for priority\(dueHint)."
+  }
+}
+
+/// Provider-supported reminder mutations exposed as named VoiceOver actions.
+private struct AppleReminderAccessibilityActions: ViewModifier {
+  @EnvironmentObject private var store: StatusStore
+  let reminder: AppleReminderItem
+
+  @ViewBuilder
+  func body(content: Content) -> some View {
+    if reminder.allowsModifications, !reminder.isRecurring {
+      let target = IssueActionTarget.reminder(reminder.id)
+      content
+        .accessibilityAction(named: "Mark completed") {
+          Task { await store.completeAppleReminder(id: reminder.id) }
+        }
+        .accessibilityAction(named: "Change status") {
+          store.setHoveredIssue(target)
+          _ = store.presentStatusPickerForHoveredIssue()
+        }
+        .accessibilityAction(named: "Change priority") {
+          store.setHoveredIssue(target)
+          _ = store.presentPriorityPickerForHoveredIssue()
+        }
+        .accessibilityAction(named: "Change due date") {
+          store.setHoveredIssue(target)
+          _ = store.presentDueDatePickerForHoveredIssue()
+        }
+    } else if reminder.allowsModifications {
+      let target = IssueActionTarget.reminder(reminder.id)
+      content
+        .accessibilityAction(named: "Mark completed") {
+          Task { await store.completeAppleReminder(id: reminder.id) }
+        }
+        .accessibilityAction(named: "Change status") {
+          store.setHoveredIssue(target)
+          _ = store.presentStatusPickerForHoveredIssue()
+        }
+        .accessibilityAction(named: "Change priority") {
+          store.setHoveredIssue(target)
+          _ = store.presentPriorityPickerForHoveredIssue()
+        }
+    } else {
+      content
+    }
   }
 }
 
@@ -2268,6 +2324,12 @@ private struct MoreIssuesControls: View {
   /// Reveal-more button title.
   let showMoreTitle: String
 
+  /// Provider name used by assistive technologies.
+  var providerName = "Linear"
+
+  /// Stable provider-specific accessibility identifier prefix.
+  var identifierPrefix = "linear"
+
   /// Action run when the user asks for more issues.
   let showMore: () -> Void
 
@@ -2295,8 +2357,8 @@ private struct MoreIssuesControls: View {
           store.setHoveredControl(isHovered ? .moreIssues : nil)
         }
         .accessibilityLabel(showMoreTitle)
-        .accessibilityHint("Show more Linear issues")
-        .accessibilityIdentifier("linear.showMore")
+        .accessibilityHint("Show more \(providerName) items")
+        .accessibilityIdentifier("\(identifierPrefix).showMore")
       }
 
       Spacer(minLength: 0)
@@ -2319,8 +2381,8 @@ private struct MoreIssuesControls: View {
           store.setHoveredControl(isHovered ? .fewerIssues : nil)
         }
         .accessibilityLabel("Show less")
-        .accessibilityHint("Collapse extra Linear issues")
-        .accessibilityIdentifier("linear.showLess")
+        .accessibilityHint("Collapse extra \(providerName) items")
+        .accessibilityIdentifier("\(identifierPrefix).showLess")
       }
     }
     .padding(.horizontal, 10)

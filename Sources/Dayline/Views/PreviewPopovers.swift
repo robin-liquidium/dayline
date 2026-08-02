@@ -127,14 +127,21 @@ struct AppleReminderPreviewPopover: View {
       }
 
       if let notes = reminder.notes, !notes.isEmpty {
-        PreviewRow(label: "Notes", value: notes, systemImage: "text.alignleft")
+        PreviewRow(label: "Notes", value: notes, systemImage: "text.alignleft", maxLines: 8)
       }
 
-      if let url = reminder.url {
+      if let url = Self.safeAttachedURL(reminder.url) {
         PreviewOpenButton(title: "Open attached URL", url: url)
       }
     }
     .accessibilityIdentifier("reminders.preview.\(reminder.id)")
+  }
+
+  static func safeAttachedURL(_ url: URL?) -> URL? {
+    guard let url, let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) else {
+      return nil
+    }
+    return url
   }
 }
 
@@ -171,6 +178,7 @@ private struct PreviewRow: View {
   let label: String
   let value: String
   let systemImage: String
+  var maxLines: Int? = nil
 
   var body: some View {
     LabeledContent {
@@ -178,6 +186,8 @@ private struct PreviewRow: View {
         .font(.callout)
         .foregroundStyle(.primary)
         .multilineTextAlignment(.trailing)
+        .lineLimit(maxLines)
+        .truncationMode(.tail)
         .fixedSize(horizontal: false, vertical: true)
     } label: {
       Label(label, systemImage: systemImage)

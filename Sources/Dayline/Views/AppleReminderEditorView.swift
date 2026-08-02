@@ -17,14 +17,22 @@ struct AppleReminderEditorView: View {
             .accessibilityIdentifier("reminderEditor.title")
 
           Picker("List", selection: $draft.listID) {
-            if store.writableAppleReminderLists.isEmpty {
-              Text("No writable enabled lists").tag("")
+            if !store.writableAppleReminderLists.contains(where: { $0.id == draft.listID }) {
+              Text("No writable enabled list selected").tag("")
             }
             ForEach(store.writableAppleReminderLists) { list in
               Text("\(list.title) · \(list.sourceName)").tag(list.id)
             }
           }
           .accessibilityIdentifier("reminderEditor.list")
+
+          if store.writableAppleReminderLists.isEmpty {
+            Text("Enable a writable list in Settings → Accounts to create reminders.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .fixedSize(horizontal: false, vertical: true)
+              .accessibilityIdentifier("reminderEditor.noWritableList")
+          }
 
           LabeledContent("Priority") {
             ColoredMenuPicker(
@@ -105,7 +113,7 @@ struct AppleReminderEditorView: View {
     }
     .onChange(of: store.writableAppleReminderLists.map(\.id)) { _, validIDs in
       if !validIDs.contains(draft.listID) {
-        draft.listID = store.appleReminderCreateDefaultListID
+        draft.listID = validDefaultListID
       }
     }
   }
@@ -217,12 +225,21 @@ struct AppleReminderEditorView: View {
     draft = AppleReminderCreateDraft(
       title: "",
       notes: "",
-      listID: store.appleReminderCreateDefaultListID,
+      listID: validDefaultListID,
       priority: store.appleReminderCreateDefaultPriority,
       dueDate: nil,
       dueDateIncludesTime: false
     )
     errorMessage = nil
+  }
+
+  private var validDefaultListID: String {
+    if store.writableAppleReminderLists.contains(where: {
+      $0.id == store.appleReminderCreateDefaultListID
+    }) {
+      return store.appleReminderCreateDefaultListID
+    }
+    return store.writableAppleReminderLists.first?.id ?? ""
   }
 
   private func prioritySystemImage(_ priority: AppleReminderPriority) -> String {

@@ -97,4 +97,89 @@ struct AppleReminderModelsTests {
     #expect(IssueSource.available(linear: false, github: true, reminders: true) == [.github, .reminders])
     #expect(IssueSource.available(linear: true, github: true, reminders: true) == [.linear, .github, .reminders])
   }
+
+  @MainActor
+  @Test func temporarilyUndiscoveredListSelectionsRemainPersisted() {
+    let discovered = AppleReminderList(
+      id: "visible-id",
+      title: "Visible",
+      sourceName: "iCloud",
+      sourceID: "icloud",
+      isEnabled: true,
+      allowsModifications: true
+    )
+    let merged = StatusStore.mergingAppleReminderSelections(
+      persisted: ["temporarily-missing-id": false],
+      discoveredLists: [discovered]
+    )
+
+    #expect(merged["temporarily-missing-id"] == false)
+    #expect(merged[discovered.id] == true)
+    #expect(merged[discovered.fallbackSelectionKey] == true)
+  }
+}
+
+@MainActor
+@Suite(.serialized)
+struct AppleReminderStatusStoreTests {
+  @Test func creatorRequestStillAdvancesWithoutWritableEnabledLists() {
+    let store = StatusStore(mockData: MockData.make(issueSources: [.reminders]))
+    for list in store.appleReminderLists where list.allowsModifications {
+      store.setAppleReminderListEnabled(list.id, enabled: false)
+    }
+    let previousRequest = store.appleReminderCreationRequestID
+
+    #expect(!store.canCreateAppleReminder)
+    store.requestAppleReminderCreation()
+    #expect(store.appleReminderCreationRequestID != previousRequest)
+  }
+
+  @Test func disconnectDoesNotErasePreferredCreationList() {
+    let store = StatusStore(mockData: MockData.make(issueSources: [.reminders]))
+    let preferredListID = store.appleReminderCreateDefaultListID
+    #expect(!preferredListID.isEmpty)
+
+    store.disconnectAppleReminders()
+
+    #expect(store.appleReminderCreateDefaultListID == preferredListID)
+  }
+
+  @Test func createdReminderExpandsVisibleSliceWhenSortPlacesItLater() async throws {
+    let store = StatusStore(mockData: MockData.make(issueSources: [.reminders]))
+    let listID = try #require(store.writableAppleReminderLists.last?.id)
+    let title = "Late sorted reminder \(UUID().uuidString)"
+
+    try await store.createAppleReminder(draft: AppleReminderCreateDraft(
+      title: title,
+      notes: "Visible immediately",
+      listID: listID,
+      priority: .none,
+      dueDate: nil,
+      dueDateIncludesTime: false
+    ))
+
+    #expect(store.appleReminders.contains(where: { $0.title == title }))
+  }
+
+  @Test func createdReminderPreservesSupportedDraftFields() async throws {
+    let store = StatusStore(mockData: MockData.make(issueSources: [.reminders]))
+    let list = try #require(store.writableAppleReminderLists.last)
+    let dueDate = Date(timeIntervalSince1970: 1_786_000_000)
+    let title = "Field mapping (UUID().uuidString)"
+
+    try await store.createAppleReminder(draft: AppleReminderCreateDraft(
+      title: title,
+      notes: "Mapped notes",
+      listID: list.id,
+      priority: .low,
+      dueDate: dueDate,
+      dueDateIncludesTime: true
+    ))
+
+    let created = try #require(store.appleReminders.first(where: { $0.title == title }))
+    #expect(created.notes == "Mapped notes")
+    #expect(created.listID == list.id)
+    #expect(created.priority == .low)
+    #expect(created.dueDate == .timed(dueDate, timeZoneIdentifier: TimeZone.current.identifier))
+  }
 }
