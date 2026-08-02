@@ -709,6 +709,15 @@ final class DaylineUITests: XCTestCase {
     file: StaticString = #filePath,
     line: UInt = #line
   ) {
+    guard element.waitForExistence(timeout: timeout) else {
+      XCTFail(
+        "Expected \(element.identifier) to exist before checking that its label does not contain \(text)",
+        file: file,
+        line: line
+      )
+      return
+    }
+
     let expectation = XCTNSPredicateExpectation(
       predicate: NSPredicate(format: "NOT label CONTAINS %@", text),
       object: element
