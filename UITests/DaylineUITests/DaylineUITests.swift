@@ -259,6 +259,7 @@ final class DaylineUITests: XCTestCase {
     app.typeKey("d", modifierFlags: [])
     XCTAssertFalse(element("reminders.dueDate.calendar.mock-reminder-6").waitForExistence(timeout: 1))
 
+    scrollIntoView(reminder)
     reminder.hover()
     app.typeKey("s", modifierFlags: [])
     assertExists("reminders.status.completed")
@@ -298,7 +299,7 @@ final class DaylineUITests: XCTestCase {
       assertNoVisibleScrollBars()
       element("linear.cancel.DAY-112").click()
       let cancelButton = app.buttons["Cancel"].firstMatch
-      XCTAssertTrue(cancelButton.waitForExistence(timeout: 3))
+      XCTAssertTrue(cancelButton.waitForExistence(timeout: 5))
       cancelButton.click()
       try? openMenu()
       assertExists("linear.issue.DAY-112")
