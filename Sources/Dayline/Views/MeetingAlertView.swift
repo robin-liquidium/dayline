@@ -65,7 +65,7 @@ struct MeetingAlertView: View {
         .ignoresSafeArea()
     }
     .overlay(alignment: .topTrailing) {
-      TimelineView(.periodic(from: .now, by: 1)) { context in
+      TimelineView(.everyMinute) { context in
         Text(context.date, format: .dateTime.hour().minute())
           .font(.system(size: 24, weight: .medium, design: .rounded))
           .foregroundStyle(.secondary)

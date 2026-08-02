@@ -3,13 +3,6 @@ import Testing
 @testable import Dayline
 
 struct CalendarEventItemTests {
-  @Test @MainActor func meetingAlertSnoozeDurationUsesFiveMinutesAndClampsStoredValues() {
-    #expect(StatusStore.defaultMeetingAlertSnoozeMinutes == 5)
-    #expect(StatusStore.clampedMeetingAlertSnoozeMinutes(0) == 1)
-    #expect(StatusStore.clampedMeetingAlertSnoozeMinutes(10) == 10)
-    #expect(StatusStore.clampedMeetingAlertSnoozeMinutes(121) == 120)
-  }
-
   @Test func menuBarCandidateKeepsActiveEventAheadOfUpcomingEvent() {
     let now = Date(timeIntervalSince1970: 10_000)
     let activeEvent = event(

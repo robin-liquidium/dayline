@@ -1955,15 +1955,16 @@ final class StatusStore: ObservableObject {
   }
 
   /// Temporarily hides the current alert until its configured snooze deadline.
-  func snoozeMeetingAlert() {
+  func snoozeMeetingAlert(minutes: Int) {
     guard let event = meetingAlertEvent else { return }
+    let snoozeMinutes = Self.clampedMeetingAlertSnoozeMinutes(minutes)
     let eventID = event.deduplicationKey ?? event.id
     snoozedMeetingAlertUntilByEventID[eventID] = Date().addingTimeInterval(
-      TimeInterval(meetingAlertSnoozeMinutes * 60)
+      TimeInterval(snoozeMinutes * 60)
     )
     meetingAlertEvent = nil
     DaylineDiagnostics.record(
-      "Meeting alert snoozed for \(meetingAlertSnoozeMinutes) minutes",
+      "Meeting alert snoozed for \(snoozeMinutes) minutes",
       category: .interaction
     )
   }
@@ -3521,11 +3522,12 @@ final class StatusStore: ObservableObject {
         // Skip all-day style events that would fire the alert at midnight.
         guard event.endDate.timeIntervalSince(event.startDate) < 24 * 60 * 60 else { return false }
         let eventID = event.deduplicationKey ?? event.id
-        if let snoozedUntil = snoozedMeetingAlertUntilByEventID[eventID], now < snoozedUntil {
+        let snoozedUntil = snoozedMeetingAlertUntilByEventID[eventID]
+        if let snoozedUntil, now < snoozedUntil {
           return false
         }
         return now >= event.startDate.addingTimeInterval(-lead)
-          && now < min(event.endDate, event.startDate.addingTimeInterval(Self.meetingAlertPostStartGrace))
+          && now < Self.meetingAlertEligibilityEnd(for: event, snoozedUntil: snoozedUntil)
           && !dismissedMeetingAlertEventIDs.contains(eventID)
       }
       .min { $0.startDate < $1.startDate }
@@ -3845,6 +3847,17 @@ final class StatusStore: ObservableObject {
   /// Keeps meeting-alert snoozes useful without allowing accidental zero or day-long values.
   static func clampedMeetingAlertSnoozeMinutes(_ minutes: Int) -> Int {
     min(max(minutes, 1), 120)
+  }
+
+  /// Keeps an explicitly snoozed meeting eligible to re-alert after the original start window.
+  static func meetingAlertEligibilityEnd(
+    for event: CalendarEventItem,
+    snoozedUntil: Date?
+  ) -> Date {
+    min(
+      event.endDate,
+      (snoozedUntil ?? event.startDate).addingTimeInterval(Self.meetingAlertPostStartGrace)
+    )
   }
 
   /// Keeps the default note count in a practical menu range.
