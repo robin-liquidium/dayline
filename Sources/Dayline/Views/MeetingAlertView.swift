@@ -74,7 +74,6 @@ struct MeetingAlertView: View {
           .accessibilityValue(Text(context.date, format: .dateTime.hour().minute()))
       }
       .accessibilityElement(children: .combine)
-      .accessibilityIdentifier("meetingAlert.currentTime")
       .padding(.top, 48)
       .padding(.trailing, 56)
     }
