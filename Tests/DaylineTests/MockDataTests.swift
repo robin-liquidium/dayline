@@ -20,4 +20,12 @@ struct MockDataTests {
     #expect(!events.isEmpty)
     #expect(events.allSatisfy { $0.startDate >= tomorrowStart && $0.startDate < dayAfterStart })
   }
+
+  @Test func mockCanRepresentRemindersAsTheOnlyIssueProvider() {
+    let mock = MockData.make(issueSources: [.reminders])
+    #expect(mock.issueSources == [.reminders])
+    #expect(!mock.appleReminders.isEmpty)
+    #expect(mock.connectionStatuses.first { $0.provider == .linear }?.state == .disconnected)
+    #expect(mock.connectionStatuses.first { $0.provider == .github }?.state == .disconnected)
+  }
 }

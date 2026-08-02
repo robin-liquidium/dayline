@@ -70,6 +70,8 @@ cat >"$INFO_PLIST" <<PLIST
   <string>Dayline shows your upcoming Apple Calendar events in the menu bar.</string>
   <key>NSCalendarsFullAccessUsageDescription</key>
   <string>Dayline shows your upcoming Apple Calendar events in the menu bar.</string>
+  <key>NSRemindersFullAccessUsageDescription</key>
+  <string>Dayline shows and manages your Apple Reminders from the menu bar.</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
 </dict>

@@ -64,6 +64,7 @@ enum SettingsSearchCatalog {
     SettingsSearchItem(id: "googleAccounts", title: "Google Accounts", section: "Google", tab: .accounts, keywords: ["calendar accounts", "connect google", "sign in", "calendars"]),
     SettingsSearchItem(id: "linearAccount", title: "Linear Workspace", section: "Linear", tab: .accounts, keywords: ["connect linear", "teams", "workspace"]),
     SettingsSearchItem(id: "githubAccount", title: "GitHub Account", section: "GitHub", tab: .accounts, keywords: ["repositories", "connect github", "repos"]),
+    SettingsSearchItem(id: "appleReminders", title: "Apple Reminders", section: "Apple Reminders", tab: .accounts, keywords: ["connect reminders", "lists", "tasks"]),
 
     SettingsSearchItem(id: "menuBarEventLeadTime", title: "Show title before", section: "Menu Bar Title", tab: .calendar, keywords: ["lead time", "upcoming meeting", "menu bar title", "event title"]),
     SettingsSearchItem(id: "menuBarEventPostStartGrace", title: "Show title after", section: "Menu Bar Title", tab: .calendar, keywords: ["grace", "meeting started", "menu bar title", "event title"]),
@@ -81,6 +82,8 @@ enum SettingsSearchCatalog {
     SettingsSearchItem(id: "linearCreateDefaultProject", title: "Default project", section: "New Linear Issue Defaults", tab: .issues, keywords: ["linear defaults", "new issue"]),
     SettingsSearchItem(id: "linearCreateDefaultLabel", title: "Default label", section: "New Linear Issue Defaults", tab: .issues, keywords: ["linear defaults", "new issue", "tag"]),
     SettingsSearchItem(id: "githubCreateDefaultRepo", title: "Default repository", section: "New GitHub Issue Defaults", tab: .issues, keywords: ["github defaults", "new issue", "repo"]),
+    SettingsSearchItem(id: "appleReminderDefaultList", title: "Default list", section: "New Apple Reminder Defaults", tab: .issues, keywords: ["reminders defaults", "new reminder", "list"]),
+    SettingsSearchItem(id: "appleReminderDefaultPriority", title: "Default priority", section: "New Apple Reminder Defaults", tab: .issues, keywords: ["reminders defaults", "new reminder", "priority"]),
     SettingsSearchItem(id: "linearIssueOrder", title: "Linear issue order", section: "Menu", tab: .issues, keywords: ["sort issues", "issue sorting", "linear order"]),
     SettingsSearchItem(id: "linearIssueFilter", title: "Linear issues", section: "Shown Issues", tab: .issues, keywords: ["assigned to me", "all open issues", "filter", "issue filter"]),
     SettingsSearchItem(id: "githubIssueFilter", title: "GitHub issues", section: "Shown Issues", tab: .issues, keywords: ["assigned to me", "all open issues", "filter", "issue filter"]),
@@ -98,6 +101,7 @@ enum SettingsSearchCatalog {
     SettingsSearchItem(id: "newNoteShortcut", title: "New note", section: "Global Shortcuts", tab: .shortcuts, keywords: ["hotkey", "keyboard shortcut", "global", "note"]),
     SettingsSearchItem(id: "newLinearIssueShortcut", title: "New Linear issue", section: "Global Shortcuts", tab: .shortcuts, keywords: ["hotkey", "keyboard shortcut", "global", "issue"]),
     SettingsSearchItem(id: "newGitHubIssueShortcut", title: "New GitHub issue", section: "Global Shortcuts", tab: .shortcuts, keywords: ["hotkey", "keyboard shortcut", "global", "issue", "github"]),
+    SettingsSearchItem(id: "newAppleReminderShortcut", title: "New Apple Reminder", section: "Global Shortcuts", tab: .shortcuts, keywords: ["hotkey", "keyboard shortcut", "global", "reminder", "task"]),
     SettingsSearchItem(id: "openGoogleCalendarShortcut", title: "Open Google Calendar", section: "Global Shortcuts", tab: .shortcuts, keywords: ["hotkey", "keyboard shortcut", "global", "calendar"]),
   ]
 }

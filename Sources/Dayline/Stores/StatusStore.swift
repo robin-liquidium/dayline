@@ -45,6 +45,12 @@ final class StatusStore: ObservableObject {
   /// GitHub loading error shown as a compact status row.
   @Published private(set) var githubError: String?
 
+  /// Incomplete reminders from the selected Apple Reminders lists.
+  @Published private(set) var appleReminders: [AppleReminderItem] = []
+
+  /// Apple Reminders loading or mutation error.
+  @Published private(set) var appleRemindersError: String?
+
   /// Repository discovery error shown in the expandable GitHub account row.
   @Published private(set) var githubRepositoryError: String?
 
@@ -124,11 +130,11 @@ final class StatusStore: ObservableObject {
   /// Issue whose assignee picker is open.
   @Published private(set) var assigneePickerTarget: IssueActionTarget?
 
-  /// Identifier for the Linear issue whose priority picker is open.
-  @Published private(set) var priorityPickerIssueID: LinearIssueItem.ID?
+  /// Provider-qualified item whose priority picker is open.
+  @Published private(set) var priorityPickerTarget: IssueActionTarget?
 
-  /// Identifier for the Linear issue whose due date picker is open.
-  @Published private(set) var dueDatePickerIssueID: LinearIssueItem.ID?
+  /// Provider-qualified item whose due date picker is open.
+  @Published private(set) var dueDatePickerTarget: IssueActionTarget?
 
   /// Event or issue currently shown in a detail preview, if any.
   @Published private(set) var previewTarget: PreviewTarget?
@@ -136,14 +142,17 @@ final class StatusStore: ObservableObject {
   /// Identifier for the Linear issue currently being updated.
   @Published private(set) var updatingIssueTarget: IssueActionTarget?
 
-  /// Identifier for the Linear issue whose priority is currently being updated.
-  @Published private(set) var updatingPriorityIssueID: LinearIssueItem.ID?
+  /// Provider-qualified item whose priority is currently being updated.
+  @Published private(set) var updatingPriorityTarget: IssueActionTarget?
 
-  /// Identifier for the Linear issue whose due date is currently being updated.
-  @Published private(set) var updatingDueDateIssueID: LinearIssueItem.ID?
+  /// Provider-qualified item whose due date is currently being updated.
+  @Published private(set) var updatingDueDateTarget: IssueActionTarget?
 
   /// Number of sorted Linear issues currently shown in the menu.
   @Published private(set) var visibleIssueCount = initialVisibleIssueCount
+
+  /// Number of sorted Apple Reminders currently shown in the menu.
+  @Published private(set) var visibleAppleReminderCount = initialVisibleIssueCount
 
   /// Number of sorted local notes currently shown in the menu.
   @Published private(set) var visibleNoteCount: Int
@@ -266,6 +275,12 @@ final class StatusStore: ObservableObject {
   /// Device calendar error shown in Settings, if any.
   @Published private(set) var appleCalendarError: String?
 
+  /// Apple Reminders lists discovered through EventKit with their menu selections.
+  @Published private(set) var appleReminderLists: [AppleReminderList] = []
+
+  /// Whether Dayline is opted in and currently authorized to access Reminders.
+  @Published private(set) var appleRemindersConnected = false
+
   /// Optional metadata fields shown on issue rows in the menu.
   @Published var issueRowFields: IssueRowFields {
     didSet {
@@ -320,6 +335,26 @@ final class StatusStore: ObservableObject {
   @Published var githubIssueCreateDefaultRepo: String {
     didSet {
       UserDefaults.standard.set(githubIssueCreateDefaultRepo, forKey: Self.githubIssueCreateDefaultRepoKey)
+    }
+  }
+
+  /// Reminders list preselected when opening the Apple Reminder creator.
+  @Published var appleReminderCreateDefaultListID: String {
+    didSet {
+      UserDefaults.standard.set(
+        appleReminderCreateDefaultListID,
+        forKey: Self.appleReminderCreateDefaultListIDKey
+      )
+    }
+  }
+
+  /// Priority preselected when opening the Apple Reminder creator.
+  @Published var appleReminderCreateDefaultPriority: AppleReminderPriority {
+    didSet {
+      UserDefaults.standard.set(
+        appleReminderCreateDefaultPriority.rawValue,
+        forKey: Self.appleReminderCreateDefaultPriorityKey
+      )
     }
   }
 
@@ -440,6 +475,9 @@ final class StatusStore: ObservableObject {
   /// Global shortcut that opens the GitHub issue creator from anywhere.
   @Published private(set) var newGitHubIssueShortcut: GlobalShortcut
 
+  /// Global shortcut that opens the Apple Reminder creator from anywhere.
+  @Published private(set) var newAppleReminderShortcut: GlobalShortcut
+
   /// Changes when a global hotkey needs to present a new note editor.
   @Published private(set) var noteCreationRequestID = UUID()
 
@@ -448,6 +486,9 @@ final class StatusStore: ObservableObject {
 
   /// Changes when a global hotkey needs to present the GitHub issue creator.
   @Published private(set) var githubIssueCreationRequestID = UUID()
+
+  /// Changes when a global hotkey needs to present the Apple Reminder creator.
+  @Published private(set) var appleReminderCreationRequestID = UUID()
 
   /// Stable system image for the menu bar item.
   var menuBarSystemImage: String {
@@ -492,6 +533,8 @@ final class StatusStore: ObservableObject {
   private static let issueRowFieldsKey = "issueRowFields"
   private static let appleCalendarSelectionsKey = "appleCalendarSelections"
   private static let appleCalendarEnabledKey = "appleCalendarEnabled"
+  private static let appleReminderSelectionsKey = "appleReminderSelections"
+  private static let appleRemindersEnabledKey = "appleRemindersEnabled"
   private static let meetingAlertEnabledKey = "meetingAlertEnabled"
   private static let meetingAlertLeadMinutesKey = "meetingAlertLeadMinutes"
   private static let issueSourceKey = "issueSource"
@@ -501,6 +544,8 @@ final class StatusStore: ObservableObject {
   private static let linearIssueFilterKey = "linearIssueFilter"
   private static let githubIssueFilterKey = "githubIssueFilter"
   private static let githubIssueCreateDefaultRepoKey = "githubIssueCreateDefaultRepo"
+  private static let appleReminderCreateDefaultListIDKey = "appleReminderCreateDefaultListID"
+  private static let appleReminderCreateDefaultPriorityKey = "appleReminderCreateDefaultPriority"
   private static let linearIssueCreateDefaultTeamIDKey = "linearIssueCreateDefaultTeamID"
   private static let linearIssueCreateDefaultStateIDKey = "linearIssueCreateDefaultStateID"
   private static let linearIssueCreateDefaultPriorityKey = "linearIssueCreateDefaultPriority"
@@ -516,6 +561,7 @@ final class StatusStore: ObservableObject {
   private static let newLinearIssueShortcutKey = "newLinearIssueGlobalShortcut"
   private static let openGoogleCalendarShortcutKey = "openGoogleCalendarGlobalShortcut"
   private static let newGitHubIssueShortcutKey = "newGitHubIssueGlobalShortcut"
+  private static let newAppleReminderShortcutKey = "newAppleReminderGlobalShortcut"
   private static let defaultMenuBarEventLeadTimeMinutes = 30
   private static let defaultMenuBarEventPostStartGraceMinutes = 0
   private static let fallbackDefaultVisibleNoteCount = 3
@@ -530,6 +576,7 @@ final class StatusStore: ObservableObject {
   private let githubAuth = GitHubDeviceAuthService.shared
   private let notesService: LocalNotesService
   private let appleCalendarService: AppleCalendarService
+  private let appleRemindersService: AppleRemindersServing
   private let authSessions: [AuthProvider: OAuthSession]
   private let googleAccountRepository: GoogleAccountRepository
   private let linearAccountRepository: LinearAccountRepository
@@ -539,18 +586,21 @@ final class StatusStore: ObservableObject {
   private let mockData: MockData?
   private var googleSessions: [UUID: OAuthSession] = [:]
   private var allIssues: [LinearIssueItem] = []
+  private var allAppleReminders: [AppleReminderItem] = []
   private var allNotes: [LocalNoteItem] = []
   private var optimisticGitHubIssues: [(issue: GitHubIssueItem, insertedAt: Date)] = []
   private var refreshTimer: Timer?
   private var menuBarClockTimer: Timer?
   private var refreshRequested = false
   private var appleCalendarRevision = 0
+  private var appleRemindersRevision = 0
 
   /// Creates a live store and immediately starts the background refresh loop.
   init(
     linearService: LinearService = LinearService(),
     notesService: LocalNotesService = LocalNotesService(),
     appleCalendarService: AppleCalendarService = AppleCalendarService(),
+    appleRemindersService: AppleRemindersServing? = nil,
     authSessions: [AuthProvider: OAuthSession] = [.linear: .linear],
     googleAccountRepository: GoogleAccountRepository = GoogleAccountRepository(),
     linearAccountRepository: LinearAccountRepository = LinearAccountRepository(),
@@ -569,6 +619,7 @@ final class StatusStore: ObservableObject {
     self.linearService = linearService
     self.notesService = notesService
     self.appleCalendarService = appleCalendarService
+    self.appleRemindersService = appleRemindersService ?? AppleRemindersService()
     self.authSessions = authSessions
     self.googleAccountRepository = googleAccountRepository
     self.linearAccountRepository = linearAccountRepository
@@ -614,13 +665,24 @@ final class StatusStore: ObservableObject {
       forKey: Self.newGitHubIssueShortcutKey,
       defaultValue: .newGitHubIssueDefault
     )
-    let otherShortcuts = [noteShortcut, linearShortcut, calendarShortcut]
-    let githubShortcut = otherShortcuts.contains(requestedGitHubShortcut)
-      ? GlobalShortcut.newGitHubIssueFallbacks.first { !otherShortcuts.contains($0) }
+    let shortcutsBeforeGitHub = [noteShortcut, linearShortcut, calendarShortcut]
+    let githubShortcut = shortcutsBeforeGitHub.contains(requestedGitHubShortcut)
+      ? GlobalShortcut.newGitHubIssueFallbacks.first { !shortcutsBeforeGitHub.contains($0) }
         ?? .newGitHubIssueDefault
       : requestedGitHubShortcut
     self.newGitHubIssueShortcut = githubShortcut
     Self.persistShortcut(githubShortcut, forKey: Self.newGitHubIssueShortcutKey)
+    let requestedReminderShortcut = Self.loadShortcut(
+      forKey: Self.newAppleReminderShortcutKey,
+      defaultValue: .newAppleReminderDefault
+    )
+    let shortcutsBeforeReminder = shortcutsBeforeGitHub + [githubShortcut]
+    let reminderShortcut = shortcutsBeforeReminder.contains(requestedReminderShortcut)
+      ? GlobalShortcut.newAppleReminderFallbacks.first { !shortcutsBeforeReminder.contains($0) }
+        ?? .newAppleReminderDefault
+      : requestedReminderShortcut
+    self.newAppleReminderShortcut = reminderShortcut
+    Self.persistShortcut(reminderShortcut, forKey: Self.newAppleReminderShortcutKey)
     self.showsCalendarSourceNames = defaults.object(forKey: Self.showsCalendarSourceNamesKey) as? Bool ?? true
     self.showsCalendarSection = defaults.object(forKey: Self.showsCalendarSectionKey) as? Bool ?? true
     self.showsLinearSection = defaults.object(forKey: Self.showsLinearSectionKey) as? Bool ?? true
@@ -641,6 +703,20 @@ final class StatusStore: ObservableObject {
         from: persisted
       )
     }
+    let hasRemindersAccess = mockData == nil && self.appleRemindersService.hasFullAccess
+    let appleRemindersOptedIn = defaults.object(forKey: Self.appleRemindersEnabledKey) as? Bool
+      ?? hasRemindersAccess
+    self.appleRemindersConnected = appleRemindersOptedIn && hasRemindersAccess
+    if defaults.object(forKey: Self.appleRemindersEnabledKey) == nil {
+      defaults.set(appleRemindersOptedIn, forKey: Self.appleRemindersEnabledKey)
+    }
+    if appleRemindersOptedIn && hasRemindersAccess {
+      let persisted = defaults.dictionary(forKey: Self.appleReminderSelectionsKey) as? [String: Bool] ?? [:]
+      self.appleReminderLists = AppleReminderList.restoringSelections(
+        in: self.appleRemindersService.reminderLists(),
+        from: persisted
+      )
+    }
     self.issueRowFields = (defaults.object(forKey: Self.issueRowFieldsKey) as? Int)
       .map(IssueRowFields.init(rawValue:)) ?? .default
     self.meetingAlertEnabled = defaults.object(forKey: Self.meetingAlertEnabledKey) as? Bool ?? true
@@ -654,6 +730,15 @@ final class StatusStore: ObservableObject {
     self.linearIssueFilter = IssueAssigneeFilter(rawValue: defaults.string(forKey: Self.linearIssueFilterKey) ?? "") ?? .assignedToMe
     self.githubIssueFilter = IssueAssigneeFilter(rawValue: defaults.string(forKey: Self.githubIssueFilterKey) ?? "") ?? .assignedToMe
     self.githubIssueCreateDefaultRepo = defaults.string(forKey: Self.githubIssueCreateDefaultRepoKey) ?? ""
+    self.appleReminderCreateDefaultListID = defaults.string(
+      forKey: Self.appleReminderCreateDefaultListIDKey
+    ) ?? ""
+    self.appleReminderCreateDefaultPriority = AppleReminderPriority(
+      eventKitValue: Self.storedInteger(
+        forKey: Self.appleReminderCreateDefaultPriorityKey,
+        defaultValue: AppleReminderPriority.none.rawValue
+      )
+    )
     self.linearIssueCreateDefaultTeamID = defaults.string(forKey: Self.linearIssueCreateDefaultTeamIDKey) ?? ""
     self.linearIssueCreateDefaultStateID = defaults.string(forKey: Self.linearIssueCreateDefaultStateIDKey) ?? ""
     self.linearIssueCreateDefaultPriority = Self.storedInteger(
@@ -727,6 +812,11 @@ final class StatusStore: ObservableObject {
       scheduleRefreshTimer()
       Task { await refresh() }
     }
+    repairAppleReminderCreateDefaults()
+    self.appleRemindersService.setChangeHandler { [weak self] in
+      guard let self, self.appleRemindersConnected else { return }
+      Task { await self.refresh() }
+    }
     startGlobalHotkeys()
     scheduleMenuBarClockTimer()
   }
@@ -758,17 +848,22 @@ final class StatusStore: ObservableObject {
     await refreshConnectionStatus()
     let googleRevision = connectionRevisions[.google, default: 0]
     let capturedAppleCalendarRevision = appleCalendarRevision
+    let capturedAppleRemindersRevision = appleRemindersRevision
     let linearRevision = connectionRevisions[.linear, default: 0]
     let githubRevision = connectionRevisions[.github, default: 0]
 
     let shouldLoadLinear = isConnected(.linear) && !dismissedProviders.contains(.linear)
     let shouldLoadGitHub = isConnected(.github) && !dismissedProviders.contains(.github)
+    let shouldLoadReminders = appleRemindersConnected
     let shouldLoadCalendar = hasConnectedGoogleAccount || appleCalendarConnected
 
     async let calendarResult: CalendarAgendaLoadResult? =
       shouldLoadCalendar ? loadCalendarAgenda() : nil
     async let linearResult: Result<[LinearIssueItem], Error>? = shouldLoadLinear ? loadLinearIssues() : nil
     async let githubResult: Result<[GitHubIssueItem], Error>? = shouldLoadGitHub ? loadGitHubIssues() : nil
+    async let reminderResult: Result<[AppleReminderItem], Error>? = shouldLoadReminders
+      ? loadAppleReminders()
+      : nil
 
     let resolvedCalendarResult = await calendarResult
     if let calendarResult = resolvedCalendarResult {
@@ -846,11 +941,31 @@ final class StatusStore: ObservableObject {
       githubError = nil
     }
 
+    switch await reminderResult {
+    case .success(let fetchedReminders)?
+      where appleRemindersRevision == capturedAppleRemindersRevision && appleRemindersConnected:
+      allAppleReminders = fetchedReminders
+      applyAppleReminderOrder()
+      appleRemindersError = nil
+    case .failure(let error)?
+      where appleRemindersRevision == capturedAppleRemindersRevision && appleRemindersConnected:
+      appleRemindersError = error.localizedDescription
+    case .some(_):
+      break
+    case nil:
+      allAppleReminders = []
+      applyAppleReminderOrder()
+      if !appleRemindersConnected {
+        appleRemindersError = nil
+      }
+    }
+
     lastUpdatedAt = Date()
     isRefreshing = false
-    let failureCount = [linearError, githubError].compactMap { $0 }.count + calendarWarnings.count
+    let failureCount = [linearError, githubError, appleRemindersError].compactMap { $0 }.count
+      + calendarWarnings.count
     DaylineDiagnostics.record(
-      "Refresh completed events \(events.count) issues \(issues.count) github \(githubIssues.count) notes \(notes.count) failures \(failureCount)",
+      "Refresh completed events \(events.count) issues \(issues.count) github \(githubIssues.count) reminders \(appleReminders.count) notes \(notes.count) failures \(failureCount)",
       category: .refresh
     )
     if refreshRequested {
@@ -866,6 +981,8 @@ final class StatusStore: ObservableObject {
       googleAccounts = mockData.googleAccounts
       return
     }
+
+    refreshAppleRemindersConnectionState()
 
     let googleRevision = connectionRevisions[.google, default: 0]
     var refreshedGoogleAccounts: [GoogleAccountStatus] = []
@@ -980,10 +1097,11 @@ final class StatusStore: ObservableObject {
 
   /// Issue providers that are connected and have not been dismissed by the user.
   var availableIssueSources: [IssueSource] {
-    IssueSource.allCases.filter { source in
-      let provider: AuthProvider = source == .linear ? .linear : .github
-      return isConnected(provider) && !dismissedProviders.contains(provider)
-    }
+    IssueSource.available(
+      linear: isConnected(.linear) && !dismissedProviders.contains(.linear),
+      github: isConnected(.github) && !dismissedProviders.contains(.github),
+      reminders: appleRemindersConnected
+    )
   }
 
   /// Issue source currently shown in the menu, repaired when its provider is unavailable.
@@ -1427,6 +1545,15 @@ final class StatusStore: ObservableObject {
     return true
   }
 
+  /// Persists a new global shortcut for creating Apple Reminders.
+  @discardableResult
+  func setNewAppleReminderShortcut(_ shortcut: GlobalShortcut) -> Bool {
+    guard registerGlobalShortcut(shortcut, for: .newAppleReminder) else { return false }
+    newAppleReminderShortcut = shortcut
+    Self.persistShortcut(shortcut, forKey: Self.newAppleReminderShortcutKey)
+    return true
+  }
+
   /// Opens Google Calendar's current week view without requesting write access.
   func openGoogleCalendar() {
     NSWorkspace.shared.open(URL(string: "https://calendar.google.com/calendar/u/0/r/week")!)
@@ -1451,6 +1578,13 @@ final class StatusStore: ObservableObject {
   func setIssueSource(_ source: IssueSource) {
     guard issueSource != source else { return }
     issueSource = source
+    hoveredIssueTarget = nil
+    statusPickerTarget = nil
+    priorityPickerTarget = nil
+    dueDatePickerTarget = nil
+    labelPickerTarget = nil
+    assigneePickerTarget = nil
+    previewTarget = nil
     DaylineDiagnostics.record("Issue source selected \(source.rawValue)", category: .interaction)
   }
 
@@ -1541,6 +1675,125 @@ final class StatusStore: ObservableObject {
     UserDefaults.standard.set(selections, forKey: Self.appleCalendarSelectionsKey)
   }
 
+  /// Writable, enabled Reminders lists offered by the new-reminder window.
+  var writableAppleReminderLists: [AppleReminderList] {
+    appleReminderLists.filter { $0.isEnabled && $0.allowsModifications }
+  }
+
+  /// Whether the Apple Reminder creator has a valid destination.
+  var canCreateAppleReminder: Bool {
+    appleRemindersConnected && !writableAppleReminderLists.isEmpty
+  }
+
+  /// Requests Reminders access and discovers the user's lists.
+  func connectAppleReminders() async {
+    guard mockData == nil, AppleRemindersService.canRequestAccess else { return }
+    do {
+      let granted = try await appleRemindersService.requestFullAccess()
+      appleRemindersRevision += 1
+      appleRemindersConnected = granted
+      UserDefaults.standard.set(granted, forKey: Self.appleRemindersEnabledKey)
+      appleRemindersError = granted
+        ? nil
+        : "Reminders access was not granted. Allow it in System Settings → Privacy & Security → Reminders."
+      if granted {
+        reconcileAppleReminderLists()
+        await refresh()
+      }
+    } catch {
+      appleRemindersError = error.localizedDescription.compactLine(limit: 160)
+    }
+  }
+
+  /// Disconnects Apple Reminders locally without changing the system permission.
+  func disconnectAppleReminders() {
+    appleRemindersRevision += 1
+    appleRemindersConnected = false
+    appleReminderLists = []
+    allAppleReminders = []
+    applyAppleReminderOrder()
+    appleRemindersError = nil
+    UserDefaults.standard.set(false, forKey: Self.appleRemindersEnabledKey)
+  }
+
+  /// Persists whether one Reminders list contributes tasks to Dayline.
+  func setAppleReminderListEnabled(_ listID: String, enabled: Bool) {
+    guard let index = appleReminderLists.firstIndex(where: { $0.id == listID }) else { return }
+    appleReminderLists[index].isEnabled = enabled
+    appleRemindersRevision += 1
+    if !enabled {
+      allAppleReminders.removeAll { $0.listID == listID }
+      applyAppleReminderOrder()
+    }
+    persistAppleReminderSelections()
+    repairAppleReminderCreateDefaults()
+    Task { await refresh() }
+  }
+
+  /// Persists the Reminders list selected by default in the creator.
+  func setAppleReminderCreateDefaultListID(_ listID: String) {
+    guard writableAppleReminderLists.contains(where: { $0.id == listID }) else { return }
+    appleReminderCreateDefaultListID = listID
+  }
+
+  /// Persists the priority selected by default in the creator.
+  func setAppleReminderCreateDefaultPriority(_ priority: AppleReminderPriority) {
+    appleReminderCreateDefaultPriority = priority
+  }
+
+  /// Rechecks permission and list identities without undoing an explicit disconnect.
+  private func refreshAppleRemindersConnectionState() {
+    let optedIn = UserDefaults.standard.object(forKey: Self.appleRemindersEnabledKey) as? Bool ?? false
+    let shouldConnect = optedIn && appleRemindersService.hasFullAccess
+    if appleRemindersConnected != shouldConnect {
+      appleRemindersRevision += 1
+    }
+    appleRemindersConnected = shouldConnect
+    guard shouldConnect else {
+      appleReminderLists = []
+      allAppleReminders = []
+      applyAppleReminderOrder()
+      appleRemindersError = optedIn
+        ? "Allow Dayline to access Reminders in System Settings → Privacy & Security → Reminders."
+        : nil
+      return
+    }
+    reconcileAppleReminderLists()
+  }
+
+  /// Reconciles local list selections after EventKit rediscovery or a full sync.
+  private func reconcileAppleReminderLists() {
+    let persisted = UserDefaults.standard.dictionary(
+      forKey: Self.appleReminderSelectionsKey
+    ) as? [String: Bool] ?? [:]
+    appleReminderLists = AppleReminderList.restoringSelections(
+      in: appleRemindersService.reminderLists(),
+      from: persisted
+    )
+    persistAppleReminderSelections()
+    repairAppleReminderCreateDefaults()
+  }
+
+  /// Stores both direct and uniquely reconcilable list selection identities.
+  private func persistAppleReminderSelections() {
+    var selections: [String: Bool] = [:]
+    for list in appleReminderLists {
+      selections[list.id] = list.isEnabled
+      selections[list.fallbackSelectionKey] = list.isEnabled
+    }
+    UserDefaults.standard.set(selections, forKey: Self.appleReminderSelectionsKey)
+  }
+
+  /// Repairs a stale or read-only creation default using EventKit's preferred writable list.
+  private func repairAppleReminderCreateDefaults() {
+    let writableLists = writableAppleReminderLists
+    guard !writableLists.contains(where: { $0.id == appleReminderCreateDefaultListID }) else { return }
+    let systemDefaultID = appleRemindersService.defaultReminderListID()
+    appleReminderCreateDefaultListID = writableLists.first(where: { $0.id == systemDefaultID })?.id
+      ?? writableLists.first?.id
+      ?? ""
+  }
+
   /// Requests the Linear issue creator, resetting any previously entered draft.
   func requestLinearIssueCreation() {
     linearIssueCreationRequestID = UUID()
@@ -1549,6 +1802,12 @@ final class StatusStore: ObservableObject {
   /// Requests the GitHub issue creator, resetting any previously entered draft.
   func requestGitHubIssueCreation() {
     githubIssueCreationRequestID = UUID()
+  }
+
+  /// Requests the Apple Reminder creator, resetting any previously entered draft.
+  func requestAppleReminderCreation() {
+    guard canCreateAppleReminder else { return }
+    appleReminderCreationRequestID = UUID()
   }
 
   /// Persists whether the full-screen meeting alert is enabled.
@@ -1678,6 +1937,48 @@ final class StatusStore: ObservableObject {
     DaylineDiagnostics.record("Linear issues collapsed visible \(issues.count)", category: .interaction)
   }
 
+  /// Whether additional fetched reminders can be shown without another refresh.
+  var hasMoreAppleReminders: Bool {
+    visibleAppleReminderCount < allAppleReminders.count
+  }
+
+  /// Whether the reminder list is showing rows beyond the initial page.
+  var hasExpandedAppleReminders: Bool {
+    visibleAppleReminderCount > Self.initialVisibleIssueCount
+  }
+
+  /// Label for revealing the next page of reminders.
+  var showMoreAppleRemindersLabel: String {
+    let additionalCount = min(
+      Self.issuePageSize,
+      max(allAppleReminders.count - visibleAppleReminderCount, 0)
+    )
+    return "Show \(additionalCount) more"
+  }
+
+  /// Reveals another page of already-fetched reminders.
+  func showMoreAppleReminders() {
+    visibleAppleReminderCount = min(
+      visibleAppleReminderCount + Self.issuePageSize,
+      allAppleReminders.count
+    )
+    applyAppleReminderOrder()
+    DaylineDiagnostics.record(
+      "Apple Reminders expanded visible \(appleReminders.count)",
+      category: .interaction
+    )
+  }
+
+  /// Collapses reminders back to the initial visible page.
+  func showFewerAppleReminders() {
+    visibleAppleReminderCount = Self.initialVisibleIssueCount
+    applyAppleReminderOrder()
+    DaylineDiagnostics.record(
+      "Apple Reminders collapsed visible \(appleReminders.count)",
+      category: .interaction
+    )
+  }
+
   /// Whether additional fetched local notes can be shown without another refresh.
   var hasMoreNotes: Bool {
     visibleNoteCount < allNotes.count
@@ -1758,51 +2059,39 @@ final class StatusStore: ObservableObject {
     hoveredControlID = controlID
   }
 
-  /// Issue whose priority picker should currently be shown.
-  var priorityPickerIssue: LinearIssueItem? {
-    guard let priorityPickerIssueID else {
-      return nil
-    }
-    return allIssues.first { $0.id == priorityPickerIssueID }
-  }
-
-  /// Opens the status picker for the hovered Linear issue.
+  /// Opens the status picker for a writable hovered item.
   @discardableResult
   func presentStatusPickerForHoveredIssue() -> Bool {
-    guard let target = validHoveredIssueTarget else { return false }
+    guard let target = validHoveredIssueTarget, canChangeStatus(of: target) else { return false }
     statusPickerTarget = target
-    priorityPickerIssueID = nil
-    dueDatePickerIssueID = nil
+    priorityPickerTarget = nil
+    dueDatePickerTarget = nil
     labelPickerTarget = nil
     assigneePickerTarget = nil
     previewTarget = nil
     return true
   }
 
-  /// Opens the priority picker for the hovered Linear issue.
+  /// Opens the provider-appropriate priority picker for the hovered item.
   @discardableResult
   func presentPriorityPickerForHoveredIssue() -> Bool {
-    guard case .linear(let issueID)? = validHoveredIssueTarget else {
-      return false
-    }
-    priorityPickerIssueID = issueID
+    guard let target = validHoveredIssueTarget, canChangePriority(of: target) else { return false }
+    priorityPickerTarget = target
     statusPickerTarget = nil
-    dueDatePickerIssueID = nil
+    dueDatePickerTarget = nil
     labelPickerTarget = nil
     assigneePickerTarget = nil
     previewTarget = nil
     return true
   }
 
-  /// Opens the due date picker for the hovered Linear issue.
+  /// Opens the provider-appropriate due-date picker for the hovered item.
   @discardableResult
   func presentDueDatePickerForHoveredIssue() -> Bool {
-    guard case .linear(let issueID)? = validHoveredIssueTarget else {
-      return false
-    }
-    dueDatePickerIssueID = issueID
+    guard let target = validHoveredIssueTarget, canChangeDueDate(of: target) else { return false }
+    dueDatePickerTarget = target
     statusPickerTarget = nil
-    priorityPickerIssueID = nil
+    priorityPickerTarget = nil
     labelPickerTarget = nil
     assigneePickerTarget = nil
     previewTarget = nil
@@ -1811,7 +2100,7 @@ final class StatusStore: ObservableObject {
 
   @discardableResult
   func presentLabelPickerForHoveredIssue() -> Bool {
-    guard let target = validHoveredIssueTarget else { return false }
+    guard let target = validHoveredIssueTarget, target.supportsPeopleAndLabels else { return false }
     labelPickerTarget = target
     dismissOtherPickers(kind: .label)
     return true
@@ -1819,7 +2108,7 @@ final class StatusStore: ObservableObject {
 
   @discardableResult
   func presentAssigneePickerForHoveredIssue() -> Bool {
-    guard let target = validHoveredIssueTarget else { return false }
+    guard let target = validHoveredIssueTarget, target.supportsPeopleAndLabels else { return false }
     assigneePickerTarget = target
     dismissOtherPickers(kind: .assignee)
     return true
@@ -1838,8 +2127,8 @@ final class StatusStore: ObservableObject {
     }
     previewTarget = target
     statusPickerTarget = nil
-    priorityPickerIssueID = nil
-    dueDatePickerIssueID = nil
+    priorityPickerTarget = nil
+    dueDatePickerTarget = nil
     labelPickerTarget = nil
     assigneePickerTarget = nil
     return true
@@ -1866,14 +2155,47 @@ final class StatusStore: ObservableObject {
     switch target {
     case .linear(let id): return allIssues.contains { $0.id == id } ? target : nil
     case .github(let id): return githubIssues.contains { $0.id == id } ? target : nil
+    case .reminder(let id): return allAppleReminders.contains { $0.id == id } ? target : nil
+    }
+  }
+
+  private func canChangeStatus(of target: IssueActionTarget) -> Bool {
+    switch target {
+    case .linear, .github:
+      true
+    case .reminder(let id):
+      allAppleReminders.first { $0.id == id }?.allowsModifications == true
+    }
+  }
+
+  private func canChangePriority(of target: IssueActionTarget) -> Bool {
+    switch target {
+    case .linear:
+      true
+    case .github:
+      false
+    case .reminder(let id):
+      allAppleReminders.first { $0.id == id }?.allowsModifications == true
+    }
+  }
+
+  private func canChangeDueDate(of target: IssueActionTarget) -> Bool {
+    switch target {
+    case .linear:
+      return true
+    case .github:
+      return false
+    case .reminder(let id):
+      guard let reminder = allAppleReminders.first(where: { $0.id == id }) else { return false }
+      return reminder.allowsModifications && !reminder.isRecurring
     }
   }
 
   private enum PickerKind { case label, assignee }
   private func dismissOtherPickers(kind: PickerKind) {
     statusPickerTarget = nil
-    priorityPickerIssueID = nil
-    dueDatePickerIssueID = nil
+    priorityPickerTarget = nil
+    dueDatePickerTarget = nil
     previewTarget = nil
     if kind != .label { labelPickerTarget = nil }
     if kind != .assignee { assigneePickerTarget = nil }
@@ -1886,12 +2208,12 @@ final class StatusStore: ObservableObject {
 
   /// Dismisses the priority picker without changing Linear.
   func dismissPriorityPicker() {
-    priorityPickerIssueID = nil
+    priorityPickerTarget = nil
   }
 
   /// Dismisses the due date picker without changing Linear.
   func dismissDueDatePicker() {
-    dueDatePickerIssueID = nil
+    dueDatePickerTarget = nil
   }
 
   func dismissLabelPicker() { labelPickerTarget = nil }
@@ -1906,23 +2228,20 @@ final class StatusStore: ObservableObject {
   @discardableResult
   func copyHoveredIssueLink() -> Bool {
     guard let target = validHoveredIssueTarget else { return false }
-    if case .github(let id) = target,
-       let githubIssue = githubIssues.first(where: { $0.id == id }),
-       let url = githubIssue.url {
-      copyToClipboard(url.absoluteString, markingCopied: target)
-      return true
-    }
-    guard case .linear(let id) = target,
-          let issue = issues.first(where: { $0.id == id }) else {
-      return false
-    }
-
     let clipboardText: String?
-    switch linearCopyStyle {
-    case .link:
-      clipboardText = issue.url?.absoluteString
-    case .branchName:
-      clipboardText = issue.branchName ?? issue.url?.absoluteString
+    switch target {
+    case .github(let id):
+      clipboardText = githubIssues.first(where: { $0.id == id })?.url?.absoluteString
+    case .linear(let id):
+      guard let issue = issues.first(where: { $0.id == id }) else { return false }
+      switch linearCopyStyle {
+      case .link:
+        clipboardText = issue.url?.absoluteString
+      case .branchName:
+        clipboardText = issue.branchName ?? issue.url?.absoluteString
+      }
+    case .reminder(let id):
+      clipboardText = allAppleReminders.first(where: { $0.id == id })?.url?.absoluteString
     }
 
     guard let clipboardText else {
@@ -2020,12 +2339,13 @@ final class StatusStore: ObservableObject {
 
   /// Changes a Linear issue priority and updates the visible list.
   func changeIssuePriority(issueID: LinearIssueItem.ID, priority: LinearPriorityOption) async {
-    guard updatingPriorityIssueID == nil else {
+    let target = IssueActionTarget.linear(issueID)
+    guard updatingPriorityTarget == nil else {
       return
     }
 
-    updatingPriorityIssueID = issueID
-    priorityPickerIssueID = nil
+    updatingPriorityTarget = target
+    priorityPickerTarget = nil
 
     if mockData != nil {
       if let issue = allIssues.first(where: { $0.id == issueID }) {
@@ -2049,7 +2369,7 @@ final class StatusStore: ObservableObject {
         ))
       }
       DaylineDiagnostics.record("Linear issue priority changed", category: .interaction)
-      updatingPriorityIssueID = nil
+      updatingPriorityTarget = nil
       return
     }
 
@@ -2062,17 +2382,18 @@ final class StatusStore: ObservableObject {
       linearError = error.localizedDescription
     }
 
-    updatingPriorityIssueID = nil
+    updatingPriorityTarget = nil
   }
 
   /// Changes or clears a Linear issue due date and updates the visible list.
   func changeIssueDueDate(issueID: LinearIssueItem.ID, dueDate: Date?) async {
-    guard updatingDueDateIssueID == nil else {
+    let target = IssueActionTarget.linear(issueID)
+    guard updatingDueDateTarget == nil else {
       return
     }
 
-    updatingDueDateIssueID = issueID
-    dueDatePickerIssueID = nil
+    updatingDueDateTarget = target
+    dueDatePickerTarget = nil
 
     let formattedDueDate = dueDate.flatMap { date in
       LinearIssueCreateDraft(dueDate: date).formattedDueDate
@@ -2099,7 +2420,7 @@ final class StatusStore: ObservableObject {
           url: issue.url
         ))
       }
-      updatingDueDateIssueID = nil
+      updatingDueDateTarget = nil
       return
     }
 
@@ -2111,7 +2432,7 @@ final class StatusStore: ObservableObject {
       linearError = error.localizedDescription
     }
 
-    updatingDueDateIssueID = nil
+    updatingDueDateTarget = nil
   }
 
   /// Moves a Linear issue to its team's canceled workflow state.
@@ -2152,6 +2473,84 @@ final class StatusStore: ObservableObject {
     githubError = nil
   }
 
+  /// Marks an Apple Reminder completed and removes it from the incomplete feed.
+  func completeAppleReminder(id: String) async {
+    let target = IssueActionTarget.reminder(id)
+    guard updatingIssueTarget == nil,
+          let reminder = allAppleReminders.first(where: { $0.id == id }),
+          reminder.allowsModifications else { return }
+    updatingIssueTarget = target
+    statusPickerTarget = nil
+    defer { updatingIssueTarget = nil }
+
+    do {
+      if mockData == nil {
+        try appleRemindersService.setReminderCompleted(id: id)
+      }
+      allAppleReminders.removeAll { $0.id == id }
+      applyAppleReminderOrder()
+      appleRemindersError = nil
+      lastUpdatedAt = Date()
+      DaylineDiagnostics.record("Apple Reminder completed", category: .interaction)
+      if reminder.isRecurring, mockData == nil {
+        Task { await refresh() }
+      }
+    } catch {
+      appleRemindersError = error.localizedDescription
+    }
+  }
+
+  /// Changes an Apple Reminder's native priority.
+  func changeAppleReminderPriority(id: String, priority: AppleReminderPriority) async {
+    let target = IssueActionTarget.reminder(id)
+    guard updatingPriorityTarget == nil,
+          let reminder = allAppleReminders.first(where: { $0.id == id }),
+          reminder.allowsModifications else { return }
+    updatingPriorityTarget = target
+    priorityPickerTarget = nil
+    defer { updatingPriorityTarget = nil }
+
+    do {
+      let updated = mockData == nil
+        ? try appleRemindersService.updateReminderPriority(id: id, priority: priority)
+        : reminder.replacing(priority: priority, updatedAt: .some(Date()))
+      replaceAppleReminder(updated)
+      appleRemindersError = nil
+      DaylineDiagnostics.record("Apple Reminder priority changed", category: .interaction)
+    } catch {
+      appleRemindersError = error.localizedDescription
+    }
+  }
+
+  /// Changes or clears a nonrecurring Apple Reminder's due date.
+  func changeAppleReminderDueDate(id: String, dueDate: Date?) async {
+    let target = IssueActionTarget.reminder(id)
+    guard updatingDueDateTarget == nil,
+          let reminder = allAppleReminders.first(where: { $0.id == id }),
+          reminder.allowsModifications,
+          !reminder.isRecurring else { return }
+    updatingDueDateTarget = target
+    dueDatePickerTarget = nil
+    defer { updatingDueDateTarget = nil }
+
+    do {
+      let updated: AppleReminderItem
+      if mockData == nil {
+        updated = try appleRemindersService.updateReminderDueDate(id: id, dueDate: dueDate)
+      } else {
+        let normalizedDueDate = dueDate.map { date in
+          reminder.dueDate?.replacingDay(with: date) ?? .dateOnly(from: date)
+        }
+        updated = reminder.replacing(dueDate: .some(normalizedDueDate), updatedAt: .some(Date()))
+      }
+      replaceAppleReminder(updated)
+      appleRemindersError = nil
+      DaylineDiagnostics.record("Apple Reminder due date changed", category: .interaction)
+    } catch {
+      appleRemindersError = error.localizedDescription
+    }
+  }
+
   /// Loads labels appropriate for one issue target.
   func labelOptions(for target: IssueActionTarget) async throws -> [IssueLabelOption] {
     switch target {
@@ -2166,6 +2565,8 @@ final class StatusStore: ObservableObject {
       return try await githubService.fetchLabels(repoFullName: issue.repoFullName).map {
         IssueLabelOption(id: $0.id, name: $0.name, color: $0.color)
       }
+    case .reminder:
+      return []
     }
   }
 
@@ -2173,6 +2574,7 @@ final class StatusStore: ObservableObject {
     switch target {
     case .linear(let id): return Set(allIssues.first { $0.id == id }?.labels.map(\.id) ?? [])
     case .github(let id): return Set(githubIssues.first { $0.id == id }?.labels.map(\.id) ?? [])
+    case .reminder: return []
     }
   }
 
@@ -2219,6 +2621,8 @@ final class StatusStore: ObservableObject {
         githubError = nil
         DaylineDiagnostics.record("GitHub issue labels changed count \(labels.count)", category: .interaction)
       } catch { githubError = error.localizedDescription }
+    case .reminder:
+      return
     }
   }
 
@@ -2235,6 +2639,8 @@ final class StatusStore: ObservableObject {
       return try await githubService.fetchAssignees(repoFullName: issue.repoFullName).map {
         IssueAssigneeOption(id: $0.id, name: $0.login)
       }
+    case .reminder:
+      return []
     }
   }
 
@@ -2242,6 +2648,7 @@ final class StatusStore: ObservableObject {
     switch target {
     case .linear(let id): return Set(allIssues.first { $0.id == id }?.assignee.map { [$0.id] } ?? [""])
     case .github(let id): return Set(githubIssues.first { $0.id == id }?.assignees.map(\.id) ?? [])
+    case .reminder: return []
     }
   }
 
@@ -2306,6 +2713,8 @@ final class StatusStore: ObservableObject {
         githubError = nil
         DaylineDiagnostics.record("GitHub issue assignees changed count \(assignees.count)", category: .interaction)
       } catch { githubError = error.localizedDescription }
+    case .reminder:
+      return
     }
   }
 
@@ -2439,6 +2848,45 @@ final class StatusStore: ObservableObject {
     lastUpdatedAt = Date()
     DaylineDiagnostics.record("GitHub issue created", category: .interaction)
     Task { await refresh() }
+  }
+
+  /// Creates an Apple Reminder in one enabled writable list and shows it immediately.
+  func createAppleReminder(draft: AppleReminderCreateDraft) async throws {
+    guard let list = writableAppleReminderLists.first(where: { $0.id == draft.listID }) else {
+      throw AppleRemindersServiceError.listUnavailable
+    }
+
+    let created: AppleReminderItem
+    if mockData == nil {
+      created = try appleRemindersService.createReminder(draft)
+    } else {
+      let trimmedNotes = draft.notes.trimmingCharacters(in: .whitespacesAndNewlines)
+      let dueDate = draft.dueDate.map { date in
+        draft.dueDateIncludesTime
+          ? AppleReminderDueDate.timed(date, timeZoneIdentifier: TimeZone.current.identifier)
+          : AppleReminderDueDate.dateOnly(from: date)
+      }
+      created = AppleReminderItem(
+        id: "mock-reminder-\(UUID().uuidString)",
+        title: draft.title.trimmingCharacters(in: .whitespacesAndNewlines),
+        notes: trimmedNotes.isEmpty ? nil : trimmedNotes,
+        listID: list.id,
+        listTitle: list.title,
+        priority: draft.priority,
+        dueDate: dueDate,
+        updatedAt: Date(),
+        url: nil,
+        isRecurring: false,
+        allowsModifications: true
+      )
+    }
+
+    allAppleReminders.removeAll { $0.id == created.id }
+    allAppleReminders.append(created)
+    applyAppleReminderOrder()
+    appleRemindersError = nil
+    lastUpdatedAt = Date()
+    DaylineDiagnostics.record("Apple Reminder created", category: .interaction)
   }
 
   /// Shows a freshly created issue until GitHub's search-backed feeds include it.
@@ -2820,6 +3268,9 @@ final class StatusStore: ObservableObject {
       case .newGitHubIssue:
         guard self.availableIssueSources.contains(.github) else { return }
         self.requestGitHubIssueCreation()
+      case .newAppleReminder:
+        guard self.availableIssueSources.contains(.reminders) else { return }
+        self.requestAppleReminderCreation()
       case .openGoogleCalendar:
         self.openGoogleCalendar()
       }
@@ -2833,6 +3284,10 @@ final class StatusStore: ObservableObject {
     let linearStatus = globalHotkeyService.update(shortcut: newLinearIssueShortcut, for: .newLinearIssue)
     let calendarStatus = globalHotkeyService.update(shortcut: openGoogleCalendarShortcut, for: .openGoogleCalendar)
     let githubStatus = globalHotkeyService.update(shortcut: newGitHubIssueShortcut, for: .newGitHubIssue)
+    let reminderStatus = globalHotkeyService.update(
+      shortcut: newAppleReminderShortcut,
+      for: .newAppleReminder
+    )
     if noteStatus != noErr {
       globalShortcutError = Self.globalShortcutRegistrationError(newNoteShortcut, status: noteStatus)
     } else if linearStatus != noErr {
@@ -2841,6 +3296,11 @@ final class StatusStore: ObservableObject {
       globalShortcutError = Self.globalShortcutRegistrationError(openGoogleCalendarShortcut, status: calendarStatus)
     } else if githubStatus != noErr {
       globalShortcutError = Self.globalShortcutRegistrationError(newGitHubIssueShortcut, status: githubStatus)
+    } else if reminderStatus != noErr {
+      globalShortcutError = Self.globalShortcutRegistrationError(
+        newAppleReminderShortcut,
+        status: reminderStatus
+      )
     }
   }
 
@@ -2919,6 +3379,13 @@ final class StatusStore: ObservableObject {
       .map { $0 }
   }
 
+  /// Applies Dayline's deterministic priority/due-date order to Apple Reminders.
+  private func applyAppleReminderOrder() {
+    appleReminders = sortedAppleReminders(allAppleReminders)
+      .prefix(visibleAppleReminderCount)
+      .map { $0 }
+  }
+
   /// Applies the selected local ordering to fetched note candidates.
   private func applyLocalNoteSortOrder() {
     notes = sortedLocalNotes(allNotes)
@@ -2945,6 +3412,15 @@ final class StatusStore: ObservableObject {
     }
   }
 
+  /// Replaces one reminder in the current incomplete snapshot and reapplies ordering.
+  private func replaceAppleReminder(_ updatedReminder: AppleReminderItem) {
+    guard let index = allAppleReminders.firstIndex(where: { $0.id == updatedReminder.id }) else {
+      return
+    }
+    allAppleReminders[index] = updatedReminder
+    applyAppleReminderOrder()
+  }
+
   /// Returns Linear issues sorted by the current user preference.
   private func sortedLinearIssues(_ issues: [LinearIssueItem]) -> [LinearIssueItem] {
     issues.sorted { lhs, rhs in
@@ -2958,6 +3434,31 @@ final class StatusStore: ObservableObject {
       case .title:
         compareTitle(lhs, rhs) ?? comparePriority(lhs, rhs) ?? compareID(lhs, rhs)
       }
+    }
+  }
+
+  /// Sorts reminders by priority, due date, recent activity, and stable snapshot identity.
+  private func sortedAppleReminders(_ reminders: [AppleReminderItem]) -> [AppleReminderItem] {
+    reminders.sorted { lhs, rhs in
+      if lhs.priority.sortRank != rhs.priority.sortRank {
+        return lhs.priority.sortRank < rhs.priority.sortRank
+      }
+      switch (lhs.dueDate, rhs.dueDate) {
+      case let (lhsDate?, rhsDate?) where lhsDate.date != rhsDate.date:
+        return lhsDate.date < rhsDate.date
+      case (_?, nil):
+        return true
+      case (nil, _?):
+        return false
+      default:
+        break
+      }
+      if let lhsUpdated = lhs.updatedAt,
+         let rhsUpdated = rhs.updatedAt,
+         lhsUpdated != rhsUpdated {
+        return lhsUpdated > rhsUpdated
+      }
+      return lhs.id < rhs.id
     }
   }
 
@@ -3009,7 +3510,8 @@ final class StatusStore: ObservableObject {
     }
     googleSourceEvents = events
     tomorrowEvents = mockData.tomorrowEvents
-    allIssues = mockData.issues
+    allIssues = mockData.issueSources.contains(.linear) ? mockData.issues : []
+    allAppleReminders = mockData.issueSources.contains(.reminders) ? mockData.appleReminders : []
     allNotes = mockData.notes
     linearAccount = LinearAccount(
       workspaceName: "Dayline",
@@ -3019,21 +3521,27 @@ final class StatusStore: ObservableObject {
       },
       hasDiscoveredTeams: true
     )
-    githubIssues = mockData.githubIssues
+    githubIssues = mockData.issueSources.contains(.github) ? mockData.githubIssues : []
     githubAccount = GitHubAccount(repositories: Array(Set(mockData.githubIssues.map(\.repoFullName))).map {
       GitHubRepository(fullName: $0, isEnabled: true)
     }.sorted { $0.fullName < $1.fullName })
     connectionStatuses = mockData.connectionStatuses
     googleAccounts = mockData.googleAccounts
+    appleRemindersConnected = mockData.issueSources.contains(.reminders)
+    appleReminderLists = appleRemindersConnected ? mockData.appleReminderLists : []
     visibleIssueCount = Self.initialVisibleIssueCount
+    visibleAppleReminderCount = Self.initialVisibleIssueCount
     visibleNoteCount = Self.fallbackDefaultVisibleNoteCount
     calendarWarnings = []
     googleAuthorizationError = nil
     linearError = nil
     linearTeamError = nil
     githubError = nil
+    appleRemindersError = nil
     notesError = nil
     issues = Array(allIssues.prefix(visibleIssueCount))
+    applyAppleReminderOrder()
+    repairAppleReminderCreateDefaults()
     notes = Array(allNotes.prefix(visibleNoteCount))
     lastUpdatedAt = Date()
     isRefreshing = false
@@ -3340,6 +3848,16 @@ final class StatusStore: ObservableObject {
   private func loadGitHubIssues() async -> Result<[GitHubIssueItem], Error> {
     do {
       return .success(try await fetchGitHubIssues())
+    } catch {
+      return .failure(error)
+    }
+  }
+
+  /// Loads incomplete Apple Reminders from the currently enabled lists.
+  private func loadAppleReminders() async -> Result<[AppleReminderItem], Error> {
+    do {
+      let listIDs = Set(appleReminderLists.filter(\.isEnabled).map(\.id))
+      return .success(try await appleRemindersService.fetchIncompleteReminders(in: listIDs))
     } catch {
       return .failure(error)
     }

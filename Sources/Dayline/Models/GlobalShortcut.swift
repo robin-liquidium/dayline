@@ -33,6 +33,20 @@ struct GlobalShortcut: Codable, Equatable {
     carbonModifiers: UInt32(controlKey | optionKey | cmdKey)
   )
 
+  /// Default global shortcut for creating an Apple Reminder: Control+Option+Command+R.
+  static let newAppleReminderDefault = GlobalShortcut(
+    keyCode: UInt32(kVK_ANSI_R),
+    carbonModifiers: UInt32(controlKey | optionKey | cmdKey)
+  )
+
+  /// Reminder shortcut fallbacks used when a saved shortcut already uses R.
+  static let newAppleReminderFallbacks = [
+    newAppleReminderDefault,
+    GlobalShortcut(keyCode: UInt32(kVK_ANSI_M), carbonModifiers: UInt32(controlKey | optionKey | cmdKey)),
+    GlobalShortcut(keyCode: UInt32(kVK_ANSI_T), carbonModifiers: UInt32(controlKey | optionKey | cmdKey)),
+    GlobalShortcut(keyCode: UInt32(kVK_ANSI_U), carbonModifiers: UInt32(controlKey | optionKey | cmdKey))
+  ]
+
   /// GitHub issue shortcut fallbacks used when another saved shortcut already uses G.
   static let newGitHubIssueFallbacks = [
     newGitHubIssueDefault,

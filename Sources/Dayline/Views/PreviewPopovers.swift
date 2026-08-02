@@ -95,6 +95,49 @@ struct GitHubIssuePreviewPopover: View {
   }
 }
 
+/// Detail preview for an Apple Reminder.
+struct AppleReminderPreviewPopover: View {
+  let reminder: AppleReminderItem
+
+  var body: some View {
+    PreviewCard(title: reminder.title, subtitle: reminder.listTitle) {
+      PreviewRow(label: "Status", value: "Incomplete", systemImage: "circle")
+      PreviewRow(label: "Priority", value: reminder.priority.label, systemImage: "flag")
+
+      if let dueDate = reminder.dueDate {
+        PreviewRow(
+          label: "Due",
+          value: DisplayFormatters.appleReminderDueDate(dueDate),
+          systemImage: "calendar"
+        )
+      }
+
+      if reminder.isRecurring {
+        PreviewRow(label: "Repeats", value: "Recurring reminder", systemImage: "repeat")
+      }
+
+      if let updatedAt = reminder.updatedAt {
+        PreviewRow(
+          label: "Updated",
+          value: DisplayFormatters.relative.localizedString(
+            fromTimeInterval: updatedAt.timeIntervalSinceNow
+          ),
+          systemImage: "clock"
+        )
+      }
+
+      if let notes = reminder.notes, !notes.isEmpty {
+        PreviewRow(label: "Notes", value: notes, systemImage: "text.alignleft")
+      }
+
+      if let url = reminder.url {
+        PreviewOpenButton(title: "Open attached URL", url: url)
+      }
+    }
+    .accessibilityIdentifier("reminders.preview.\(reminder.id)")
+  }
+}
+
 /// Shared preview layout: title block plus labeled detail rows and actions.
 private struct PreviewCard<Content: View>: View {
   let title: String

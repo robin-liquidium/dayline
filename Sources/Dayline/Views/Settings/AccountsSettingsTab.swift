@@ -94,6 +94,63 @@ struct AccountsSettingsTab: View {
         Label("Apple Calendar", systemImage: "applelogo")
       }
 
+      Section {
+        if store.appleRemindersConnected {
+          if store.appleReminderLists.isEmpty {
+            Text("No Reminders lists found")
+              .foregroundStyle(.secondary)
+          } else {
+            ForEach(store.appleReminderLists) { list in
+              Toggle(isOn: appleReminderListBinding(for: list.id)) {
+                VStack(alignment: .leading, spacing: 2) {
+                  HStack(spacing: 6) {
+                    Text(list.title)
+                    if !list.allowsModifications {
+                      Label("Read-only", systemImage: "lock")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                  }
+                  Text(list.sourceName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+              }
+              .accessibilityIdentifier("settings.account.reminders.list.\(list.id)")
+            }
+          }
+
+          Button("Disconnect", role: .destructive) {
+            store.disconnectAppleReminders()
+          }
+          .accessibilityIdentifier("settings.account.reminders.disconnect")
+        } else {
+          if AppleRemindersService.canRequestAccess {
+            Button {
+              Task { await store.connectAppleReminders() }
+            } label: {
+              Label("Connect Apple Reminders", systemImage: "plus")
+            }
+            .accessibilityIdentifier("settings.account.reminders.connect")
+
+            if let error = store.appleRemindersError {
+              Text(error)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("settings.account.reminders.error")
+            }
+          } else {
+            Text("Apple Reminders is available in the packaged Dayline app.")
+              .foregroundStyle(.secondary)
+          }
+        }
+      } header: {
+        Label("Apple Reminders", systemImage: "checklist")
+      } footer: {
+        Text("Only incomplete reminders from enabled lists appear in the Issues section.")
+      }
+
       if let linearStatus = store.connectionStatuses.first(where: { $0.provider == .linear }) {
         Section {
           LinearAccountSettingsRow(status: linearStatus)
@@ -119,6 +176,14 @@ struct AccountsSettingsTab: View {
     Binding(
       get: { store.appleCalendars.first { $0.id == calendarID }?.isEnabled ?? false },
       set: { store.setAppleCalendarEnabled(calendarID, enabled: $0) }
+    )
+  }
+
+  /// Binding that persists one Apple Reminders list selection.
+  private func appleReminderListBinding(for listID: String) -> Binding<Bool> {
+    Binding(
+      get: { store.appleReminderLists.first { $0.id == listID }?.isEnabled ?? false },
+      set: { store.setAppleReminderListEnabled(listID, enabled: $0) }
     )
   }
 }

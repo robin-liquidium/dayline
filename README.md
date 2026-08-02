@@ -5,7 +5,7 @@
 <h1 align="center">Dayline</h1>
 
 <p align="center">
-  Your calendar, Linear or GitHub issues, and local notes in one quiet macOS menu.
+  Your calendar, work items, reminders, and local notes in one quiet macOS menu.
 </p>
 
 <p align="center">
@@ -22,15 +22,15 @@
 
 Dayline is a small, native SwiftUI menu bar app built for the information you
 check throughout the day. It keeps upcoming Google Calendar events, active
-Linear or GitHub issues, and quick local notes together without adding another dashboard
+Linear or GitHub issues, Apple Reminders, and quick local notes together without adding another dashboard
 or Dock icon.
 
 ## Highlights
 
 - **Calendar at a glance:** see remaining timed events today and optionally expand tomorrow.
-- **Issues without the tab:** review assigned Linear or GitHub issues and update their status, labels, or assignee.
+- **Work without the tab:** review assigned Linear or GitHub issues alongside incomplete Apple Reminders.
 - **Local Markdown notes:** write formatted notes on this Mac; the first line becomes the title.
-- **Keyboard-first actions:** hover an issue and use configurable shortcuts for copy, status, labels, assignee, and Linear-specific fields.
+- **Keyboard-first actions:** hover a work item and use configurable shortcuts for status, priority, due date, and provider-specific fields.
 - **Super lightweight:** native and menu-bar-only, using next to no system resources in the background.
 - **Quiet by design:** menu-bar-only, background refresh, launch at login, and configurable ordering.
 - **Direct and private:** Dayline has no backend, account system, analytics, or tracking.
@@ -51,6 +51,10 @@ tomorrow when you want a head start.
 Assigned issues stay within reach. Hover a row and press `C` to copy its URL,
 `S` to change status, `L` to change labels, or `A` to change the assignee.
 Linear issues also support `P` for priority and `D` for due date. The shortcuts are configurable.
+
+Apple Reminders can occupy the same section instead of, or alongside, Linear
+and GitHub. Dayline can show selected reminder lists, create reminders, mark
+them complete, and change priority or due date without leaving the menu.
 
 <p align="center">
   <img src="website/public/images/linear-issue-list.webp" width="720" alt="Dayline showing active Linear issues with their status, priority, and due date">
@@ -138,13 +142,14 @@ adds a public download link to the GitHub issue for 30 days.
 
 ## Connect Accounts
 
-On first launch, connect either or both integrations from the menu:
+On first launch, connect any integrations you want from the menu:
 
 - **Google Calendar:** link any number of Google accounts, then choose the readable
   calendars Dayline should merge into one agenda. Calendars currently visible in
   Google Calendar are enabled by default.
 - **Linear:** read/write access for assigned issues and issue actions, filtered by user-selected teams.
 - **GitHub:** assigned issues from user-selected repositories, with status, label, and assignee actions.
+- **Apple Reminders:** incomplete reminders from user-selected lists, with create, complete, priority, and due-date actions.
 
 Google and Linear use OAuth 2.0 with PKCE; GitHub uses OAuth's device flow.
 GitHub's OAuth `repo` scope grants Dayline access to every repository the
@@ -199,13 +204,13 @@ read-only private-repository permission.
 
 ## Privacy
 
-Dayline talks directly from your Mac to Google Calendar, Linear, and GitHub over HTTPS.
-There is no Dayline server between them.
+Dayline talks directly from your Mac to Google Calendar, Linear, and GitHub over HTTPS,
+and to Apple Reminders through macOS EventKit. There is no Dayline server between them.
 
 - OAuth tokens live in the macOS Keychain.
-- Linked account labels, calendar selections, and GitHub repository selections live in local app preferences.
+- Linked account labels, calendar selections, GitHub repository selections, and enabled reminder lists live in local app preferences.
 - Notes live in `~/Library/Application Support/Dayline/notes.json`.
-- Calendar, Linear, and GitHub data is held in memory for display.
+- Calendar, Linear, GitHub, and reminder data is held in memory for display.
 - Dayline does not include analytics, tracking, advertising, or an account system.
 
 ## License
@@ -251,7 +256,7 @@ DAYLINE_APP_NAME="Dayline Mock" ./script/menu_test.sh open
 ```
 
 `Dayline Mock.app` has its own bundle ID and connected-looking sample Calendar,
-Linear, and Notes data. Refreshes, account actions, issue updates, and note edits
+Linear, GitHub, Apple Reminders, and Notes data. Refreshes, account actions, work-item updates, and note edits
 remain in memory and never use real OAuth tokens, APIs, or the production notes
 file.
 
@@ -285,7 +290,7 @@ Run the scripted XCUITest suite with:
 ```
 
 The XCUITests build and launch the isolated `Dayline Mock.app`, exercise the
-menu, Calendar expansion, Linear/GitHub switching, pagination, complex Markdown
+menu, Calendar expansion, Linear/GitHub/Reminders switching, work-item actions and creation, pagination, complex Markdown
 note rendering and formatting shortcuts, and Settings. Each run saves an isolated evidence directory under
 `dist/ui-test-results/` containing the `.xcresult`, structured test summaries,
 the complete runner log, privacy-safe app breadcrumbs, and always-kept visual

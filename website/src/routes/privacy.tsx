@@ -7,7 +7,7 @@ export const Route = createFileRoute("/privacy")({
       { title: "Privacy Policy — Dayline" },
       {
         name: "description",
-        content: "How Dayline handles Google Calendar, Linear, GitHub, and local note data.",
+        content: "How Dayline handles Google Calendar, Apple Reminders, Linear, GitHub, and local note data.",
       },
     ],
   }),
@@ -19,7 +19,7 @@ function PrivacyPolicy() {
     <LegalPage
       title="Privacy Policy"
       summary="Dayline is local-first software. It has no Dayline account system, advertising, analytics, or tracking. Only feedback you deliberately submit is sent through a Dayline service."
-      updated="July 27, 2026"
+      updated="August 2, 2026"
     >
       <LegalSection title="Google user data Dayline accesses">
         <p>
@@ -55,6 +55,14 @@ function PrivacyPolicy() {
           does not make issue changes without your action.
         </p>
         <p>
+          When you connect Apple Reminders, Dayline asks macOS for full Reminders
+          access and uses EventKit directly on your Mac. It reads the names and
+          identifiers of available reminder lists and the incomplete reminders
+          in lists you enable, including their titles, notes, attached URLs,
+          priority, due date, and recurrence status. Dayline changes or creates a
+          reminder only when you request that action.
+        </p>
+        <p>
           Quick notes you create in Dayline are stored locally on your Mac and
           are not sent to Google, Linear, GitHub, or a Dayline service.
         </p>
@@ -67,7 +75,9 @@ function PrivacyPolicy() {
           enabled-calendar selections are stored in local app preferences.
           Google Calendar event data is held only in app memory for display and
           alerts; Dayline does not persist an event cache to disk. Linear and
-          GitHub account selections are also stored in local preferences. Notes
+          GitHub account selections and enabled Apple Reminders lists are also
+          stored in local preferences. Reminder data is held in app memory and
+          remains stored by Apple Reminders. Notes
           are stored in Dayline&apos;s local Application Support directory.
           Dayline also keeps a small, bounded diagnostic log in Application
           Support containing only app lifecycle, refresh counts, and action
@@ -76,7 +86,8 @@ function PrivacyPolicy() {
         </p>
         <p>
           Dayline talks directly from your Mac to Google, Linear, and GitHub over
-          HTTPS. It does not copy Google user data or other connected-account data
+          HTTPS and accesses Apple Reminders locally through macOS EventKit. It
+          does not copy Google user data or other connected-account data
           to a Dayline-operated server. If
           you submit feedback, the feedback is sent through Dayline&apos;s
           Cloudflare Worker and posted as a public issue in Dayline&apos;s GitHub
@@ -119,8 +130,8 @@ function PrivacyPolicy() {
         <p>
           Feedback may optionally include only the Dayline version and build,
           macOS version, and chip type. It never automatically includes your
-          name, device name, IP address, accounts, calendar or Linear data,
-          notes, OAuth tokens, or logs. A separate Include diagnostics option
+          name, device name, IP address, accounts, calendar, issue, or reminder
+          data, notes, OAuth tokens, or logs. A separate Include diagnostics option
           can explicitly add the diagnostic archive described below. Feedback
           and anything you choose to include are public on GitHub, so you should
           not enter personal or sensitive information.
@@ -146,6 +157,13 @@ function PrivacyPolicy() {
           from memory without affecting other connected accounts. Quitting
           Dayline clears all in-memory Google Calendar event data. You can also
           revoke Dayline from your Google Account permissions page.
+        </p>
+        <p>
+          Disconnecting Apple Reminders in Dayline clears its reminder data from
+          memory and stops Dayline from reading or changing reminders. macOS
+          controls the underlying permission; you can revoke it in System
+          Settings. Disabling an individual list removes that list from Dayline
+          without deleting or changing reminders in Apple&apos;s app.
         </p>
         <p>
           Dayline retains Google account metadata and credentials only while the
@@ -178,7 +196,8 @@ function PrivacyPolicy() {
           use OAuth 2.0 with PKCE, Dayline requests the narrowest practical
           permissions, credentials are stored in the macOS Keychain rather than
           app preferences, and the app does not ship OAuth client secrets. No
-          security measure is perfect, but Dayline is designed to minimize the
+          security measure is perfect. Apple Reminders access is controlled by
+          macOS privacy permissions and stays on the Mac. Dayline is designed to minimize the
           data it handles, retains, and transfers.
         </p>
       </LegalSection>

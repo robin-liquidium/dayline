@@ -17,6 +17,9 @@ enum MenuControlID {
   /// GitHub issue creation button.
   case newGitHubIssue
 
+  /// Apple Reminder creation button.
+  case newAppleReminder
+
   /// Linear issue reveal-more row.
   case moreIssues
 

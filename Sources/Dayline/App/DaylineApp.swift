@@ -34,14 +34,25 @@ struct DaylineApp: App {
 
   init() {
     let arguments = ProcessInfo.processInfo.arguments
-    let isMock = arguments.contains("--mock")
+    let isMockBundle = Bundle.main.bundleIdentifier == "build.local.DaylineMock"
+    let isMock = arguments.contains("--mock") || isMockBundle
     if isMock,
        arguments.contains("--ui-testing"),
        let bundleIdentifier = Bundle.main.bundleIdentifier,
-       bundleIdentifier == "build.local.DaylineMock" {
+       isMockBundle {
       UserDefaults.standard.removePersistentDomain(forName: bundleIdentifier)
     }
-    let mockData = isMock ? MockData.make() : nil
+    let mockIssueSources = arguments
+      .first(where: { $0.hasPrefix("--mock-issue-providers=") })
+      .map { argument in
+        Set(argument
+          .split(separator: "=", maxSplits: 1)
+          .last?
+          .split(separator: ",")
+          .compactMap { IssueSource(rawValue: String($0)) } ?? [])
+      }
+      ?? Set(IssueSource.allCases)
+    let mockData = isMock ? MockData.make(issueSources: mockIssueSources) : nil
     _store = StateObject(wrappedValue: StatusStore(mockData: mockData))
     _updateService = StateObject(wrappedValue: UpdateService(
       isMock: isMock,
@@ -87,6 +98,13 @@ struct DaylineApp: App {
     .defaultSize(width: 620, height: 520)
     .handlesExternalEvents(matching: [])
 
+    Window("New Apple Reminder", id: "appleReminderCreator") {
+      AppleReminderEditorView()
+        .environmentObject(store)
+    }
+    .defaultSize(width: 580, height: 540)
+    .handlesExternalEvents(matching: [])
+
     Window("\(appDisplayName) Settings", id: "settings") {
       SettingsView()
         .environmentObject(store)
@@ -129,6 +147,10 @@ private struct MenuBarLabelView: View {
     .onChange(of: store.githubIssueCreationRequestID) {
       openWindow(id: "githubIssueCreator")
       GitHubIssueEditorWindowPresenter.bringIssueWindowToFront()
+    }
+    .onChange(of: store.appleReminderCreationRequestID) {
+      openWindow(id: "appleReminderCreator")
+      AppleReminderEditorWindowPresenter.bringReminderWindowToFront()
     }
     .onChange(of: store.meetingAlertEvent, initial: true) {
       if let event = store.meetingAlertEvent {

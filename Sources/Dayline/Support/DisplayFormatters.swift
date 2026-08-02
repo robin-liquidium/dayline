@@ -72,6 +72,19 @@ enum DisplayFormatters {
     return output.string(from: date)
   }
 
+  /// Formats an Apple Reminder due date without losing date-only versus timed meaning.
+  static func appleReminderDueDate(_ dueDate: AppleReminderDueDate) -> String {
+    let formatter = DateFormatter()
+    formatter.dateStyle = .medium
+    formatter.timeStyle = dueDate.includesTime ? .short : .none
+    if case .timed(_, let timeZoneIdentifier) = dueDate,
+       let timeZoneIdentifier,
+       let timeZone = TimeZone(identifier: timeZoneIdentifier) {
+      formatter.timeZone = timeZone
+    }
+    return formatter.string(from: dueDate.date)
+  }
+
   /// Formats a local note timestamp for compact metadata.
   static func noteDate(_ date: Date) -> String {
     noteTimestamp.string(from: date)
