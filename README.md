@@ -390,7 +390,6 @@ push to `main`, so it does not use the local mouse or interrupt local work.
 - `settings.account.reminders.disconnect`
 - `settings.account.reminders.list.<LIST-ID>`
 - `settings.meetingAlertSnooze`
-- `meetingAlert.snooze`
 - `settings.account.linear`
 - `settings.launchAtLogin`
 - `settings.refreshCadence`

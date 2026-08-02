@@ -636,10 +636,11 @@ final class DaylineUITests: XCTestCase {
       .firstMatch
     XCTAssertTrue(currentTime.waitForExistence(timeout: 5))
     XCTAssertFalse((currentTime.value as? String ?? "").isEmpty)
-    assertExists("meetingAlert.snooze")
-    assertExists("meetingAlert.dismiss")
+    let snooze = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Snooze ")).firstMatch
+    XCTAssertTrue(snooze.waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["Dismiss"].waitForExistence(timeout: 5))
 
-    element("meetingAlert.snooze").click()
+    snooze.click()
     XCTAssertFalse(alert.waitForExistence(timeout: 2))
   }
 
