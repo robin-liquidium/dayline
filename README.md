@@ -166,6 +166,31 @@ Official builds include the public OAuth client IDs needed for sign-in. Custom
 builds can override them with `DAYLINE_GOOGLE_CLIENT_ID` and
 `DAYLINE_LINEAR_CLIENT_ID`, or `DAYLINE_GITHUB_CLIENT_ID`.
 
+### Installed development app
+
+Run `./script/build_and_run.sh` to build the current checkout in release mode,
+install it as `/Applications/Dayline Dev.app`, and launch it. The stable
+`de.obermaier.dayline.dev` identity preserves Apple Calendar and Reminders
+permissions across rebuilds without replacing or quitting the production app.
+Dayline Dev keeps its preferences, OAuth credentials, notes, and diagnostics
+separate from production Dayline. Sparkle updates are disabled in this build.
+
+Google Calendar is deliberately unavailable unless the build receives a
+separate iOS OAuth client created for bundle ID `de.obermaier.dayline.dev`:
+
+```bash
+DAYLINE_DEV_GOOGLE_CLIENT_ID="<dev-client-id>.apps.googleusercontent.com" ./script/build_and_run.sh
+```
+
+The client ID is embedded in the installed app, so it does not need to be set
+when launching Dayline Dev later. Its reversed client-ID callback scheme is
+registered only to Dayline Dev. Linear continues to use the dedicated
+`dayline-dev://oauth/callback` redirect, and GitHub device flow needs no redirect.
+
+Use `./script/build_and_run.sh --reset-privacy` only when intentionally retesting
+the first-run Apple Calendar and Reminders permission prompts. Normal updates do
+not reset privacy approvals.
+
 <details>
 <summary><strong>Configure different OAuth applications</strong></summary>
 
@@ -188,7 +213,7 @@ Dayline derives automatically.
 
 Dayline requests the `read,write` scopes.
 
-Source builds run through `script/build_and_run.sh` sign in with the
+Dayline Dev builds run through `script/build_and_run.sh` sign in with the
 `dayline-dev://oauth/callback` scheme instead, so installed production builds
 are not hijacked. Register that callback URL in the same Linear OAuth
 application, or override the scheme with `DAYLINE_LINEAR_CALLBACK_SCHEME`.

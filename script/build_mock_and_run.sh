@@ -60,6 +60,10 @@ cat >"$INFO_PLIST" <<PLIST
   <string>$VERSION</string>
   <key>CFBundleVersion</key>
   <string>$BUILD_NUMBER</string>
+  <key>DaylineApplicationSupportFolder</key>
+  <string>Dayline Mock</string>
+  <key>DaylineOAuthKeychainService</key>
+  <string>build.local.DaylineMock.oauth</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>LSMultipleInstancesProhibited</key>

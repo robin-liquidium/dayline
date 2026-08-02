@@ -68,7 +68,7 @@ actor GitHubDeviceAuthService {
   /// Bumped to invalidate any in-flight device authorization poll.
   private var signInGeneration = 0
 
-  init(store: any CredentialStore = KeychainStore(service: "build.local.Dayline.oauth")) {
+  init(store: any CredentialStore = KeychainStore(service: AppRuntimeConfig.oauthKeychainService)) {
     self.store = store
     self.session = .shared
   }

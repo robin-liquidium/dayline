@@ -40,7 +40,7 @@ struct LocalNotesService {
     let baseURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
       ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
     return baseURL
-      .appendingPathComponent("Dayline", isDirectory: true)
+      .appendingPathComponent(AppRuntimeConfig.applicationSupportFolderName, isDirectory: true)
       .appendingPathComponent("notes.json")
   }
 }
