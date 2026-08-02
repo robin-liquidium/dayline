@@ -1,6 +1,29 @@
 {
   "releases": [
     {
+      "version": "0.2.3",
+      "date": "2026-08-02",
+      "new": [
+        {
+          "title": "Apple Reminders",
+          "text": "Connect Apple Reminders in Settings → Accounts, choose the lists you want to see, and use Reminders beside Linear and GitHub or on its own. Preview reminders with Space, update completion, priority, and due dates from the menu, or press ⌃⌥⌘R anywhere to create one with notes, a list, priority, and date or time.",
+          "pr": 59
+        },
+        {
+          "title": "Snoozable meeting alerts",
+          "text": "Full-screen meeting alerts now show the current time and include a Snooze button. Choose the default snooze duration in Settings → Calendar.",
+          "pr": 59
+        }
+      ],
+      "fixed": [
+        {
+          "title": "Safer pre-release testing",
+          "text": "Behind the scenes, Dayline Dev now provides an isolated, production-like app for validating permissions and integrations without touching the installed release.",
+          "pr": 59
+        }
+      ]
+    },
+    {
       "version": "0.2.2",
       "date": "2026-08-01",
       "fixed": [
