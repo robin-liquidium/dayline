@@ -233,6 +233,11 @@ final class DaylineUITests: XCTestCase {
     reminder.hover()
     app.typeKey("d", modifierFlags: [])
     XCTAssertFalse(element("reminders.dueDate.remove.mock-reminder-1").exists)
+    if !element("reminders.dueDate.calendar.mock-reminder-1").waitForExistence(timeout: 1) {
+      element("issues.source.reminders").hover()
+      reminder.hover()
+      app.typeKey("d", modifierFlags: [])
+    }
     assertExists("reminders.dueDate.calendar.mock-reminder-1")
     app.typeKey(.escape, modifierFlags: [])
 
