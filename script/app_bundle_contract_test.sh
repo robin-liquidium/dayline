@@ -44,14 +44,30 @@ assert_missing() {
   fi
 }
 
+url_schemes() {
+  local plist="$1"
+  local type_index=0
+  local scheme_index value
+  while /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:$type_index" "$plist" >/dev/null 2>&1; do
+    scheme_index=0
+    while value="$(/usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:$type_index:CFBundleURLSchemes:$scheme_index" "$plist" 2>/dev/null)"; do
+      printf '%s\n' "$value"
+      scheme_index=$((scheme_index + 1))
+    done
+    type_index=$((type_index + 1))
+  done
+}
+
 assert_url_scheme() {
-  /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes' "$1" 2>/dev/null |
-    grep -Fq "$2" || fail "$1 does not register URL scheme $2"
+  local schemes
+  schemes="$(url_schemes "$1")"
+  grep -Fxq "$2" <<<"$schemes" || fail "$1 does not register URL scheme $2"
 }
 
 assert_no_google_url_scheme() {
-  if /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes' "$1" 2>/dev/null |
-    grep -Fq 'com.googleusercontent.apps.'; then
+  local schemes
+  schemes="$(url_schemes "$1")"
+  if grep -Fq 'com.googleusercontent.apps.' <<<"$schemes"; then
     fail "$1 unexpectedly registers a Google URL scheme"
   fi
 }

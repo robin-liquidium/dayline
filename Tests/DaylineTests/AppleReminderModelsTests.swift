@@ -214,6 +214,34 @@ struct AppleReminderModelsTests {
       from: [original.fallbackSelectionKey: false]
     )
     #expect(ambiguous.map(\.isEnabled) == [true, true])
+
+    let legacyRestored = AppleReminderList.restoringSelections(
+      in: [rediscovered],
+      from: [original.legacyFallbackSelectionKey: false]
+    )
+    #expect(legacyRestored.map(\.isEnabled) == [false])
+  }
+
+  @Test func fallbackSelectionKeyDoesNotCollideWhenNamesContainDelimiters() {
+    let first = AppleReminderList(
+      id: "first",
+      title: "b|list:c",
+      sourceName: "a",
+      sourceID: "source",
+      isEnabled: true,
+      allowsModifications: true
+    )
+    let second = AppleReminderList(
+      id: "second",
+      title: "c",
+      sourceName: "a|list:b",
+      sourceID: "source",
+      isEnabled: true,
+      allowsModifications: true
+    )
+
+    #expect(first.legacyFallbackSelectionKey == second.legacyFallbackSelectionKey)
+    #expect(first.fallbackSelectionKey != second.fallbackSelectionKey)
   }
 
   @Test func everyIssueProviderCombinationHasStableTabOrder() {

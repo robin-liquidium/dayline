@@ -217,10 +217,10 @@ Dayline derives automatically.
 
 Dayline requests the `read,write` scopes.
 
-Dayline Dev builds run through `script/build_and_run.sh` sign in with the
-`dayline-dev://oauth/callback` scheme instead, so installed production builds
-are not hijacked. Register that callback URL in the same Linear OAuth
-application, or override the scheme with `DAYLINE_LINEAR_CALLBACK_SCHEME`.
+Dayline Dev builds created by `script/build_and_run.sh` use the
+`dayline-dev://oauth/callback` scheme, so installed production builds are not
+hijacked. Register that callback URL in the same Linear OAuth application, or
+override the scheme with `DAYLINE_LINEAR_CALLBACK_SCHEME`.
 
 ### GitHub
 
@@ -354,6 +354,22 @@ push to `main`, so it does not use the local mouse or interrupt local work.
 - `linearEditor.description`
 - `linearEditor.create`
 - `linearEditor.cancel`
+- `reminders.new`
+- `reminders.showMore`
+- `reminders.showLess`
+- `reminders.issue.<REMINDER-ID>`
+- `reminders.preview.<REMINDER-ID>`
+- `reminders.status.completed`
+- `reminders.status.incomplete`
+- `reminders.priority.<PRIORITY>`
+- `reminders.dueDate.calendar.<REMINDER-ID>`
+- `reminders.dueDate.remove.<REMINDER-ID>`
+- `reminderEditor.title`
+- `reminderEditor.notes`
+- `reminderEditor.list`
+- `reminderEditor.priority`
+- `reminderEditor.create`
+- `reminderEditor.cancel`
 - `notes.new`
 - `notes.showMore`
 - `notes.showLess`
@@ -368,6 +384,9 @@ push to `main`, so it does not use the local mouse or interrupt local work.
 - `settings.account.google.<ACCOUNT-UUID>.reconnect`
 - `settings.account.google.<ACCOUNT-UUID>.disconnect`
 - `settings.account.google.<ACCOUNT-UUID>.calendar.<CALENDAR-ID>`
+- `settings.account.reminders.connect`
+- `settings.account.reminders.disconnect`
+- `settings.account.reminders.list.<LIST-ID>`
 - `settings.account.linear`
 - `settings.launchAtLogin`
 - `settings.refreshCadence`

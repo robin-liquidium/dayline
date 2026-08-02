@@ -22,6 +22,13 @@ struct AppleReminderList: Identifiable, Equatable, Sendable {
 
   /// Secondary persisted identity used only when it uniquely identifies a rediscovered list.
   var fallbackSelectionKey: String {
+    "v2:" + [sourceID, sourceName, title]
+      .map { "\($0.utf8.count):\($0)" }
+      .joined()
+  }
+
+  /// Delimiter-based identity written by older Dayline builds.
+  var legacyFallbackSelectionKey: String {
     "source:\(sourceID)|name:\(sourceName)|list:\(title)"
   }
 
@@ -32,13 +39,19 @@ struct AppleReminderList: Identifiable, Equatable, Sendable {
   ) -> [AppleReminderList] {
     let fallbackCounts = Dictionary(grouping: discovered, by: \.fallbackSelectionKey)
       .mapValues(\.count)
+    let legacyFallbackCounts = Dictionary(grouping: discovered, by: \.legacyFallbackSelectionKey)
+      .mapValues(\.count)
     return discovered.map { list in
       var restored = list
       if let isEnabled = persisted[list.id] {
         restored.isEnabled = isEnabled
-      } else if fallbackCounts[list.fallbackSelectionKey] == 1,
-                let isEnabled = persisted[list.fallbackSelectionKey] {
-        restored.isEnabled = isEnabled
+      } else if fallbackCounts[list.fallbackSelectionKey] == 1 {
+        if let isEnabled = persisted[list.fallbackSelectionKey] {
+          restored.isEnabled = isEnabled
+        } else if legacyFallbackCounts[list.legacyFallbackSelectionKey] == 1,
+                  let isEnabled = persisted[list.legacyFallbackSelectionKey] {
+          restored.isEnabled = isEnabled
+        }
       }
       return restored
     }
