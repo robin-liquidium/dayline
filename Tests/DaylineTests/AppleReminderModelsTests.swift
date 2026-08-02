@@ -49,6 +49,69 @@ struct AppleReminderModelsTests {
     #expect(components.minute == 45)
   }
 
+  @Test func dateOnlyCreationUsesGregorianDayFromNonGregorianUserCalendar() throws {
+    let userTimeZone = try #require(TimeZone(identifier: "Asia/Bangkok"))
+    var buddhist = Calendar(identifier: .buddhist)
+    buddhist.timeZone = userTimeZone
+    let selectedDate = try #require(buddhist.date(from: DateComponents(
+      timeZone: userTimeZone,
+      year: 2569,
+      month: 8,
+      day: 2,
+      hour: 0,
+      minute: 30
+    )))
+
+    #expect(AppleReminderDueDate.dateOnly(
+      from: selectedDate,
+      currentTimeZone: userTimeZone
+    ) == .dateOnly(year: 2026, month: 8, day: 2))
+  }
+
+  @Test func timedDayReplacementUsesGregorianPickerDayInUserTimeZone() throws {
+    let userTimeZone = try #require(TimeZone(identifier: "Asia/Bangkok"))
+    let reminderTimeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
+    var buddhist = Calendar(identifier: .buddhist)
+    buddhist.timeZone = userTimeZone
+    let selectedDate = try #require(buddhist.date(from: DateComponents(
+      timeZone: userTimeZone,
+      year: 2569,
+      month: 8,
+      day: 2,
+      hour: 0,
+      minute: 30
+    )))
+    var reminderCalendar = Calendar(identifier: .gregorian)
+    reminderCalendar.timeZone = reminderTimeZone
+    let existingDate = try #require(reminderCalendar.date(from: DateComponents(
+      timeZone: reminderTimeZone,
+      year: 2026,
+      month: 7,
+      day: 20,
+      hour: 17,
+      minute: 45
+    )))
+
+    let replaced = AppleReminderDueDate
+      .timed(existingDate, timeZoneIdentifier: reminderTimeZone.identifier)
+      .replacingDay(with: selectedDate, currentTimeZone: userTimeZone)
+
+    guard case .timed(let date, let identifier) = replaced else {
+      Issue.record("Expected a timed due date")
+      return
+    }
+    let components = reminderCalendar.dateComponents(
+      [.year, .month, .day, .hour, .minute],
+      from: date
+    )
+    #expect(identifier == reminderTimeZone.identifier)
+    #expect(components.year == 2026)
+    #expect(components.month == 8)
+    #expect(components.day == 2)
+    #expect(components.hour == 17)
+    #expect(components.minute == 45)
+  }
+
   @Test func timedReminderEarlierTodayIsOverdue() throws {
     let (calendar, now) = try overdueTestClock()
     let dueDate = try #require(calendar.date(byAdding: .hour, value: -1, to: now))

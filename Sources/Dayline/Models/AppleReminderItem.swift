@@ -69,8 +69,7 @@ enum AppleReminderDueDate: Equatable, Sendable {
   var date: Date {
     switch self {
     case .dateOnly(let year, let month, let day):
-      var calendar = Calendar(identifier: .gregorian)
-      calendar.timeZone = .current
+      let calendar = Self.gregorianCalendar(in: .current)
       return calendar.date(from: DateComponents(year: year, month: month, day: day)) ?? .distantFuture
     case .timed(let date, _):
       return date
@@ -91,8 +90,7 @@ enum AppleReminderDueDate: Equatable, Sendable {
   func isOverdue(at now: Date = Date(), timeZone: TimeZone = .current) -> Bool {
     switch self {
     case .dateOnly(let year, let month, let day):
-      var calendar = Calendar(identifier: .gregorian)
-      calendar.timeZone = timeZone
+      let calendar = Self.gregorianCalendar(in: timeZone)
       guard let dueDay = calendar.date(from: DateComponents(
         year: year,
         month: month,
@@ -105,14 +103,17 @@ enum AppleReminderDueDate: Equatable, Sendable {
   }
 
   /// Returns a due value on a new day while preserving any existing time and time zone.
-  func replacingDay(with date: Date) -> AppleReminderDueDate {
+  func replacingDay(
+    with date: Date,
+    currentTimeZone: TimeZone = .current
+  ) -> AppleReminderDueDate {
     switch self {
     case .dateOnly:
-      return Self.dateOnly(from: date)
+      return Self.dateOnly(from: date, currentTimeZone: currentTimeZone)
     case .timed(let existingDate, let timeZoneIdentifier):
-      let day = Calendar.current.dateComponents([.year, .month, .day], from: date)
-      var reminderCalendar = Calendar(identifier: .gregorian)
-      reminderCalendar.timeZone = timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .current
+      let day = Self.gregorianDay(from: date, in: currentTimeZone)
+      let reminderTimeZone = timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? currentTimeZone
+      let reminderCalendar = Self.gregorianCalendar(in: reminderTimeZone)
       let time = reminderCalendar.dateComponents([.hour, .minute, .second], from: existingDate)
       let components = DateComponents(
         timeZone: reminderCalendar.timeZone,
@@ -130,14 +131,29 @@ enum AppleReminderDueDate: Equatable, Sendable {
     }
   }
 
-  /// Creates a floating date-only reminder value in the current calendar.
-  static func dateOnly(from date: Date) -> AppleReminderDueDate {
-    let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
+  /// Creates a floating Gregorian date-only reminder value in the user's current time zone.
+  static func dateOnly(
+    from date: Date,
+    currentTimeZone: TimeZone = .current
+  ) -> AppleReminderDueDate {
+    let components = gregorianDay(from: date, in: currentTimeZone)
     return .dateOnly(
       year: components.year ?? 1,
       month: components.month ?? 1,
       day: components.day ?? 1
     )
+  }
+
+  /// Gregorian calendar used for EventKit reminder-day semantics.
+  private static func gregorianCalendar(in timeZone: TimeZone) -> Calendar {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = timeZone
+    return calendar
+  }
+
+  /// Extracts the picker-visible Gregorian day in the user's current time zone.
+  private static func gregorianDay(from date: Date, in timeZone: TimeZone) -> DateComponents {
+    gregorianCalendar(in: timeZone).dateComponents([.year, .month, .day], from: date)
   }
 }
 
