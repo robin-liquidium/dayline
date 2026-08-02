@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEV_PLIST="$ROOT_DIR/dist/Dayline Dev.app/Contents/Info.plist"
 MOCK_PLIST="$ROOT_DIR/dist/Dayline Mock.app/Contents/Info.plist"
 RELEASE_PLIST="$ROOT_DIR/dist/release/Dayline.app/Contents/Info.plist"
+DEV_APP="$ROOT_DIR/dist/Dayline Dev.app"
+RELEASE_APP="$ROOT_DIR/dist/release/Dayline.app"
 TEST_GOOGLE_CLIENT_ID="1234567890-dayline-dev-contract.apps.googleusercontent.com" # autoreview:allow-secret
 TEST_GOOGLE_SCHEME="com.googleusercontent.apps.1234567890-dayline-dev-contract"
 INSTALLER_LOCK_DIR="${TMPDIR:-/tmp}/dayline-dev-installer.lock"
@@ -43,6 +45,13 @@ assert_missing() {
   if /usr/bin/plutil -extract "$2" raw -o - "$1" >/dev/null 2>&1; then
     fail "$1 unexpectedly contains $2"
   fi
+}
+
+assert_eventkit_entitlement() {
+  local value
+  value="$(/usr/bin/codesign -d --entitlements :- "$1" 2>/dev/null \
+    | /usr/bin/plutil -extract 'com\.apple\.security\.personal-information\.calendars' raw -expect bool -o - - 2>/dev/null || true)"
+  [[ "$value" == "true" ]] || fail "$1 is missing the EventKit entitlement"
 }
 
 url_schemes() {
@@ -105,6 +114,7 @@ assert_nonempty "$DEV_PLIST" NSRemindersFullAccessUsageDescription
 assert_url_scheme "$DEV_PLIST" dayline-dev
 assert_url_scheme "$DEV_PLIST" "$TEST_GOOGLE_SCHEME"
 assert_missing "$DEV_PLIST" SUFeedURL
+assert_eventkit_entitlement "$DEV_APP"
 
 ./script/build_and_run.sh --build-only >"$LOG_FILE" 2>&1
 assert_value "$DEV_PLIST" DaylineGoogleClientID "$TEST_GOOGLE_CLIENT_ID"
@@ -130,5 +140,6 @@ assert_nonempty "$RELEASE_PLIST" NSRemindersFullAccessUsageDescription
 assert_nonempty "$RELEASE_PLIST" SUFeedURL
 assert_url_scheme "$RELEASE_PLIST" dayline
 assert_url_scheme "$RELEASE_PLIST" com.googleusercontent.apps.551177930544-9sl0govp6ok205csb939j4p2dhckrgbk
+assert_eventkit_entitlement "$RELEASE_APP"
 
 echo "app_bundle_contract_test: passed"

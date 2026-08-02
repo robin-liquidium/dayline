@@ -209,31 +209,31 @@ final class DaylineUITests: XCTestCase {
     let reminder = element("reminders.issue.mock-reminder-1")
     assertExists("reminders.issue.mock-reminder-1")
 
-    reminder.hover()
-    app.typeKey(.space, modifierFlags: [])
-    assertExists("reminders.preview.mock-reminder-1")
+    openReminderHoverAction(on: reminder, expected: "reminders.preview.mock-reminder-1") {
+      app.typeKey(.space, modifierFlags: [])
+    }
     app.typeKey(.escape, modifierFlags: [])
 
-    reminder.hover()
-    app.typeKey("p", modifierFlags: [])
-    assertExists("reminders.priority.9")
+    openReminderHoverAction(on: reminder, expected: "reminders.priority.9") {
+      app.typeKey("p", modifierFlags: [])
+    }
     element("reminders.priority.9").click()
 
-    reminder.hover()
-    app.typeKey("p", modifierFlags: [])
+    openReminderHoverAction(on: reminder, expected: "reminders.priority.9") {
+      app.typeKey("p", modifierFlags: [])
+    }
     assertValue(of: element("reminders.priority.9"), equals: "Selected")
     app.typeKey(.escape, modifierFlags: [])
 
-    reminder.hover()
-    app.typeKey("d", modifierFlags: [])
-    assertExists("reminders.dueDate.remove.mock-reminder-1")
+    openReminderHoverAction(on: reminder, expected: "reminders.dueDate.remove.mock-reminder-1") {
+      app.typeKey("d", modifierFlags: [])
+    }
     element("reminders.dueDate.remove.mock-reminder-1").click()
     assertLabel(of: reminder, doesNotContain: "Due")
-    element("issues.source.reminders").hover()
-    reminder.hover()
-    app.typeKey("d", modifierFlags: [])
+    openReminderHoverAction(on: reminder, expected: "reminders.dueDate.calendar.mock-reminder-1") {
+      app.typeKey("d", modifierFlags: [])
+    }
     XCTAssertFalse(element("reminders.dueDate.remove.mock-reminder-1").exists)
-    assertExists("reminders.dueDate.calendar.mock-reminder-1")
     app.typeKey(.escape, modifierFlags: [])
 
     reminder.hover()
@@ -261,9 +261,9 @@ final class DaylineUITests: XCTestCase {
     XCTAssertFalse(element("reminders.dueDate.calendar.mock-reminder-6").waitForExistence(timeout: 1))
 
     scrollIntoView(reminder)
-    reminder.hover()
-    app.typeKey("s", modifierFlags: [])
-    assertExists("reminders.status.completed")
+    openReminderHoverAction(on: reminder, expected: "reminders.status.completed") {
+      app.typeKey("s", modifierFlags: [])
+    }
     element("reminders.status.completed").click()
     waitForRemoval(reminder)
 
@@ -663,6 +663,21 @@ final class DaylineUITests: XCTestCase {
 
   private func element(_ identifier: String) -> XCUIElement {
     app.descendants(matching: .any)[identifier].firstMatch
+  }
+
+  private func openReminderHoverAction(
+    on reminder: XCUIElement,
+    expected identifier: String,
+    trigger: () -> Void
+  ) {
+    reminder.hover()
+    trigger()
+    if !element(identifier).waitForExistence(timeout: 1) {
+      element("issues.source.reminders").hover()
+      reminder.hover()
+      trigger()
+    }
+    assertExists(identifier)
   }
 
   private func noteEditor() -> XCUIElement {

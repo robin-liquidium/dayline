@@ -20,6 +20,7 @@ ICON_SOURCE="$ROOT_DIR/Resources/DaylineIcon.icns"
 ICON_FILE="DaylineIcon.icns"
 WORDMARK_SOURCE="$ROOT_DIR/Resources/DaylineWordmark.pdf"
 WORDMARK_FILE="DaylineWordmark.pdf"
+ENTITLEMENTS_SOURCE="$ROOT_DIR/Resources/Dayline.entitlements"
 SPARKLE_FRAMEWORK_NAME="Sparkle.framework"
 SPARKLE_PUBLIC_KEY="b7IXyZXo7zqHoVUdwJeOTwxY6gbmJYP/e0NV4i3G/Hk="
 SPARKLE_FEED_URL="https://dayline.robin.build/appcast.xml"
@@ -241,6 +242,26 @@ sign_path() {
   fi
 }
 
+# sign_app_bundle applies Dayline's EventKit entitlement only to the host app.
+sign_app_bundle() {
+  if [[ "$SIGNING_IDENTITY" == "-" ]]; then
+    /usr/bin/codesign --force --options runtime --entitlements "$ENTITLEMENTS_SOURCE" --sign - "$APP_BUNDLE"
+  else
+    /usr/bin/codesign --force --timestamp --options runtime --entitlements "$ENTITLEMENTS_SOURCE" --sign "$SIGNING_IDENTITY" "$APP_BUNDLE"
+  fi
+}
+
+# verify_eventkit_entitlement prevents a signed app from silently losing Calendar and Reminders access.
+verify_eventkit_entitlement() {
+  local value
+  value="$(/usr/bin/codesign -d --entitlements :- "$APP_BUNDLE" 2>/dev/null \
+    | /usr/bin/plutil -extract 'com\.apple\.security\.personal-information\.calendars' raw -expect bool -o - - 2>/dev/null || true)"
+  if [[ "$value" != "true" ]]; then
+    echo "Signed Dayline app is missing the EventKit entitlement." >&2
+    exit 2
+  fi
+}
+
 # embed_and_sign_sparkle copies Sparkle's framework without flattening its symlinks,
 # removes sandbox-only XPC services, and signs the remaining nested code inside-out.
 embed_and_sign_sparkle() {
@@ -444,6 +465,7 @@ if [[ "$PACKAGE_EXISTING" == true ]]; then
   fi
 
   /usr/bin/codesign --verify --strict --verbose=2 "$APP_BUNDLE"
+  verify_eventkit_entitlement
   xcrun stapler validate "$APP_BUNDLE"
   rm -rf "$ARTIFACT_DIR"
   mkdir -p "$ARTIFACT_DIR"
@@ -472,8 +494,9 @@ write_info_plist
 copy_app_icon
 copy_wordmark
 embed_and_sign_sparkle "$BUILD_PRODUCTS"
-sign_path "$APP_BUNDLE"
+sign_app_bundle
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
+verify_eventkit_entitlement
 
 if [[ "$PREPARE_NOTARIZATION" == true ]]; then
   rm -f "$NOTARY_ZIP"
