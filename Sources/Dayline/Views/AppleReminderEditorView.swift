@@ -93,6 +93,8 @@ struct AppleReminderEditorView: View {
         .accessibilityIdentifier("reminderEditor.cancel")
 
         Button(isCreating ? "Creating..." : "Create") {
+          guard canCreate else { return }
+          isCreating = true
           Task { await createReminder() }
         }
         .keyboardShortcut(.defaultAction)
@@ -205,8 +207,7 @@ struct AppleReminderEditorView: View {
   }
 
   private func createReminder() async {
-    guard canCreate else { return }
-    isCreating = true
+    defer { isCreating = false }
     errorMessage = nil
     do {
       try await store.createAppleReminder(draft: draft)
@@ -218,7 +219,6 @@ struct AppleReminderEditorView: View {
     } catch {
       errorMessage = error.localizedDescription.compactLine(limit: 160)
     }
-    isCreating = false
   }
 
   private func resetDraft() {

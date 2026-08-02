@@ -123,8 +123,11 @@ brew install --cask robin-liquidium/tap/dayline
 To create and install a local development build instead:
 
 ```sh
-./script/package_release.sh --install
+./script/build_and_run.sh
 ```
+
+This requires an Apple Development signing identity and installs the isolated
+`/Applications/Dayline Dev.app` without replacing production Dayline.
 
 ## Diagnostics
 
@@ -182,10 +185,11 @@ separate iOS OAuth client created for bundle ID `de.obermaier.dayline.dev`:
 DAYLINE_DEV_GOOGLE_CLIENT_ID="<dev-client-id>.apps.googleusercontent.com" ./script/build_and_run.sh
 ```
 
-The client ID is embedded in the installed app, so it does not need to be set
-when launching Dayline Dev later. Its reversed client-ID callback scheme is
-registered only to Dayline Dev. Linear continues to use the dedicated
-`dayline-dev://oauth/callback` redirect, and GitHub device flow needs no redirect.
+The client ID is embedded in the installed app and preserved by later plain
+rebuilds. Set `DAYLINE_DEV_GOOGLE_CLIENT_ID=""` explicitly to clear it. Its
+reversed client-ID callback scheme is registered only to Dayline Dev. Linear
+continues to use the dedicated `dayline-dev://oauth/callback` redirect, and
+GitHub device flow needs no redirect.
 
 Use `./script/build_and_run.sh --reset-privacy` only when intentionally retesting
 the first-run Apple Calendar and Reminders permission prompts. Normal updates do
@@ -270,8 +274,8 @@ Useful development modes:
 ./script/build_and_run.sh --telemetry
 ```
 
-The script builds with SwiftPM, creates `dist/Dayline.app`, and launches it as a
-menu bar accessory app.
+The script builds with SwiftPM, atomically updates `/Applications/Dayline Dev.app`,
+and launches it as a menu bar accessory app without touching production Dayline.
 
 ## Screenshot Mode
 

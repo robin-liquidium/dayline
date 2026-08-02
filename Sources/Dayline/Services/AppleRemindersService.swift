@@ -121,7 +121,12 @@ final class AppleRemindersService: AppleRemindersServing {
     reminder.dueDateComponents = draft.dueDate.map {
       Self.dateComponents(for: $0, includesTime: draft.dueDateIncludesTime)
     }
-    try eventStore.save(reminder, commit: true)
+    do {
+      try eventStore.save(reminder, commit: true)
+    } catch {
+      eventStore.reset()
+      throw error
+    }
     return Self.item(from: reminder)
   }
 

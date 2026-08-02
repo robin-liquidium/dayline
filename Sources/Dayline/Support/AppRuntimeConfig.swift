@@ -2,6 +2,11 @@ import Foundation
 
 /// Bundle-configurable storage namespaces that keep development installs isolated.
 enum AppRuntimeConfig {
+  /// Whether this bundle is the persistent local development installation.
+  static var isDevelopmentInstall: Bool {
+    Bundle.main.object(forInfoDictionaryKey: "DaylineDevelopmentBuild") as? Bool == true
+  }
+
   /// Generic-password Keychain service used for OAuth credentials.
   static var oauthKeychainService: String {
     configuredString(

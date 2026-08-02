@@ -111,7 +111,7 @@ struct StatusMenuView: View {
   /// Header row with title, freshness, and refresh action.
   private var header: some View {
     HStack(spacing: 10) {
-      DaylineWordmark()
+      DaylineWordmark(textOverride: AppRuntimeConfig.isDevelopmentInstall ? "Dev" : nil)
       .accessibilityElement(children: .ignore)
       .accessibilityLabel("Dayline")
 

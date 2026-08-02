@@ -315,7 +315,7 @@ struct AppleReminderStatusStoreTests {
     let store = StatusStore(mockData: MockData.make(issueSources: [.reminders]))
     let list = try #require(store.writableAppleReminderLists.last)
     let dueDate = Date(timeIntervalSince1970: 1_786_000_000)
-    let title = "Field mapping (UUID().uuidString)"
+    let title = "Field mapping \(UUID().uuidString)"
 
     try await store.createAppleReminder(draft: AppleReminderCreateDraft(
       title: title,
