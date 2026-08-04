@@ -18,7 +18,7 @@
   "ratelimits": [
     {
       "name": "FEEDBACK_RATE_LIMIT",
-      "namespace_id": "24072101",
+      "namespace_id": "81080402",
       "simple": {
         "limit": 2,
         "period": 60,
