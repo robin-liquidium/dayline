@@ -290,6 +290,34 @@ final class DaylineUITests: XCTestCase {
     assertNoVisibleHorizontalScrollBars()
   }
 
+  func testSwipeRevealActions() throws {
+    try openMenu()
+
+    let issue = element("linear.issue.DAY-112")
+    XCTAssertFalse(element("linear.cancel.DAY-112").exists)
+    revealDestructiveAction(on: issue)
+    assertExists("linear.cancel.DAY-112")
+    assertNoVisibleHorizontalScrollBars()
+
+    element("issues.source.reminders").click()
+    let reminder = element("reminders.issue.mock-reminder-1")
+    XCTAssertFalse(element("reminders.delete.mock-reminder-1").exists)
+    revealDestructiveAction(on: reminder)
+    let deleteButton = element("reminders.delete.mock-reminder-1")
+    XCTAssertTrue(deleteButton.waitForExistence(timeout: 5))
+    assertNoVisibleHorizontalScrollBars()
+    deleteButton.click()
+    let confirmationButtons = app.buttons.matching(NSPredicate(
+      format: "NOT (identifier BEGINSWITH %@)",
+      "reminders.delete."
+    ))
+    let confirmButton = confirmationButtons["Delete Apple Reminder"].firstMatch
+    assertEnabled(confirmButton, description: "Apple Reminder deletion confirmation button")
+    confirmButton.click()
+    try openMenu()
+    waitForRemoval(reminder)
+  }
+
   func testDestructiveActionsCancelAndConfirm() throws {
     try openMenu()
     assertNoVisibleHorizontalScrollBars()
@@ -683,6 +711,12 @@ final class DaylineUITests: XCTestCase {
     let editor = app.textViews.firstMatch
     XCTAssertTrue(editor.waitForExistence(timeout: 5))
     return editor
+  }
+
+  private func revealDestructiveAction(on row: XCUIElement) {
+    row.hover()
+    row.scroll(byDeltaX: -200, deltaY: 0)
+    row.scroll(byDeltaX: -200, deltaY: 0)
   }
 
   private func assertNoVisibleHorizontalScrollBars(

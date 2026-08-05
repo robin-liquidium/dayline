@@ -510,16 +510,16 @@ private final class HorizontalScrollRevealView: NSView {
     removeEventMonitor()
     guard window != nil else { return }
     eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-      self?.handleScrollWheel(event)
-      return event
+      guard let self else { return event }
+      return self.handleScrollWheel(event) ? nil : event
     }
   }
 
-  private func handleScrollWheel(_ event: NSEvent) {
+  private func handleScrollWheel(_ event: NSEvent) -> Bool {
     guard event.window === window,
           bounds.contains(convert(event.locationInWindow, from: nil)),
           abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else {
-      return
+      return false
     }
     if event.phase == .began {
       accumulatedDeltaX = 0
@@ -528,9 +528,10 @@ private final class HorizontalScrollRevealView: NSView {
       ? -event.scrollingDeltaX
       : event.scrollingDeltaX
     accumulatedDeltaX += normalizedDeltaX
-    guard abs(accumulatedDeltaX) >= 8 else { return }
+    guard abs(accumulatedDeltaX) >= 8 else { return true }
     setRevealed(accumulatedDeltaX > 0)
     accumulatedDeltaX = 0
+    return true
   }
 
   private func removeEventMonitor() {
@@ -561,6 +562,8 @@ private struct HorizontalRevealRow<Content: View, Action: View>: View {
           }
 
         action
+          .allowsHitTesting(isRevealed)
+          .accessibilityHidden(!isRevealed)
       }
       .frame(width: proxy.size.width + revealWidth, alignment: .leading)
       .offset(x: clampedOffset)
@@ -2087,6 +2090,17 @@ private struct AppleReminderRow: View {
           Task { await store.completeAppleReminder(id: reminder.id) }
         }
         .accessibilityIdentifier("reminders.completeContext.\(reminder.id)")
+
+        Button("Delete Reminder", systemImage: "trash", role: .destructive) {
+          confirmDestructiveAction(
+            title: "Delete reminder?",
+            message: "Delete \(reminder.title.compactLine(limit: 64)) from Apple Reminders.",
+            confirmationLabel: "Delete Apple Reminder"
+          ) {
+            Task { await store.deleteAppleReminder(id: reminder.id) }
+          }
+        }
+        .accessibilityIdentifier("reminders.deleteContext.\(reminder.id)")
       }
     }
     .modifier(AppleReminderAccessibilityActions(reminder: reminder))
@@ -2208,6 +2222,7 @@ private struct AppleReminderAccessibilityActions: ViewModifier {
         .accessibilityAction(named: "Mark completed") {
           Task { await store.completeAppleReminder(id: reminder.id) }
         }
+        .accessibilityAction(named: "Delete reminder", deleteReminder)
         .accessibilityAction(named: "Change status") {
           store.setHoveredIssue(target)
           _ = store.presentStatusPickerForHoveredIssue()
@@ -2226,6 +2241,7 @@ private struct AppleReminderAccessibilityActions: ViewModifier {
         .accessibilityAction(named: "Mark completed") {
           Task { await store.completeAppleReminder(id: reminder.id) }
         }
+        .accessibilityAction(named: "Delete reminder", deleteReminder)
         .accessibilityAction(named: "Change status") {
           store.setHoveredIssue(target)
           _ = store.presentStatusPickerForHoveredIssue()
@@ -2236,6 +2252,16 @@ private struct AppleReminderAccessibilityActions: ViewModifier {
         }
     } else {
       content
+    }
+  }
+
+  private func deleteReminder() {
+    confirmDestructiveAction(
+      title: "Delete reminder?",
+      message: "Delete \(reminder.title.compactLine(limit: 64)) from Apple Reminders.",
+      confirmationLabel: "Delete Apple Reminder"
+    ) {
+      Task { await store.deleteAppleReminder(id: reminder.id) }
     }
   }
 }
