@@ -325,6 +325,7 @@ final class DaylineUITests: XCTestCase {
     XCTContext.runActivity(named: "Cancel then confirm Linear issue cancellation") { _ in
       let issue = element("linear.issue.DAY-112")
       issue.rightClick()
+      assertExists("linear.cancelContext.DAY-112")
       element("linear.cancelContext.DAY-112").click()
       let cancelButton = app.buttons["Cancel"].firstMatch
       XCTAssertTrue(cancelButton.waitForExistence(timeout: 5))
@@ -333,6 +334,7 @@ final class DaylineUITests: XCTestCase {
       assertExists("linear.issue.DAY-112")
 
       issue.rightClick()
+      assertExists("linear.cancelContext.DAY-112")
       element("linear.cancelContext.DAY-112").click()
       let confirmButton = app.buttons["Cancel Linear issue"].firstMatch
       XCTAssertTrue(confirmButton.waitForExistence(timeout: 3))
@@ -345,6 +347,7 @@ final class DaylineUITests: XCTestCase {
       let note = element("notes.note.mock-note-2")
       scrollIntoView(note)
       note.rightClick()
+      assertExists("notes.deleteContext.mock-note-2")
       element("notes.deleteContext.mock-note-2").click()
       let cancelButton = app.buttons["Cancel"].firstMatch
       XCTAssertTrue(cancelButton.waitForExistence(timeout: 3))
@@ -354,6 +357,7 @@ final class DaylineUITests: XCTestCase {
       assertExists("notes.note.mock-note-2")
 
       note.rightClick()
+      assertExists("notes.deleteContext.mock-note-2")
       element("notes.deleteContext.mock-note-2").click()
       let nonRowActionButtons = app.buttons.matching(NSPredicate(
         format: "NOT (identifier BEGINSWITH %@)",

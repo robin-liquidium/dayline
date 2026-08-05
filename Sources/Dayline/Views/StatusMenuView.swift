@@ -521,6 +521,9 @@ private final class HorizontalScrollRevealView: NSView {
           abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else {
       return false
     }
+    if event.momentumPhase != [] {
+      return true
+    }
     if event.phase == .began {
       accumulatedDeltaX = 0
     }
