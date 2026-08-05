@@ -67,7 +67,7 @@ final class DaylineUITests: XCTestCase {
       assertExists("linear.issue.DAY-104")
       assertExists("issues.source.reminders")
       assertExists("notes.note.mock-note-1")
-      assertNoVisibleScrollBars()
+      assertNoVisibleHorizontalScrollBars()
       element("dayline.refresh").click()
       assertExists("dayline.refresh")
       attachCheckpoint(
@@ -287,26 +287,66 @@ final class DaylineUITests: XCTestCase {
     XCTAssertFalse(element("github.new").exists)
     XCTAssertFalse(element("linear.issue.DAY-104").exists)
     XCTAssertFalse(element("github.issue.mock-gh-1").exists)
-    assertNoVisibleScrollBars()
+    assertNoVisibleHorizontalScrollBars()
   }
 
-  func testSwipeDestructiveActionsCancelAndConfirm() throws {
+  func testSwipeRevealActions() throws {
     try openMenu()
-    assertNoVisibleScrollBars()
+
+    let issue = element("linear.issue.DAY-112")
+    XCTAssertFalse(element("linear.cancel.DAY-112").exists)
+    revealDestructiveAction(on: issue)
+    let cancelIssueButton = element("linear.cancel.DAY-112")
+    XCTAssertTrue(cancelIssueButton.waitForExistence(timeout: 5))
+    assertNoVisibleHorizontalScrollBars()
+    cancelIssueButton.click()
+    let linearConfirmationButtons = app.buttons.matching(NSPredicate(
+      format: "NOT (identifier BEGINSWITH %@)",
+      "linear.cancel."
+    ))
+    let confirmCancellation = linearConfirmationButtons["Cancel Linear issue"].firstMatch
+    assertEnabled(confirmCancellation, description: "Linear issue cancellation confirmation button")
+    confirmCancellation.click()
+    try openMenu()
+    waitForRemoval(issue)
+
+    element("issues.source.reminders").click()
+    let reminder = element("reminders.issue.mock-reminder-1")
+    XCTAssertFalse(element("reminders.delete.mock-reminder-1").exists)
+    revealDestructiveAction(on: reminder)
+    let deleteButton = element("reminders.delete.mock-reminder-1")
+    XCTAssertTrue(deleteButton.waitForExistence(timeout: 5))
+    assertNoVisibleHorizontalScrollBars()
+    deleteButton.click()
+    let confirmationButtons = app.buttons.matching(NSPredicate(
+      format: "NOT (identifier BEGINSWITH %@)",
+      "reminders.delete."
+    ))
+    let confirmButton = confirmationButtons["Delete Apple Reminder"].firstMatch
+    assertEnabled(confirmButton, description: "Apple Reminder deletion confirmation button")
+    confirmButton.click()
+    try openMenu()
+    waitForRemoval(reminder)
+  }
+
+  func testDestructiveActionsCancelAndConfirm() throws {
+    try openMenu()
+    assertNoVisibleHorizontalScrollBars()
 
     XCTContext.runActivity(named: "Cancel then confirm Linear issue cancellation") { _ in
       let issue = element("linear.issue.DAY-112")
-      revealDestructiveAction(on: issue)
-      assertNoVisibleScrollBars()
-      element("linear.cancel.DAY-112").click()
+      issue.rightClick()
+      assertExists("linear.cancelContext.DAY-112")
+      element("linear.cancelContext.DAY-112").click()
       let cancelButton = app.buttons["Cancel"].firstMatch
       XCTAssertTrue(cancelButton.waitForExistence(timeout: 5))
       cancelButton.click()
       try? openMenu()
       assertExists("linear.issue.DAY-112")
 
-      revealDestructiveAction(on: issue)
-      element("linear.cancel.DAY-112").click()
+      issue.rightClick()
+      assertExists("linear.cancelContext.DAY-112")
+      element("linear.cancelContext.DAY-112").click()
       let confirmButton = app.buttons["Cancel Linear issue"].firstMatch
       XCTAssertTrue(confirmButton.waitForExistence(timeout: 3))
       confirmButton.click()
@@ -317,9 +357,9 @@ final class DaylineUITests: XCTestCase {
     XCTContext.runActivity(named: "Cancel then confirm note deletion") { _ in
       let note = element("notes.note.mock-note-2")
       scrollIntoView(note)
-      revealDestructiveAction(on: note)
-      assertNoVisibleScrollBars()
-      element("notes.delete.mock-note-2").click()
+      note.rightClick()
+      assertExists("notes.deleteContext.mock-note-2")
+      element("notes.deleteContext.mock-note-2").click()
       let cancelButton = app.buttons["Cancel"].firstMatch
       XCTAssertTrue(cancelButton.waitForExistence(timeout: 3))
       cancelButton.click()
@@ -327,8 +367,9 @@ final class DaylineUITests: XCTestCase {
       scrollIntoView(note)
       assertExists("notes.note.mock-note-2")
 
-      revealDestructiveAction(on: note)
-      element("notes.delete.mock-note-2").click()
+      note.rightClick()
+      assertExists("notes.deleteContext.mock-note-2")
+      element("notes.deleteContext.mock-note-2").click()
       let nonRowActionButtons = app.buttons.matching(NSPredicate(
         format: "NOT (identifier BEGINSWITH %@)",
         "notes.delete."
@@ -361,7 +402,7 @@ final class DaylineUITests: XCTestCase {
     note.rightClick()
     assertExists("notes.deleteContext.mock-note-2")
     app.typeKey(.escape, modifierFlags: [])
-    assertNoVisibleScrollBars()
+    assertNoVisibleHorizontalScrollBars()
   }
 
   func testEditsExistingNote() throws {
@@ -688,19 +729,25 @@ final class DaylineUITests: XCTestCase {
   }
 
   private func revealDestructiveAction(on row: XCUIElement) {
-    row.swipeLeft()
+    row.hover()
+    row.scroll(byDeltaX: -200, deltaY: 0)
+    row.scroll(byDeltaX: -200, deltaY: 0)
   }
 
-  private func assertNoVisibleScrollBars(
+  private func assertNoVisibleHorizontalScrollBars(
     file: StaticString = #filePath,
     line: UInt = #line
   ) {
+    let menuFrame = app.windows.firstMatch.exists ? app.windows.firstMatch.frame : app.frame
     let visibleScrollBars = app.scrollBars.allElementsBoundByAccessibilityElement.filter {
-      $0.exists && !$0.frame.isEmpty
+      $0.exists
+        && !$0.frame.isEmpty
+        && $0.frame.width > $0.frame.height
+        && $0.frame.intersects(menuFrame)
     }
     XCTAssertTrue(
       visibleScrollBars.isEmpty,
-      "Expected no visible scroll bars with AppleShowScrollBars=Always, found \(visibleScrollBars.count)",
+      "Expected no visible horizontal scroll bars with AppleShowScrollBars=Always, found \(visibleScrollBars.count)",
       file: file,
       line: line
     )

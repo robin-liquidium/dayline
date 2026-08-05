@@ -360,4 +360,13 @@ struct AppleReminderStatusStoreTests {
     #expect(created.priority == .low)
     #expect(created.dueDate == .timed(dueDate, timeZoneIdentifier: TimeZone.current.identifier))
   }
+
+  @Test func deletingWritableReminderRemovesItFromTheFeed() async throws {
+    let store = StatusStore(mockData: MockData.make(issueSources: [.reminders]))
+    let reminder = try #require(store.appleReminders.first(where: { $0.allowsModifications }))
+
+    await store.deleteAppleReminder(id: reminder.id)
+
+    #expect(!store.appleReminders.contains(where: { $0.id == reminder.id }))
+  }
 }

@@ -11,6 +11,7 @@ protocol AppleRemindersServing: AnyObject {
   func fetchIncompleteReminders(in listIDs: Set<String>) async throws -> [AppleReminderItem]
   func createReminder(_ draft: AppleReminderCreateDraft) throws -> AppleReminderItem
   func setReminderCompleted(id: String) throws
+  func deleteReminder(id: String) throws
   func updateReminderPriority(id: String, priority: AppleReminderPriority) throws -> AppleReminderItem
   func updateReminderDueDate(id: String, dueDate: Date?) throws -> AppleReminderItem
   func setChangeHandler(_ handler: (@MainActor () -> Void)?)
@@ -135,6 +136,17 @@ final class AppleRemindersService: AppleRemindersServing {
     let reminder = try writableReminder(with: id)
     reminder.isCompleted = true
     try saveModifiedReminder(reminder)
+  }
+
+  /// Permanently deletes a reminder from its writable list.
+  func deleteReminder(id: String) throws {
+    let reminder = try writableReminder(with: id)
+    do {
+      try eventStore.remove(reminder, commit: true)
+    } catch {
+      eventStore.reset()
+      throw error
+    }
   }
 
   /// Changes a reminder's EventKit priority.
@@ -298,6 +310,7 @@ final class InertAppleRemindersService: AppleRemindersServing {
     throw AppleRemindersServiceError.accessDenied
   }
   func setReminderCompleted(id: String) throws { throw AppleRemindersServiceError.accessDenied }
+  func deleteReminder(id: String) throws { throw AppleRemindersServiceError.accessDenied }
   func updateReminderPriority(
     id: String,
     priority: AppleReminderPriority

@@ -348,10 +348,21 @@ private struct MenuWindowReader: NSViewRepresentable {
 
 private final class MenuWindowReaderView: NSView {
   var onWindowChange: (NSWindow?) -> Void
+  private var lastHorizontalScrollerCount = 0
 
   init(onWindowChange: @escaping (NSWindow?) -> Void) {
     self.onWindowChange = onWindowChange
     super.init(frame: .zero)
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(scrollViewDidLiveScroll(_:)),
+      name: NSScrollView.didLiveScrollNotification,
+      object: nil
+    )
+  }
+
+  deinit {
+    NotificationCenter.default.removeObserver(self)
   }
 
   @available(*, unavailable)
@@ -362,6 +373,48 @@ private final class MenuWindowReaderView: NSView {
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
     onWindowChange(window)
+    auditHorizontalScrollers()
+  }
+
+  override func layout() {
+    super.layout()
+    auditHorizontalScrollers()
+  }
+
+  @objc private func scrollViewDidLiveScroll(_ notification: Notification) {
+    guard let scrollView = notification.object as? NSScrollView,
+          scrollView.window === window else {
+      return
+    }
+    auditHorizontalScrollers()
+  }
+
+  /// Records only unexpected native horizontal scrollers, never row content or user data.
+  private func auditHorizontalScrollers() {
+    guard let contentView = window?.contentView else {
+      lastHorizontalScrollerCount = 0
+      return
+    }
+    let count = Self.horizontalScrollerCount(in: contentView)
+    guard count != lastHorizontalScrollerCount else { return }
+    if count > 0 {
+      DaylineDiagnostics.record(
+        "Unexpected horizontal menu scrollers detected count \(count)",
+        category: .menuBar
+      )
+    } else if lastHorizontalScrollerCount > 0 {
+      DaylineDiagnostics.record("Unexpected horizontal menu scrollers cleared", category: .menuBar)
+    }
+    lastHorizontalScrollerCount = count
+  }
+
+  private static func horizontalScrollerCount(in view: NSView) -> Int {
+    let current = if let scrollView = view as? NSScrollView, scrollView.hasHorizontalScroller {
+      1
+    } else {
+      0
+    }
+    return current + view.subviews.reduce(0) { $0 + horizontalScrollerCount(in: $1) }
   }
 }
 
@@ -417,6 +470,133 @@ private final class HiddenScrollIndicatorsView: NSView {
     guard let scrollView = enclosingScrollView else { return }
     scrollView.hasHorizontalScroller = false
     scrollView.hasVerticalScroller = false
+  }
+}
+
+/// Converts horizontal trackpad/wheel input into reveal state without creating a scroll view.
+private struct HorizontalScrollRevealReader: NSViewRepresentable {
+  @Binding var isRevealed: Bool
+
+  func makeNSView(context: Context) -> HorizontalScrollRevealView {
+    HorizontalScrollRevealView { isRevealed = $0 }
+  }
+
+  func updateNSView(_ nsView: HorizontalScrollRevealView, context: Context) {
+    nsView.setRevealed = { isRevealed = $0 }
+  }
+}
+
+private final class HorizontalScrollRevealView: NSView {
+  var setRevealed: (Bool) -> Void
+  private var eventMonitor: Any?
+  private var accumulatedDeltaX: CGFloat = 0
+
+  init(setRevealed: @escaping (Bool) -> Void) {
+    self.setRevealed = setRevealed
+    super.init(frame: .zero)
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  deinit {
+    removeEventMonitor()
+  }
+
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    removeEventMonitor()
+    guard window != nil else { return }
+    eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+      guard let self else { return event }
+      return self.handleScrollWheel(event) ? nil : event
+    }
+  }
+
+  private func handleScrollWheel(_ event: NSEvent) -> Bool {
+    guard event.window === window,
+          bounds.contains(convert(event.locationInWindow, from: nil)),
+          abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else {
+      return false
+    }
+    if event.momentumPhase != [] {
+      return true
+    }
+    if event.phase == .began {
+      accumulatedDeltaX = 0
+    }
+    let normalizedDeltaX = event.isDirectionInvertedFromDevice
+      ? -event.scrollingDeltaX
+      : event.scrollingDeltaX
+    accumulatedDeltaX += normalizedDeltaX
+    guard abs(accumulatedDeltaX) >= 8 else { return true }
+    setRevealed(accumulatedDeltaX > 0)
+    accumulatedDeltaX = 0
+    return true
+  }
+
+  private func removeEventMonitor() {
+    guard let eventMonitor else { return }
+    NSEvent.removeMonitor(eventMonitor)
+    self.eventMonitor = nil
+  }
+}
+
+/// Horizontal swipe reveal without an `NSScrollView`, so a row can never grow a native scroller.
+private struct HorizontalRevealRow<Content: View, Action: View>: View {
+  @State private var isRevealed = false
+  @GestureState private var dragTranslation: CGFloat = 0
+
+  let revealWidth: CGFloat
+  @ViewBuilder let content: Content
+  @ViewBuilder let action: Action
+
+  var body: some View {
+    GeometryReader { proxy in
+      HStack(spacing: 0) {
+        content
+          .frame(width: proxy.size.width, height: workItemRowHeight, alignment: .leading)
+          .contentShape(Rectangle())
+          .highPriorityGesture(revealGesture)
+          .background {
+            HorizontalScrollRevealReader(isRevealed: $isRevealed)
+          }
+
+        action
+          .allowsHitTesting(isRevealed)
+          .accessibilityHidden(!isRevealed)
+      }
+      .frame(width: proxy.size.width + revealWidth, alignment: .leading)
+      .offset(x: clampedOffset)
+      .contentShape(Rectangle())
+      .animation(.easeOut(duration: 0.16), value: isRevealed)
+    }
+    .frame(height: workItemRowHeight)
+    .clipped()
+  }
+
+  private var clampedOffset: CGFloat {
+    let restingOffset = isRevealed ? -revealWidth : 0
+    return min(0, max(-revealWidth, restingOffset + dragTranslation))
+  }
+
+  private var revealGesture: some Gesture {
+    DragGesture(minimumDistance: 10)
+      .updating($dragTranslation) { value, state, _ in
+        guard abs(value.translation.width) > abs(value.translation.height) else { return }
+        state = -value.translation.width
+      }
+      .onEnded { value in
+        guard abs(value.translation.width) > abs(value.translation.height) else { return }
+        let threshold = revealWidth * 0.35
+        if isRevealed {
+          isRevealed = value.translation.width > -threshold
+        } else {
+          isRevealed = value.translation.width > threshold
+        }
+      }
   }
 }
 
@@ -1886,85 +2066,127 @@ private struct AppleReminderRow: View {
   private var target: IssueActionTarget { .reminder(reminder.id) }
 
   var body: some View {
-    Button {
-      store.setHoveredIssue(target)
-      _ = store.presentPreviewForHovered()
-    } label: {
-      VStack(alignment: .leading, spacing: 2) {
-        Text(reminder.title.compactLine(limit: 72))
-          .font(.callout.weight(.semibold))
-          .foregroundStyle(.primary)
-          .lineLimit(1)
-          .multilineTextAlignment(.leading)
-
-        HStack(spacing: 6) {
-          MetadataPill(title: "Incomplete", systemImage: "circle", color: .secondary)
-
-          let style = priorityStyle(reminder.priority)
-          MetadataPill(
-            title: reminder.priority.label,
-            systemImage: style.systemImage,
-            color: style.color
-          )
-
-          MetadataPill(title: reminder.listTitle, systemImage: "list.bullet", color: .secondary)
-
-          if let dueDate = reminder.dueDate, store.issueRowFields.contains(.dueDate) {
-            MetadataPill(
-              title: DisplayFormatters.appleReminderDueDate(dueDate),
-              systemImage: "calendar",
-              color: dueDate.isOverdue() ? .red : .secondary
-            )
-          }
-
-          if reminder.isRecurring {
-            MetadataPill(title: "Repeats", systemImage: "repeat", color: .secondary)
-          }
-
-          if !reminder.allowsModifications {
-            MetadataPill(title: "Read-only", systemImage: "lock", color: .secondary)
-          }
-
-          if store.copiedIssueTarget == target {
-            Spacer(minLength: 0)
-            Label("Copied", systemImage: "checkmark")
-              .font(.caption)
-              .foregroundStyle(.green)
-          }
-
-          if store.updatingIssueTarget == target
-              || store.updatingPriorityTarget == target
-              || store.updatingDueDateTarget == target {
-            Spacer(minLength: 0)
-            ProgressView().controlSize(.small)
+    Group {
+      if reminder.allowsModifications {
+        HorizontalRevealRow(revealWidth: destructiveRevealWidth) {
+          interactiveContent
+        } action: {
+          CompactDestructiveActionButton(
+            systemImage: "trash",
+            accessibilityLabel: "Delete Apple Reminder",
+            accessibilityHint: "Permanently deletes this reminder",
+            accessibilityIdentifier: "reminders.delete.\(reminder.id)",
+            confirmationTitle: "Delete reminder?",
+            confirmationMessage: "Delete \(reminder.title.compactLine(limit: 64)) from Apple Reminders."
+          ) {
+            Task { await store.deleteAppleReminder(id: reminder.id) }
           }
         }
-      }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 3)
-      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-      .background {
-        if store.hoveredIssueTarget == target {
-          RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(Color.primary.opacity(0.06))
-        }
+      } else {
+        interactiveContent
+          .frame(height: workItemRowHeight)
       }
     }
-    .buttonStyle(.plain)
-    .accessibilityElement(children: .ignore)
-    .accessibilityLabel(accessibilityLabel)
-    .accessibilityHint(accessibilityHint)
-    .accessibilityIdentifier("reminders.issue.\(reminder.id)")
-    .frame(height: workItemRowHeight)
     .contextMenu {
       if reminder.allowsModifications {
         Button("Mark Completed", systemImage: "checkmark.circle") {
           Task { await store.completeAppleReminder(id: reminder.id) }
         }
         .accessibilityIdentifier("reminders.completeContext.\(reminder.id)")
+
+        Button("Delete Reminder", systemImage: "trash", role: .destructive) {
+          confirmDestructiveAction(
+            title: "Delete reminder?",
+            message: "Delete \(reminder.title.compactLine(limit: 64)) from Apple Reminders.",
+            confirmationLabel: "Delete Apple Reminder"
+          ) {
+            Task { await store.deleteAppleReminder(id: reminder.id) }
+          }
+        }
+        .accessibilityIdentifier("reminders.deleteContext.\(reminder.id)")
       }
     }
     .modifier(AppleReminderAccessibilityActions(reminder: reminder))
+  }
+
+  private var interactiveContent: some View {
+    reminderContent
+      .contentShape(Rectangle())
+      .onTapGesture {
+        store.setHoveredIssue(target)
+        _ = store.presentPreviewForHovered()
+      }
+      .accessibilityElement(children: .ignore)
+      .accessibilityAddTraits(.isButton)
+      .accessibilityLabel(accessibilityLabel)
+      .accessibilityHint(accessibilityHint)
+      .accessibilityIdentifier("reminders.issue.\(reminder.id)")
+      .accessibilityAction {
+        store.setHoveredIssue(target)
+        _ = store.presentPreviewForHovered()
+      }
+  }
+
+  private var reminderContent: some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(reminder.title.compactLine(limit: 72))
+        .font(.callout.weight(.semibold))
+        .foregroundStyle(.primary)
+        .lineLimit(1)
+        .multilineTextAlignment(.leading)
+
+      HStack(spacing: 6) {
+        MetadataPill(title: "Incomplete", systemImage: "circle", color: .secondary)
+
+        let style = priorityStyle(reminder.priority)
+        MetadataPill(
+          title: reminder.priority.label,
+          systemImage: style.systemImage,
+          color: style.color
+        )
+
+        MetadataPill(title: reminder.listTitle, systemImage: "list.bullet", color: .secondary)
+
+        if let dueDate = reminder.dueDate, store.issueRowFields.contains(.dueDate) {
+          MetadataPill(
+            title: DisplayFormatters.appleReminderDueDate(dueDate),
+            systemImage: "calendar",
+            color: dueDate.isOverdue() ? .red : .secondary
+          )
+        }
+
+        if reminder.isRecurring {
+          MetadataPill(title: "Repeats", systemImage: "repeat", color: .secondary)
+        }
+
+        if !reminder.allowsModifications {
+          MetadataPill(title: "Read-only", systemImage: "lock", color: .secondary)
+        }
+
+        if store.copiedIssueTarget == target {
+          Spacer(minLength: 0)
+          Label("Copied", systemImage: "checkmark")
+            .font(.caption)
+            .foregroundStyle(.green)
+        }
+
+        if store.updatingIssueTarget == target
+            || store.updatingPriorityTarget == target
+            || store.updatingDueDateTarget == target {
+          Spacer(minLength: 0)
+          ProgressView().controlSize(.small)
+        }
+      }
+    }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 3)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+    .background {
+      if store.hoveredIssueTarget == target {
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .fill(Color.primary.opacity(0.06))
+      }
+    }
   }
 
   private var accessibilityLabel: String {
@@ -2003,6 +2225,7 @@ private struct AppleReminderAccessibilityActions: ViewModifier {
         .accessibilityAction(named: "Mark completed") {
           Task { await store.completeAppleReminder(id: reminder.id) }
         }
+        .accessibilityAction(named: "Delete reminder", deleteReminder)
         .accessibilityAction(named: "Change status") {
           store.setHoveredIssue(target)
           _ = store.presentStatusPickerForHoveredIssue()
@@ -2021,6 +2244,7 @@ private struct AppleReminderAccessibilityActions: ViewModifier {
         .accessibilityAction(named: "Mark completed") {
           Task { await store.completeAppleReminder(id: reminder.id) }
         }
+        .accessibilityAction(named: "Delete reminder", deleteReminder)
         .accessibilityAction(named: "Change status") {
           store.setHoveredIssue(target)
           _ = store.presentStatusPickerForHoveredIssue()
@@ -2031,6 +2255,16 @@ private struct AppleReminderAccessibilityActions: ViewModifier {
         }
     } else {
       content
+    }
+  }
+
+  private func deleteReminder() {
+    confirmDestructiveAction(
+      title: "Delete reminder?",
+      message: "Delete \(reminder.title.compactLine(limit: 64)) from Apple Reminders.",
+      confirmationLabel: "Delete Apple Reminder"
+    ) {
+      Task { await store.deleteAppleReminder(id: reminder.id) }
     }
   }
 }
@@ -2561,41 +2795,35 @@ private struct IssueRow: View {
 
   /// Builds the issue row.
   var body: some View {
-    GeometryReader { proxy in
-      ScrollView(.horizontal, showsIndicators: false) {
-        HStack(spacing: 0) {
-          Button {
-            if let url = issue.url {
-              NSWorkspace.shared.open(url)
-            }
-          } label: {
-            issueContent
-              .frame(width: proxy.size.width, height: workItemRowHeight, alignment: .leading)
+    HorizontalRevealRow(revealWidth: destructiveRevealWidth) {
+      issueContent
+        .contentShape(Rectangle())
+        .onTapGesture {
+          if let url = issue.url {
+            NSWorkspace.shared.open(url)
           }
-          .buttonStyle(.plain)
-          .accessibilityElement(children: .ignore)
-          .accessibilityLabel(accessibilityLabel)
-          .accessibilityHint(accessibilityHint)
-          .accessibilityIdentifier("linear.issue.\(issue.id)")
-          .disabled(issue.url == nil)
-
-          CompactDestructiveActionButton(
-            systemImage: "trash",
-            accessibilityLabel: "Cancel Linear issue",
-            accessibilityHint: "Moves this Linear issue to its canceled state",
-            accessibilityIdentifier: "linear.cancel.\(issue.id)",
-            confirmationTitle: "Cancel issue?",
-            confirmationMessage: "Move \(issue.id) to its canceled Linear state.",
-            action: cancel
-          )
         }
-        .configureHiddenScrollIndicators()
-      }
-      .scrollContentBackground(.hidden)
-      .scrollIndicators(.hidden)
-      .clipped()
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityHint(accessibilityHint)
+        .accessibilityIdentifier("linear.issue.\(issue.id)")
+        .accessibilityAction {
+          if let url = issue.url {
+            NSWorkspace.shared.open(url)
+          }
+        }
+    } action: {
+      CompactDestructiveActionButton(
+        systemImage: "trash",
+        accessibilityLabel: "Cancel Linear issue",
+        accessibilityHint: "Moves this Linear issue to its canceled state",
+        accessibilityIdentifier: "linear.cancel.\(issue.id)",
+        confirmationTitle: "Cancel issue?",
+        confirmationMessage: "Move \(issue.id) to its canceled Linear state.",
+        action: cancel
+      )
     }
-    .frame(height: workItemRowHeight)
     .contextMenu {
       Button("Cancel Issue", systemImage: "xmark.circle", role: .destructive) {
         confirmDestructiveAction(
@@ -2766,7 +2994,7 @@ private struct IssueRow: View {
   }
 }
 
-/// Compact circular destructive action revealed by horizontal row scrolling.
+/// Compact circular destructive action revealed by a horizontal row gesture.
 private struct CompactDestructiveActionButton: View {
   /// SF Symbol shown inside the destructive action.
   let systemImage: String
@@ -2860,35 +3088,29 @@ private struct NoteRow: View {
 
   /// Builds the note row.
   var body: some View {
-    GeometryReader { proxy in
-      ScrollView(.horizontal, showsIndicators: false) {
-        HStack(spacing: 0) {
-          Button(action: open) {
-            noteContent
-              .frame(width: proxy.size.width, height: workItemRowHeight, alignment: .leading)
-          }
-          .buttonStyle(.plain)
-          .accessibilityLabel(accessibilityLabel)
-          .accessibilityHint("Open note editor")
-          .accessibilityIdentifier("notes.note.\(note.id)")
-
-          CompactDestructiveActionButton(
-            systemImage: "trash",
-            accessibilityLabel: "Delete note",
-            accessibilityHint: "Deletes this local note",
-            accessibilityIdentifier: "notes.delete.\(note.id)",
-            confirmationTitle: "Delete note?",
-            confirmationMessage: "Delete \(note.title.compactLine(limit: 64)) from local notes.",
-            action: delete
-          )
+    HorizontalRevealRow(revealWidth: destructiveRevealWidth) {
+      noteContent
+        .contentShape(Rectangle())
+        .onTapGesture(perform: open)
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityHint("Open note editor")
+        .accessibilityIdentifier("notes.note.\(note.id)")
+        .accessibilityAction {
+          open()
         }
-        .configureHiddenScrollIndicators()
-      }
-      .scrollContentBackground(.hidden)
-      .scrollIndicators(.hidden)
-      .clipped()
+    } action: {
+      CompactDestructiveActionButton(
+        systemImage: "trash",
+        accessibilityLabel: "Delete note",
+        accessibilityHint: "Deletes this local note",
+        accessibilityIdentifier: "notes.delete.\(note.id)",
+        confirmationTitle: "Delete note?",
+        confirmationMessage: "Delete \(note.title.compactLine(limit: 64)) from local notes.",
+        action: delete
+      )
     }
-    .frame(height: workItemRowHeight)
     .contextMenu {
       Button("Delete Note", systemImage: "trash", role: .destructive) {
         confirmDestructiveAction(
