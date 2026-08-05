@@ -1,6 +1,29 @@
 {
   "releases": [
     {
+      "version": "0.2.5",
+      "date": "2026-08-06",
+      "new": [
+        {
+          "title": "Delete Apple Reminders",
+          "text": "Swipe a writable Apple Reminder to reveal the trash action, or use its right-click menu, then confirm to permanently delete it.",
+          "pr": 66
+        }
+      ],
+      "fixed": [
+        {
+          "title": "Reliable issue-row swiping",
+          "text": "Linear issues, Apple Reminders, and notes now reveal their right-side destructive action with the natural trackpad gesture without native horizontal scroll bars appearing across the rows.",
+          "pr": 66
+        },
+        {
+          "title": "Feedback service migration",
+          "text": "Dayline's feedback rate limiting now uses the migrated Cloudflare service so feedback submissions continue working normally.",
+          "pr": 65
+        }
+      ]
+    },
+    {
       "version": "0.2.4",
       "date": "2026-08-02",
       "fixed": [
