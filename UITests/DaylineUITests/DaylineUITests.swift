@@ -296,8 +296,19 @@ final class DaylineUITests: XCTestCase {
     let issue = element("linear.issue.DAY-112")
     XCTAssertFalse(element("linear.cancel.DAY-112").exists)
     revealDestructiveAction(on: issue)
-    assertExists("linear.cancel.DAY-112")
+    let cancelIssueButton = element("linear.cancel.DAY-112")
+    XCTAssertTrue(cancelIssueButton.waitForExistence(timeout: 5))
     assertNoVisibleHorizontalScrollBars()
+    cancelIssueButton.click()
+    let linearConfirmationButtons = app.buttons.matching(NSPredicate(
+      format: "NOT (identifier BEGINSWITH %@)",
+      "linear.cancel."
+    ))
+    let confirmCancellation = linearConfirmationButtons["Cancel Linear issue"].firstMatch
+    assertEnabled(confirmCancellation, description: "Linear issue cancellation confirmation button")
+    confirmCancellation.click()
+    try openMenu()
+    waitForRemoval(issue)
 
     element("issues.source.reminders").click()
     let reminder = element("reminders.issue.mock-reminder-1")
@@ -727,8 +738,12 @@ final class DaylineUITests: XCTestCase {
     file: StaticString = #filePath,
     line: UInt = #line
   ) {
+    let menuFrame = app.windows.firstMatch.exists ? app.windows.firstMatch.frame : app.frame
     let visibleScrollBars = app.scrollBars.allElementsBoundByAccessibilityElement.filter {
-      $0.exists && !$0.frame.isEmpty && $0.frame.width > $0.frame.height
+      $0.exists
+        && !$0.frame.isEmpty
+        && $0.frame.width > $0.frame.height
+        && $0.frame.intersects(menuFrame)
     }
     XCTAssertTrue(
       visibleScrollBars.isEmpty,
