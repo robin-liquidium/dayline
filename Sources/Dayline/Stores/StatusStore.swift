@@ -2650,6 +2650,31 @@ final class StatusStore: ObservableObject {
     }
   }
 
+  /// Permanently deletes an Apple Reminder and removes it from the incomplete feed.
+  func deleteAppleReminder(id: String) async {
+    let target = IssueActionTarget.reminder(id)
+    guard updatingIssueTarget == nil,
+          let reminder = allAppleReminders.first(where: { $0.id == id }),
+          reminder.allowsModifications else { return }
+    updatingIssueTarget = target
+    statusPickerTarget = nil
+    defer { updatingIssueTarget = nil }
+
+    do {
+      if mockData == nil {
+        try appleRemindersService.deleteReminder(id: id)
+      }
+      appleRemindersRevision += 1
+      allAppleReminders.removeAll { $0.id == id }
+      applyAppleReminderOrder()
+      appleRemindersError = nil
+      lastUpdatedAt = Date()
+      DaylineDiagnostics.record("Apple Reminder deleted", category: .interaction)
+    } catch {
+      appleRemindersError = error.localizedDescription
+    }
+  }
+
   /// Changes an Apple Reminder's native priority.
   func changeAppleReminderPriority(id: String, priority: AppleReminderPriority) async {
     let target = IssueActionTarget.reminder(id)

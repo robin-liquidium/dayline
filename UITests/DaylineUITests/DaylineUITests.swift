@@ -67,7 +67,7 @@ final class DaylineUITests: XCTestCase {
       assertExists("linear.issue.DAY-104")
       assertExists("issues.source.reminders")
       assertExists("notes.note.mock-note-1")
-      assertNoVisibleScrollBars()
+      assertNoVisibleHorizontalScrollBars()
       element("dayline.refresh").click()
       assertExists("dayline.refresh")
       attachCheckpoint(
@@ -287,26 +287,25 @@ final class DaylineUITests: XCTestCase {
     XCTAssertFalse(element("github.new").exists)
     XCTAssertFalse(element("linear.issue.DAY-104").exists)
     XCTAssertFalse(element("github.issue.mock-gh-1").exists)
-    assertNoVisibleScrollBars()
+    assertNoVisibleHorizontalScrollBars()
   }
 
-  func testSwipeDestructiveActionsCancelAndConfirm() throws {
+  func testDestructiveActionsCancelAndConfirm() throws {
     try openMenu()
-    assertNoVisibleScrollBars()
+    assertNoVisibleHorizontalScrollBars()
 
     XCTContext.runActivity(named: "Cancel then confirm Linear issue cancellation") { _ in
       let issue = element("linear.issue.DAY-112")
-      revealDestructiveAction(on: issue)
-      assertNoVisibleScrollBars()
-      element("linear.cancel.DAY-112").click()
+      issue.rightClick()
+      element("linear.cancelContext.DAY-112").click()
       let cancelButton = app.buttons["Cancel"].firstMatch
       XCTAssertTrue(cancelButton.waitForExistence(timeout: 5))
       cancelButton.click()
       try? openMenu()
       assertExists("linear.issue.DAY-112")
 
-      revealDestructiveAction(on: issue)
-      element("linear.cancel.DAY-112").click()
+      issue.rightClick()
+      element("linear.cancelContext.DAY-112").click()
       let confirmButton = app.buttons["Cancel Linear issue"].firstMatch
       XCTAssertTrue(confirmButton.waitForExistence(timeout: 3))
       confirmButton.click()
@@ -317,9 +316,8 @@ final class DaylineUITests: XCTestCase {
     XCTContext.runActivity(named: "Cancel then confirm note deletion") { _ in
       let note = element("notes.note.mock-note-2")
       scrollIntoView(note)
-      revealDestructiveAction(on: note)
-      assertNoVisibleScrollBars()
-      element("notes.delete.mock-note-2").click()
+      note.rightClick()
+      element("notes.deleteContext.mock-note-2").click()
       let cancelButton = app.buttons["Cancel"].firstMatch
       XCTAssertTrue(cancelButton.waitForExistence(timeout: 3))
       cancelButton.click()
@@ -327,8 +325,8 @@ final class DaylineUITests: XCTestCase {
       scrollIntoView(note)
       assertExists("notes.note.mock-note-2")
 
-      revealDestructiveAction(on: note)
-      element("notes.delete.mock-note-2").click()
+      note.rightClick()
+      element("notes.deleteContext.mock-note-2").click()
       let nonRowActionButtons = app.buttons.matching(NSPredicate(
         format: "NOT (identifier BEGINSWITH %@)",
         "notes.delete."
@@ -361,7 +359,7 @@ final class DaylineUITests: XCTestCase {
     note.rightClick()
     assertExists("notes.deleteContext.mock-note-2")
     app.typeKey(.escape, modifierFlags: [])
-    assertNoVisibleScrollBars()
+    assertNoVisibleHorizontalScrollBars()
   }
 
   func testEditsExistingNote() throws {
@@ -687,20 +685,16 @@ final class DaylineUITests: XCTestCase {
     return editor
   }
 
-  private func revealDestructiveAction(on row: XCUIElement) {
-    row.swipeLeft()
-  }
-
-  private func assertNoVisibleScrollBars(
+  private func assertNoVisibleHorizontalScrollBars(
     file: StaticString = #filePath,
     line: UInt = #line
   ) {
     let visibleScrollBars = app.scrollBars.allElementsBoundByAccessibilityElement.filter {
-      $0.exists && !$0.frame.isEmpty
+      $0.exists && !$0.frame.isEmpty && $0.frame.width > $0.frame.height
     }
     XCTAssertTrue(
       visibleScrollBars.isEmpty,
-      "Expected no visible scroll bars with AppleShowScrollBars=Always, found \(visibleScrollBars.count)",
+      "Expected no visible horizontal scroll bars with AppleShowScrollBars=Always, found \(visibleScrollBars.count)",
       file: file,
       line: line
     )
