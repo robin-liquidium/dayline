@@ -2102,7 +2102,7 @@ final class StatusStore: ObservableObject {
   /// Opens the current alert event's meeting link and dismisses the alert.
   func joinMeetingAlert() {
     guard let event = meetingAlertEvent else { return }
-    if let url = event.openURL ?? event.calendarURL {
+    if let url = event.meetingURL ?? event.openURL ?? event.calendarURL {
       NSWorkspace.shared.open(url)
     }
     dismissMeetingAlert()
@@ -2415,7 +2415,7 @@ final class StatusStore: ObservableObject {
     if let target = validHoveredIssueTarget {
       return .issue(target)
     }
-    if let hoveredEventID, (events + tomorrowEvents).contains(where: { $0.id == hoveredEventID }) {
+    if let hoveredEventID, visibleCalendarEvents.contains(where: { $0.id == hoveredEventID }) {
       return .event(hoveredEventID)
     }
     return nil
@@ -2541,7 +2541,7 @@ final class StatusStore: ObservableObject {
   @discardableResult
   func copyHoveredEventLink() -> Bool {
     guard let hoveredEventID,
-          let event = (events + tomorrowEvents).first(where: { $0.id == hoveredEventID }),
+          let event = visibleCalendarEvents.first(where: { $0.id == hoveredEventID }),
           let url = event.openURL ?? event.calendarURL else {
       return false
     }
@@ -2558,6 +2558,11 @@ final class StatusStore: ObservableObject {
     }
 
     return true
+  }
+
+  /// Calendar rows currently available to hover actions.
+  private var visibleCalendarEvents: [CalendarEventItem] {
+    events + tomorrowEvents + visibleAllDayEvents + visibleTomorrowAllDayEvents
   }
 
   /// Changes a Linear issue status and updates the visible list.
@@ -3808,6 +3813,7 @@ final class StatusStore: ObservableObject {
         endDate: now.addingTimeInterval(30 * 60),
         location: nil,
         calendarURL: URL(string: "https://calendar.google.com"),
+        meetingURL: URL(string: "https://meet.google.com/mock-dayline-demo"),
         openURL: URL(string: "https://meet.google.com/mock-dayline-demo"),
         sourceCalendarNames: ["Product Team"]
       )
@@ -4045,10 +4051,11 @@ final class StatusStore: ObservableObject {
   /// Loads all enabled calendars, preserving successful results when individual sources fail.
   private func loadCalendarAgenda(now: Date = Date()) async -> CalendarAgendaLoadResult {
     let calendar = Calendar.current
+    let todayStart = calendar.startOfDay(for: now)
     let tomorrowStart = calendar.date(
       byAdding: .day,
       value: 1,
-      to: calendar.startOfDay(for: now)
+      to: todayStart
     ) ?? now.addingTimeInterval(24 * 60 * 60)
     let dayAfterTomorrow = calendar.date(byAdding: .day, value: 1, to: tomorrowStart)
       ?? tomorrowStart.addingTimeInterval(24 * 60 * 60)
@@ -4133,6 +4140,7 @@ final class StatusStore: ObservableObject {
       sourceBatches: sourceBatches,
       additionalWarnings: accountWarnings,
       reauthenticationAccountIDs: reauthenticationAccountIDs,
+      todayStart: todayStart,
       tomorrowStart: tomorrowStart,
       dayAfterTomorrow: dayAfterTomorrow
     )
@@ -4143,11 +4151,13 @@ final class StatusStore: ObservableObject {
     sourceBatches: [CalendarAgendaSourceBatch],
     additionalWarnings: [String] = [],
     reauthenticationAccountIDs: Set<UUID> = [],
+    todayStart: Date,
     tomorrowStart: Date,
     dayAfterTomorrow: Date
   ) -> CalendarAgendaLoadResult {
     let sections = CalendarEventItem.agendaSections(
       from: sourceBatches.flatMap(\.events),
+      todayStart: todayStart,
       tomorrowStart: tomorrowStart,
       dayAfterTomorrow: dayAfterTomorrow,
       todayLimit: Self.todayEventLimit,
@@ -4175,15 +4185,17 @@ final class StatusStore: ObservableObject {
   /// Rebuilds the visible agenda after a local source is disabled or disconnected.
   private func rebuildAgendaFromCachedSources(now: Date = Date()) {
     let calendar = Calendar.current
+    let todayStart = calendar.startOfDay(for: now)
     let tomorrowStart = calendar.date(
       byAdding: .day,
       value: 1,
-      to: calendar.startOfDay(for: now)
+      to: todayStart
     ) ?? now.addingTimeInterval(24 * 60 * 60)
     let dayAfterTomorrow = calendar.date(byAdding: .day, value: 1, to: tomorrowStart)
       ?? tomorrowStart.addingTimeInterval(24 * 60 * 60)
     let sections = CalendarEventItem.agendaSections(
       from: googleSourceEvents + appleSourceEvents,
+      todayStart: todayStart,
       tomorrowStart: tomorrowStart,
       dayAfterTomorrow: dayAfterTomorrow,
       todayLimit: Self.todayEventLimit,

@@ -80,8 +80,10 @@ function PrivacyPolicy() {
           OAuth access and refresh tokens are stored in the macOS Keychain.
           Linked Google account labels, calendar identifiers and names, and your
           enabled-calendar selections are stored in local app preferences.
-          Google and Apple Calendar event data is held only in app memory for
-          display and alerts; Dayline does not persist an event cache to disk. Linear and
+          Google and Apple Calendar event data fetched for display and alerts is
+          held only in app memory; Dayline does not persist an event cache to disk.
+          Events you create are saved to the Apple Calendar you select and may be
+          synced or stored by that calendar&apos;s provider. Linear and
           GitHub account selections and enabled Apple Reminders lists are also
           stored in local preferences. Reminder data is held in app memory and
           remains stored by Apple Reminders. Notes

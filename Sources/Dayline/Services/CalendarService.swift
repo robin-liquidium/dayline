@@ -195,6 +195,10 @@ private struct GoogleCalendarEvent: Decodable {
 
     let occurrenceDate = originalStartTime?.resolvedDate ?? startDate
     let deduplicationKey = iCalUID.map { "\($0)|\(occurrenceDate.timeIntervalSince1970)" }
+    let structuredMeetingURL = CalendarEventItem.safeWebURL(conferenceURL)
+    let locationURL = location.flatMap(Self.firstURL(in:)).flatMap(CalendarEventItem.safeWebURL)
+    let meetingURL = structuredMeetingURL ?? CalendarEventItem.recognizedMeetingURL(locationURL)
+    let calendarURL = CalendarEventItem.safeWebURL(htmlLink.flatMap(URL.init(string:)))
     return CalendarEventItem(
       id: CalendarEventItem.compositeID(accountID: accountID, calendarID: calendar.id, eventID: id),
       title: (summary?.isEmpty == false ? summary : "Untitled event") ?? "Untitled event",
@@ -202,27 +206,27 @@ private struct GoogleCalendarEvent: Decodable {
       endDate: endDate,
       location: location,
       isAllDay: isAllDay,
-      calendarURL: htmlLink.flatMap(URL.init(string:)),
-      openURL: preferredOpenURL,
+      calendarURL: calendarURL,
+      meetingURL: meetingURL,
+      openURL: meetingURL ?? locationURL ?? calendarURL,
       sourceCalendarNames: [calendar.name],
       sourceIDs: [CalendarEventItem.sourceID(accountID: accountID, calendarID: calendar.id)],
       deduplicationKey: deduplicationKey
     )
   }
 
-  /// Best URL to open when the user clicks the event row.
-  private var preferredOpenURL: URL? {
-    conferenceURL ?? location.flatMap(Self.firstURL(in:)) ?? htmlLink.flatMap(URL.init(string:))
-  }
-
   /// Best structured conferencing URL from Google Calendar.
   private var conferenceURL: URL? {
-    if let hangoutURL = hangoutLink.flatMap(URL.init(string:)) {
+    if let hangoutURL = CalendarEventItem.safeWebURL(hangoutLink.flatMap(URL.init(string:))) {
       return hangoutURL
     }
     let entries = conferenceData?.entryPoints ?? []
-    return entries.first(where: { $0.entryPointType == "video" })?.url
-      ?? entries.first(where: { $0.url != nil })?.url
+    if let videoURL = entries
+      .first(where: { $0.entryPointType == "video" })
+      .flatMap({ CalendarEventItem.safeWebURL($0.url) }) {
+      return videoURL
+    }
+    return entries.lazy.compactMap { CalendarEventItem.safeWebURL($0.url) }.first
   }
 
   /// Finds the first URL embedded in a location string.

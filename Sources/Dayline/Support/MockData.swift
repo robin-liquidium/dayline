@@ -55,6 +55,7 @@ struct MockData {
         endDate: endDate,
         location: location,
         calendarURL: URL(string: "https://calendar.google.com"),
+        meetingURL: URL(string: "https://meet.google.com/mock-dayline-demo"),
         openURL: URL(string: "https://meet.google.com/mock-dayline-demo"),
         sourceCalendarNames: [source],
         deduplicationKey: "mock-\(id)"

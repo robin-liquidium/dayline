@@ -31,12 +31,15 @@ struct CalendarEventItem: Identifiable, Equatable, Sendable {
   /// Optional browser URL for opening the calendar event itself.
   let calendarURL: URL?
 
+  /// Conferencing URL sourced from structured provider data or a recognized meeting host.
+  let meetingURL: URL?
+
   /// Preferred URL for clicking the event, such as Google Meet or a URL in the location.
   let openURL: URL?
 
-  /// Whether the event has a real join link rather than only its calendar page.
+  /// Whether the event has a real join link rather than an unrelated or calendar URL.
   var hasMeetingLink: Bool {
-    openURL != nil && openURL != calendarURL
+    meetingURL != nil
   }
 
   /// Calendar names contributing this event after cross-calendar deduplication.
@@ -56,6 +59,7 @@ struct CalendarEventItem: Identifiable, Equatable, Sendable {
     location: String?,
     isAllDay: Bool = false,
     calendarURL: URL?,
+    meetingURL: URL? = nil,
     openURL: URL?,
     sourceCalendarNames: [String] = [],
     sourceIDs: [String] = [],
@@ -67,8 +71,9 @@ struct CalendarEventItem: Identifiable, Equatable, Sendable {
     self.endDate = endDate
     self.location = location
     self.isAllDay = isAllDay
-    self.calendarURL = calendarURL
-    self.openURL = openURL
+    self.calendarURL = Self.safeWebURL(calendarURL)
+    self.meetingURL = Self.safeWebURL(meetingURL)
+    self.openURL = self.meetingURL ?? Self.safeWebURL(openURL)
     self.sourceCalendarNames = sourceCalendarNames
     self.sourceIDs = sourceIDs
     self.deduplicationKey = deduplicationKey
@@ -82,6 +87,39 @@ struct CalendarEventItem: Identifiable, Equatable, Sendable {
   /// Stable identity for one contributing account/calendar source.
   static func sourceID(accountID: UUID, calendarID: String) -> String {
     "\(accountID.uuidString)|\(calendarID)"
+  }
+
+  /// Allows only browser-safe web URLs for event actions.
+  static func safeWebURL(_ url: URL?) -> URL? {
+    guard let url,
+          let scheme = url.scheme?.lowercased(),
+          ["http", "https"].contains(scheme) else {
+      return nil
+    }
+    return url
+  }
+
+  /// Recognizes common conferencing links when a provider did not identify one structurally.
+  static func recognizedMeetingURL(_ url: URL?) -> URL? {
+    guard let url = safeWebURL(url), let host = url.host?.lowercased() else {
+      return nil
+    }
+    let meetingHosts = [
+      "meet.google.com",
+      "zoom.us",
+      "teams.microsoft.com",
+      "teams.live.com",
+      "webex.com",
+      "meet.jit.si",
+      "whereby.com",
+      "facetime.apple.com",
+      "chime.aws",
+      "around.co"
+    ]
+    guard meetingHosts.contains(where: { host == $0 || host.hasSuffix(".\($0)") }) else {
+      return nil
+    }
+    return url
   }
 
   /// Compact source label for the agenda row.
@@ -130,6 +168,7 @@ struct CalendarEventItem: Identifiable, Equatable, Sendable {
             }
           }
         }
+        let meetingURL = existing.meetingURL ?? event.meetingURL
         merged[index] = CalendarEventItem(
           id: existing.id,
           title: existing.title,
@@ -138,7 +177,8 @@ struct CalendarEventItem: Identifiable, Equatable, Sendable {
           location: existing.location ?? event.location,
           isAllDay: existing.isAllDay || event.isAllDay,
           calendarURL: existing.calendarURL ?? event.calendarURL,
-          openURL: existing.openURL ?? event.openURL,
+          meetingURL: meetingURL,
+          openURL: meetingURL ?? existing.openURL ?? event.openURL,
           sourceCalendarNames: names,
           sourceIDs: sourceIDs,
           deduplicationKey: key
@@ -155,6 +195,7 @@ struct CalendarEventItem: Identifiable, Equatable, Sendable {
   /// Deduplicates, globally sorts, partitions, and caps an agenda after all sources load.
   static func agendaSections(
     from events: [CalendarEventItem],
+    todayStart: Date,
     tomorrowStart: Date,
     dayAfterTomorrow: Date,
     todayLimit: Int,
@@ -173,7 +214,7 @@ struct CalendarEventItem: Identifiable, Equatable, Sendable {
         .prefix(tomorrowLimit)
         .map { $0 },
       allDayToday: merged
-        .filter { $0.isAllDay && $0.startDate < tomorrowStart }
+        .filter { $0.isAllDay && $0.endDate > todayStart && $0.startDate < tomorrowStart }
         .prefix(todayAllDayLimit)
         .map { $0 },
       allDayTomorrow: merged

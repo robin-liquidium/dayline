@@ -96,6 +96,7 @@ final class AppleCalendarService: @unchecked Sendable {
       let deduplicationKey = event.calendarItemExternalIdentifier.map {
         "\($0)|\(occurrenceDate.timeIntervalSince1970)"
       }
+      let eventURL = CalendarEventItem.safeWebURL(event.url)
       return CalendarEventItem(
         id: CalendarEventItem.compositeID(
           accountID: Self.accountID,
@@ -108,7 +109,8 @@ final class AppleCalendarService: @unchecked Sendable {
         location: event.location,
         isAllDay: event.isAllDay,
         calendarURL: nil,
-        openURL: event.url,
+        meetingURL: CalendarEventItem.recognizedMeetingURL(eventURL),
+        openURL: eventURL,
         sourceCalendarNames: [event.calendar.title],
         sourceIDs: [CalendarEventItem.sourceID(accountID: Self.accountID, calendarID: event.calendar.calendarIdentifier)],
         deduplicationKey: deduplicationKey

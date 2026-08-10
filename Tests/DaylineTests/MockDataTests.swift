@@ -28,4 +28,17 @@ struct MockDataTests {
     #expect(mock.connectionStatuses.first { $0.provider == .linear }?.state == .disconnected)
     #expect(mock.connectionStatuses.first { $0.provider == .github }?.state == .disconnected)
   }
+
+  @Test @MainActor func allDayRowsSupportHoverPreviewAndCopyWhenVisible() throws {
+    let store = StatusStore(mockData: MockData.make())
+    store.setShowsAllDayEvents(true)
+    let event = try #require(store.visibleAllDayEvents.first)
+
+    store.setHoveredEvent(event.id)
+
+    #expect(store.presentPreviewForHovered())
+    #expect(store.previewTarget == .event(event.id))
+    #expect(store.copyHoveredEventLink())
+    #expect(store.copiedEventID == event.id)
+  }
 }

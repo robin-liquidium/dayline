@@ -121,6 +121,7 @@ struct CalendarEventItemTests {
       endDate: start.addingTimeInterval(30 * 60),
       location: "Studio",
       calendarURL: URL(string: "https://calendar.google.com"),
+      meetingURL: URL(string: "https://meet.google.com/example"),
       openURL: URL(string: "https://meet.google.com/example"),
       sourceCalendarNames: ["Work", "Shared"],
       deduplicationKey: "meeting-uid|20000"
@@ -130,8 +131,41 @@ struct CalendarEventItemTests {
 
     #expect(merged.count == 1)
     #expect(merged[0].location == "Studio")
+    #expect(merged[0].meetingURL == URL(string: "https://meet.google.com/example"))
     #expect(merged[0].openURL == URL(string: "https://meet.google.com/example"))
     #expect(merged[0].sourceCalendarNames == ["Work", "Shared"])
+  }
+
+  @Test func mergedAgendaPrefersARealJoinLinkOverAnUnrelatedURL() throws {
+    let start = Date(timeIntervalSince1970: 20_000)
+    let genericURL = try #require(URL(string: "https://example.com/agenda"))
+    let meetingURL = try #require(URL(string: "https://meet.google.com/dayline-test"))
+    let genericCopy = CalendarEventItem(
+      id: "a-generic",
+      title: "Meeting",
+      startDate: start,
+      endDate: start.addingTimeInterval(30 * 60),
+      location: nil,
+      calendarURL: nil,
+      openURL: genericURL,
+      deduplicationKey: "meeting-uid|20000"
+    )
+    let meetingCopy = CalendarEventItem(
+      id: "b-meeting",
+      title: "Meeting",
+      startDate: start,
+      endDate: start.addingTimeInterval(30 * 60),
+      location: nil,
+      calendarURL: nil,
+      meetingURL: meetingURL,
+      openURL: meetingURL,
+      deduplicationKey: "meeting-uid|20000"
+    )
+
+    let merged = try #require(CalendarEventItem.mergedAgenda([genericCopy, meetingCopy]).first)
+
+    #expect(merged.meetingURL == meetingURL)
+    #expect(merged.openURL == meetingURL)
   }
 
   @Test func rebuildingAfterSourceRemovalUsesTheRemainingSourcePayload() throws {
@@ -174,6 +208,7 @@ struct CalendarEventItemTests {
 
     let sections = CalendarEventItem.agendaSections(
       from: [overnight],
+      todayStart: Date(timeIntervalSince1970: 0),
       tomorrowStart: tomorrowStart,
       dayAfterTomorrow: dayAfterTomorrow,
       todayLimit: 6,
@@ -237,6 +272,7 @@ struct CalendarEventItemTests {
 
     let sections = CalendarEventItem.agendaSections(
       from: events,
+      todayStart: Date(timeIntervalSince1970: 0),
       tomorrowStart: tomorrowStart,
       dayAfterTomorrow: dayAfterTomorrow,
       todayLimit: 2,
@@ -270,6 +306,7 @@ struct CalendarEventItemTests {
 
     let sections = CalendarEventItem.agendaSections(
       from: [allDay, timed, multiDay],
+      todayStart: Date(timeIntervalSince1970: 0),
       tomorrowStart: tomorrowStart,
       dayAfterTomorrow: dayAfterTomorrow,
       todayLimit: 1,
@@ -281,6 +318,44 @@ struct CalendarEventItemTests {
     #expect(sections.today == [timed])
     #expect(sections.allDayToday.map(\.id) == ["all-day"])
     #expect(sections.allDayTomorrow == [multiDay])
+  }
+
+  @Test func agendaSectionsDropsAllDayEventsThatEndedAtMidnight() {
+    let todayStart = Date(timeIntervalSince1970: 86_400)
+    let tomorrowStart = todayStart.addingTimeInterval(86_400)
+    let dayAfterTomorrow = tomorrowStart.addingTimeInterval(86_400)
+    let endedYesterday = event(
+      id: "ended-yesterday",
+      startDate: todayStart.addingTimeInterval(-86_400),
+      endDate: todayStart,
+      isAllDay: true
+    )
+    let activeToday = event(
+      id: "active-today",
+      startDate: todayStart,
+      endDate: tomorrowStart,
+      isAllDay: true
+    )
+
+    let sections = CalendarEventItem.agendaSections(
+      from: [endedYesterday, activeToday],
+      todayStart: todayStart,
+      tomorrowStart: tomorrowStart,
+      dayAfterTomorrow: dayAfterTomorrow,
+      todayLimit: 6,
+      tomorrowLimit: 8
+    )
+
+    #expect(sections.allDayToday == [activeToday])
+  }
+
+  @Test func malformedAllDayPreviewNeverEndsBeforeItStarts() {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    let start = Date(timeIntervalSince1970: 86_400)
+    let malformed = event(id: "malformed", startDate: start, endDate: start, isAllDay: true)
+
+    #expect(EventPreviewPopover.inclusiveAllDayEnd(for: malformed, calendar: calendar) == start)
   }
 
   @Test func googleDateOnlyValuesResolveAsLocalGregorianDays() throws {
@@ -311,6 +386,7 @@ struct CalendarEventItemTests {
         CalendarAgendaSourceBatch(provider: .google, events: [successfulEvent], warning: nil),
         CalendarAgendaSourceBatch(provider: .google, events: [], warning: "Work (other@example.com): Timed out")
       ],
+      todayStart: Date(timeIntervalSince1970: 0),
       tomorrowStart: tomorrowStart,
       dayAfterTomorrow: dayAfterTomorrow
     )
@@ -329,6 +405,7 @@ struct CalendarEventItemTests {
         CalendarAgendaSourceBatch(provider: .google, events: [], warning: "Work: Timed out"),
         CalendarAgendaSourceBatch(provider: .google, events: [], warning: "Personal: Offline")
       ],
+      todayStart: Date(timeIntervalSince1970: 0),
       tomorrowStart: tomorrowStart,
       dayAfterTomorrow: dayAfterTomorrow
     )
@@ -352,6 +429,7 @@ struct CalendarEventItemTests {
         CalendarAgendaSourceBatch(provider: .google, events: [], warning: "Work: Offline"),
         CalendarAgendaSourceBatch(provider: .apple, events: [appleEvent], warning: nil)
       ],
+      todayStart: Date(timeIntervalSince1970: 0),
       tomorrowStart: tomorrowStart,
       dayAfterTomorrow: dayAfterTomorrow
     )

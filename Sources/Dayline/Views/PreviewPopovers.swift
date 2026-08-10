@@ -25,7 +25,7 @@ struct EventPreviewPopover: View {
   private var timeRange: String {
     if event.isAllDay {
       let calendar = Calendar.current
-      let inclusiveEnd = calendar.date(byAdding: .day, value: -1, to: event.endDate) ?? event.endDate
+      let inclusiveEnd = Self.inclusiveAllDayEnd(for: event, calendar: calendar)
       let startDay = event.startDate.formatted(date: .abbreviated, time: .omitted)
       let endDay = inclusiveEnd.formatted(date: .abbreviated, time: .omitted)
       return calendar.isDate(event.startDate, inSameDayAs: inclusiveEnd)
@@ -36,6 +36,12 @@ struct EventPreviewPopover: View {
     let end = event.endDate.formatted(date: .omitted, time: .shortened)
     let day = event.startDate.formatted(date: .abbreviated, time: .omitted)
     return "\(day), \(start) – \(end)"
+  }
+
+  /// Converts an exclusive all-day end into a display end without preceding the start.
+  static func inclusiveAllDayEnd(for event: CalendarEventItem, calendar: Calendar) -> Date {
+    let candidate = calendar.date(byAdding: .day, value: -1, to: event.endDate) ?? event.endDate
+    return max(event.startDate, candidate)
   }
 }
 

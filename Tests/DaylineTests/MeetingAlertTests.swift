@@ -57,6 +57,7 @@ struct MeetingAlertTests {
       endDate: now.addingTimeInterval(30 * 60),
       location: nil,
       calendarURL: calendarURL,
+      meetingURL: URL(string: "https://meet.google.com/dayline-test"),
       openURL: URL(string: "https://meet.google.com/dayline-test")
     )
 
@@ -86,5 +87,50 @@ struct MeetingAlertTests {
       snoozedUntil: nil,
       isDismissed: false
     ))
+  }
+
+  @Test func meetingLinkProvenanceRejectsGenericAndUnsafeURLs() throws {
+    let now = Date(timeIntervalSince1970: 10_000)
+    let restaurantURL = try #require(URL(string: "https://example.com/restaurant"))
+    let arbitraryStructuredURL = try #require(URL(string: "https://calls.example.org/room/123"))
+    let unsafeURL = try #require(URL(string: "file:///tmp/dayline"))
+    let genericEvent = CalendarEventItem(
+      id: "restaurant",
+      title: "Lunch",
+      startDate: now,
+      endDate: now.addingTimeInterval(30 * 60),
+      location: "Restaurant",
+      calendarURL: nil,
+      openURL: restaurantURL
+    )
+    let structuredEvent = CalendarEventItem(
+      id: "structured",
+      title: "Provider call",
+      startDate: now,
+      endDate: now.addingTimeInterval(30 * 60),
+      location: nil,
+      calendarURL: nil,
+      meetingURL: arbitraryStructuredURL,
+      openURL: arbitraryStructuredURL
+    )
+    let unsafeEvent = CalendarEventItem(
+      id: "unsafe",
+      title: "Unsafe",
+      startDate: now,
+      endDate: now.addingTimeInterval(30 * 60),
+      location: nil,
+      calendarURL: unsafeURL,
+      meetingURL: unsafeURL,
+      openURL: unsafeURL
+    )
+
+    #expect(!genericEvent.hasMeetingLink)
+    #expect(CalendarEventItem.recognizedMeetingURL(restaurantURL) == nil)
+    #expect(CalendarEventItem.recognizedMeetingURL(URL(string: "https://us02web.zoom.us/j/123")) != nil)
+    #expect(structuredEvent.hasMeetingLink)
+    #expect(structuredEvent.meetingURL == arbitraryStructuredURL)
+    #expect(unsafeEvent.calendarURL == nil)
+    #expect(unsafeEvent.meetingURL == nil)
+    #expect(unsafeEvent.openURL == nil)
   }
 }
