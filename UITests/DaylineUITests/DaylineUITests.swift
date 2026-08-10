@@ -433,11 +433,14 @@ final class DaylineUITests: XCTestCase {
     try openMenu()
 
     element("calendar.new").click()
-    let appleCalendarMenuItem = app.menuItems["New Apple Calendar Event"]
+    let appleCalendarMenuItem = app.menuItems["calendar.new.apple"]
     XCTAssertTrue(appleCalendarMenuItem.waitForExistence(timeout: 3))
     appleCalendarMenuItem.click()
     let calendarEventTitle = element("calendarEventEditor.title")
     XCTAssertTrue(calendarEventTitle.waitForExistence(timeout: 5))
+    element("calendarEventEditor.start.date").click()
+    XCTAssertTrue(element("calendarEventEditor.start.calendar").waitForExistence(timeout: 3))
+    app.typeKey(.escape, modifierFlags: [])
     calendarEventTitle.click()
     calendarEventTitle.typeText("Automated Apple Calendar event")
     assertEnabled("calendarEventEditor.create")
@@ -495,6 +498,8 @@ final class DaylineUITests: XCTestCase {
     element("reminderEditor.priority").click()
     app.menuItems["Low"].click()
     element("reminderEditor.dueDate.add").click()
+    XCTAssertTrue(element("reminderEditor.dueDate.calendar").waitForExistence(timeout: 3))
+    app.typeKey(.escape, modifierFlags: [])
     element("reminderEditor.dueTimeEnabled").click()
     let reminderNotes = element("reminderEditor.notes")
     reminderNotes.click()

@@ -220,32 +220,15 @@ struct LinearIssueEditorView: View {
   @ViewBuilder
   private var dueDateControls: some View {
     if draft.issue.dueDate != nil {
-      HStack(spacing: 6) {
-        Button {
-          isDueDatePickerPresented.toggle()
-        } label: {
-          if let dueDate = draft.issue.dueDate {
-            Text(dueDate, format: .dateTime.year().month().day())
-          }
-        }
-        .accessibilityIdentifier("linearEditor.dueDate")
-        .popover(isPresented: $isDueDatePickerPresented, arrowEdge: .bottom) {
-          GraphicalDatePicker(selection: dueDateBinding)
-            .padding(8)
-            .accessibilityIdentifier("linearEditor.dueDate.calendar")
-        }
-
-        Button {
-          isDueDatePickerPresented = false
+      CalendarDatePickerField(
+        selection: dueDateBinding,
+        isPresented: $isDueDatePickerPresented,
+        fieldIdentifier: "linearEditor.dueDate",
+        calendarIdentifier: "linearEditor.dueDate.calendar",
+        removeIdentifier: "linearEditor.dueDate.remove",
+        removeHelp: "Remove due date"
+      ) {
           draft.issue.dueDate = nil
-        } label: {
-          Image(systemName: "xmark.circle.fill")
-            .foregroundStyle(.secondary)
-        }
-        .buttonStyle(.borderless)
-        .help("Remove due date")
-        .accessibilityLabel("Remove due date")
-        .accessibilityIdentifier("linearEditor.dueDate.remove")
       }
     } else {
       Button {

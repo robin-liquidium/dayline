@@ -8,6 +8,8 @@ struct AppleCalendarEventEditorView: View {
   @State private var draft = AppleCalendarEventCreateDraft()
   @State private var errorMessage: String?
   @State private var isCreating = false
+  @State private var isStartDatePickerPresented = false
+  @State private var isEndDatePickerPresented = false
 
   var body: some View {
     VStack(spacing: 0) {
@@ -37,19 +39,19 @@ struct AppleCalendarEventEditorView: View {
           Toggle("All-day event", isOn: $draft.isAllDay)
             .accessibilityIdentifier("calendarEventEditor.allDay")
 
-          DatePicker(
+          eventDateRow(
             "Starts",
             selection: $draft.startDate,
-            displayedComponents: draft.isAllDay ? [.date] : [.date, .hourAndMinute]
+            isPresented: $isStartDatePickerPresented,
+            identifier: "calendarEventEditor.start"
           )
-          .accessibilityIdentifier("calendarEventEditor.start")
 
-          DatePicker(
+          eventDateRow(
             "Ends",
             selection: $draft.endDate,
-            displayedComponents: draft.isAllDay ? [.date] : [.date, .hourAndMinute]
+            isPresented: $isEndDatePickerPresented,
+            identifier: "calendarEventEditor.end"
           )
-          .accessibilityIdentifier("calendarEventEditor.end")
 
           if draft.isAllDay {
             Text("The end date is inclusive.")
@@ -130,6 +132,32 @@ struct AppleCalendarEventEditorView: View {
       && validDateRange
   }
 
+  /// Shared date field plus a compact time control for timed events.
+  private func eventDateRow(
+    _ title: String,
+    selection: Binding<Date>,
+    isPresented: Binding<Bool>,
+    identifier: String
+  ) -> some View {
+    LabeledContent(title) {
+      HStack(spacing: 8) {
+        CalendarDatePickerField(
+          selection: selection,
+          isPresented: isPresented,
+          fieldIdentifier: "\(identifier).date",
+          calendarIdentifier: "\(identifier).calendar"
+        )
+
+        if !draft.isAllDay {
+          DatePicker("", selection: selection, displayedComponents: .hourAndMinute)
+            .labelsHidden()
+            .accessibilityLabel("\(title) time")
+            .accessibilityIdentifier("\(identifier).time")
+        }
+      }
+    }
+  }
+
   private var validDateRange: Bool {
     if draft.isAllDay {
       return Calendar.current.startOfDay(for: draft.endDate)
@@ -164,6 +192,8 @@ struct AppleCalendarEventEditorView: View {
       isAllDay: false
     )
     errorMessage = nil
+    isStartDatePickerPresented = false
+    isEndDatePickerPresented = false
   }
 
   private func repairEndDate(previousStart: Date, newStart: Date) {
