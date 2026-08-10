@@ -141,7 +141,9 @@ struct CalendarEventItem: Identifiable, Equatable, Sendable {
         && path.count >= 2
         && path[0] == "guest"
         && !path[1].isEmpty
-      let hasMeetingPath = path.contains("meet") || path.contains("join")
+      let hasMeetingPath = path.count >= 2
+        && ["meet", "join"].contains(path[0])
+        && !path[1].isEmpty
       let hasLegacyJoin = path.last == "j.php"
         && URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
           .contains(where: { $0.name.caseInsensitiveCompare("MTID") == .orderedSame && $0.value?.isEmpty == false }) == true

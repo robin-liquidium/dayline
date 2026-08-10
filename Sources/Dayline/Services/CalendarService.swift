@@ -184,7 +184,7 @@ private struct GoogleCalendarEventsResponse: Decodable {
 }
 
 /// Google Calendar event shape used by the app.
-private struct GoogleCalendarEvent: Decodable {
+struct GoogleCalendarEvent: Decodable {
   let id: String
   let iCalUID: String?
   let status: String?
@@ -240,7 +240,10 @@ private struct GoogleCalendarEvent: Decodable {
       .flatMap({ CalendarEventItem.safeWebURL($0.url) }) {
       return videoURL
     }
-    return entries.lazy.compactMap { CalendarEventItem.safeWebURL($0.url) }.first
+    return entries.lazy
+      .filter { $0.entryPointType?.lowercased() != "more" }
+      .compactMap { CalendarEventItem.safeWebURL($0.url) }
+      .first
   }
 
   /// Finds the first URL embedded in a location string.
@@ -251,11 +254,11 @@ private struct GoogleCalendarEvent: Decodable {
   }
 }
 
-private struct GoogleCalendarConferenceData: Decodable {
+struct GoogleCalendarConferenceData: Decodable {
   let entryPoints: [GoogleCalendarEntryPoint]?
 }
 
-private struct GoogleCalendarEntryPoint: Decodable {
+struct GoogleCalendarEntryPoint: Decodable {
   let entryPointType: String?
   let uri: String?
 

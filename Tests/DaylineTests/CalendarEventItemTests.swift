@@ -412,6 +412,32 @@ struct CalendarEventItemTests {
     #expect(query["timeMin"] != formatter.string(from: now))
   }
 
+  @Test func googleConferenceMoreEntryIsNotAJoinLink() throws {
+    let event = try decodeGoogleEvent(conferenceEntryType: "more")
+    let item = try #require(event.displayItem(
+      accountID: UUID(),
+      calendar: GoogleCalendarSource(id: "work", name: "Work", isPrimary: true, isEnabled: true),
+      now: .distantPast
+    ))
+
+    #expect(item.meetingURL == nil)
+    #expect(!item.hasMeetingLink)
+    #expect(item.openURL == URL(string: "https://calendar.google.com/event"))
+  }
+
+  @Test func googleStructuredVideoEntryRemainsAJoinLink() throws {
+    let event = try decodeGoogleEvent(conferenceEntryType: "video")
+    let item = try #require(event.displayItem(
+      accountID: UUID(),
+      calendar: GoogleCalendarSource(id: "work", name: "Work", isPrimary: true, isEnabled: true),
+      now: .distantPast
+    ))
+
+    #expect(item.meetingURL == URL(string: "https://calls.example.com/room/dayline"))
+    #expect(item.hasMeetingLink)
+    #expect(item.openURL == item.meetingURL)
+  }
+
   @Test @MainActor func partialSourceFailureRetainsSuccessfulEvents() {
     let tomorrowStart = Date(timeIntervalSince1970: 86_400)
     let dayAfterTomorrow = tomorrowStart.addingTimeInterval(86_400)
@@ -501,6 +527,29 @@ struct CalendarEventItemTests {
       sourceCalendarNames: source.map { [$0] } ?? [],
       sourceIDs: sourceIDs,
       deduplicationKey: deduplicationKey
+    )
+  }
+
+  private func decodeGoogleEvent(conferenceEntryType: String) throws -> GoogleCalendarEvent {
+    try JSONDecoder().decode(
+      GoogleCalendarEvent.self,
+      from: Data(#"""
+      {
+        "id": "conference-event",
+        "summary": "Conference event",
+        "start": { "dateTime": "2026-08-10T10:00:00Z" },
+        "end": { "dateTime": "2026-08-10T11:00:00Z" },
+        "conferenceData": {
+          "entryPoints": [
+            {
+              "entryPointType": "\#(conferenceEntryType)",
+              "uri": "https://calls.example.com/room/dayline"
+            }
+          ]
+        },
+        "htmlLink": "https://calendar.google.com/event"
+      }
+      """#.utf8)
     )
   }
 }
