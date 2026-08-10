@@ -19,7 +19,7 @@ function PrivacyPolicy() {
     <LegalPage
       title="Privacy Policy"
       summary="Dayline is local-first software. It has no Dayline account system, advertising, analytics, or tracking. Only feedback you deliberately submit is sent through a Dayline service."
-      updated="August 2, 2026"
+      updated="August 10, 2026"
     >
       <LegalSection title="Google user data Dayline accesses">
         <p>
@@ -32,13 +32,13 @@ function PrivacyPolicy() {
           Google&apos;s selected-calendar status.
         </p>
         <p>
-          For calendars you enable in Dayline, it reads timed event records in a
+          For calendars you enable in Dayline, it reads timed and all-day event records in a
           limited window covering the remaining events today and tomorrow. It
           processes event identifiers, titles, start and end times, cancellation
           status, locations, Google Calendar links, and conferencing links needed
           to display, deduplicate, open, and notify you about those events.
-          All-day events are not included in Dayline&apos;s agenda. Dayline does not
-          create, edit, or delete Google Calendar data.
+          All-day events appear only when you enable that menu setting. Dayline
+          does not create, edit, or delete Google Calendar data.
         </p>
       </LegalSection>
 
@@ -53,6 +53,13 @@ function PrivacyPolicy() {
           change an issue&apos;s status, priority, due date, labels, or assignee,
           Dayline sends that requested change directly to Linear or GitHub. It
           does not make issue changes without your action.
+        </p>
+        <p>
+          When you connect Apple Calendar, Dayline asks macOS for full Calendar
+          access and uses EventKit directly on your Mac. It reads events from
+          calendars you enable and creates an event only after you complete the
+          event editor and choose Create. It does not edit or delete Apple
+          Calendar events.
         </p>
         <p>
           When you connect Apple Reminders, Dayline asks macOS for full Reminders
@@ -73,8 +80,8 @@ function PrivacyPolicy() {
           OAuth access and refresh tokens are stored in the macOS Keychain.
           Linked Google account labels, calendar identifiers and names, and your
           enabled-calendar selections are stored in local app preferences.
-          Google Calendar event data is held only in app memory for display and
-          alerts; Dayline does not persist an event cache to disk. Linear and
+          Google and Apple Calendar event data is held only in app memory for
+          display and alerts; Dayline does not persist an event cache to disk. Linear and
           GitHub account selections and enabled Apple Reminders lists are also
           stored in local preferences. Reminder data is held in app memory and
           remains stored by Apple Reminders. Notes
@@ -86,7 +93,8 @@ function PrivacyPolicy() {
         </p>
         <p>
           Dayline talks directly from your Mac to Google, Linear, and GitHub over
-          HTTPS and accesses Apple Reminders locally through macOS EventKit. It
+          HTTPS and accesses Apple Calendar and Apple Reminders locally through
+          macOS EventKit. It
           does not copy Google user data or other connected-account data
           to a Dayline-operated server. If
           you submit feedback, the feedback is sent through Dayline&apos;s

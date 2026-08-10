@@ -69,6 +69,7 @@ enum SettingsSearchCatalog {
     SettingsSearchItem(id: "menuBarEventLeadTime", title: "Show title before", section: "Menu Bar Title", tab: .calendar, keywords: ["lead time", "upcoming meeting", "menu bar title", "event title"]),
     SettingsSearchItem(id: "menuBarEventPostStartGrace", title: "Show title after", section: "Menu Bar Title", tab: .calendar, keywords: ["grace", "meeting started", "menu bar title", "event title"]),
     SettingsSearchItem(id: "showsCalendarSection", title: "Show calendar in menu", section: "Menu", tab: .calendar, keywords: ["calendar section", "events in menu"]),
+    SettingsSearchItem(id: "showsAllDayEvents", title: "Show all-day events", section: "Menu", tab: .calendar, keywords: ["calendar all day", "birthdays", "holidays"]),
     SettingsSearchItem(id: "showsLinearSection", title: "Show issues in menu", section: "Menu", tab: .issues, keywords: ["issues section", "linear section", "tickets in menu"]),
     SettingsSearchItem(id: "showsNotesSection", title: "Show notes in menu", section: "Menu", tab: .notes, keywords: ["notes section"]),
 

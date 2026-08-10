@@ -27,7 +27,7 @@ or Dock icon.
 
 ## Highlights
 
-- **Calendar at a glance:** see remaining timed events today and optionally expand tomorrow.
+- **Calendar at a glance:** see timed events plus optional all-day events today, expand tomorrow, and create Apple Calendar events directly.
 - **Work without the tab:** review assigned Linear or GitHub issues alongside incomplete Apple Reminders.
 - **Local Markdown notes:** write formatted notes on this Mac; the first line becomes the title.
 - **Keyboard-first actions:** hover a work item and use configurable shortcuts for status, priority, due date, and provider-specific fields.

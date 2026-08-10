@@ -185,6 +185,7 @@ private struct GoogleCalendarEvent: Decodable {
 
   /// Converts a Google event into one account- and calendar-scoped display item.
   func displayItem(accountID: UUID, calendar: GoogleCalendarSource, now: Date) -> CalendarEventItem? {
+    let isAllDay = start.isDateOnly && end.isDateOnly
     guard status != "cancelled",
           let startDate = start.resolvedDate,
           let endDate = end.resolvedDate,
@@ -200,6 +201,7 @@ private struct GoogleCalendarEvent: Decodable {
       startDate: startDate,
       endDate: endDate,
       location: location,
+      isAllDay: isAllDay,
       calendarURL: htmlLink.flatMap(URL.init(string:)),
       openURL: preferredOpenURL,
       sourceCalendarNames: [calendar.name],
@@ -244,16 +246,26 @@ private struct GoogleCalendarEntryPoint: Decodable {
   }
 }
 
-/// Google Calendar date wrapper; all-day dates intentionally resolve to nil.
-private struct GoogleCalendarEventDate: Decodable {
+/// Google Calendar timestamp or floating all-day date.
+struct GoogleCalendarEventDate: Decodable {
   let dateTime: String?
   let date: String?
   let timeZone: String?
 
+  var isDateOnly: Bool {
+    dateTime == nil && date != nil
+  }
+
   var resolvedDate: Date? {
-    guard let dateTime else {
-      return nil
+    if let dateTime {
+      return DateParsers.rfc3339Date(from: dateTime)
     }
-    return DateParsers.rfc3339Date(from: dateTime)
+    guard let date else { return nil }
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = .current
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter.date(from: date)
   }
 }

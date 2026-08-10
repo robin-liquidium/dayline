@@ -18,6 +18,12 @@ final class StatusStore: ObservableObject {
   /// Timed calendar events for tomorrow.
   @Published private(set) var tomorrowEvents: [CalendarEventItem] = []
 
+  /// All-day calendar events overlapping today.
+  @Published private(set) var allDayEvents: [CalendarEventItem] = []
+
+  /// All-day calendar events overlapping tomorrow.
+  @Published private(set) var tomorrowAllDayEvents: [CalendarEventItem] = []
+
   /// Highest priority active Linear issues assigned to the user.
   @Published private(set) var issues: [LinearIssueItem] = []
 
@@ -241,6 +247,13 @@ final class StatusStore: ObservableObject {
     didSet {
       UserDefaults.standard.set(showsCalendarSection, forKey: Self.showsCalendarSectionKey)
       updateMeetingAlert()
+    }
+  }
+
+  /// Whether all-day calendar events appear in the menu agenda.
+  @Published var showsAllDayEvents: Bool {
+    didSet {
+      UserDefaults.standard.set(showsAllDayEvents, forKey: Self.showsAllDayEventsKey)
     }
   }
 
@@ -511,6 +524,9 @@ final class StatusStore: ObservableObject {
   /// Changes when a global hotkey needs to present the GitHub issue creator.
   @Published private(set) var githubIssueCreationRequestID = UUID()
 
+  /// Changes when the Apple Calendar event creator should be presented.
+  @Published private(set) var appleCalendarEventCreationRequestID = UUID()
+
   /// Changes when a global hotkey needs to present the Apple Reminder creator.
   @Published private(set) var appleReminderCreationRequestID = UUID()
 
@@ -550,6 +566,7 @@ final class StatusStore: ObservableObject {
   private static let assigneePickerHotkeyKey = "assigneePickerHotkey"
   private static let showsCalendarSourceNamesKey = "showsCalendarSourceNames"
   private static let showsCalendarSectionKey = "showsCalendarSection"
+  private static let showsAllDayEventsKey = "showsAllDayEvents"
   private static let showsLinearSectionKey = "showsLinearSection"
   private static let showsNotesSectionKey = "showsNotesSection"
   private static let notesKeepOnTopKey = "notesKeepOnTop"
@@ -596,6 +613,8 @@ final class StatusStore: ObservableObject {
   private static let meetingAlertPostStartGrace: TimeInterval = 10 * 60
   private static let todayEventLimit = 6
   private static let tomorrowEventLimit = 8
+  private static let todayAllDayEventLimit = 4
+  private static let tomorrowAllDayEventLimit = 6
 
   private let linearService: LinearService
   private let githubService = GitHubService()
@@ -715,6 +734,7 @@ final class StatusStore: ObservableObject {
     Self.persistShortcut(reminderShortcut, forKey: Self.newAppleReminderShortcutKey)
     self.showsCalendarSourceNames = defaults.object(forKey: Self.showsCalendarSourceNamesKey) as? Bool ?? true
     self.showsCalendarSection = defaults.object(forKey: Self.showsCalendarSectionKey) as? Bool ?? true
+    self.showsAllDayEvents = defaults.object(forKey: Self.showsAllDayEventsKey) as? Bool ?? false
     self.showsLinearSection = defaults.object(forKey: Self.showsLinearSectionKey) as? Bool ?? true
     self.showsNotesSection = defaults.object(forKey: Self.showsNotesSectionKey) as? Bool ?? true
     self.notesKeepOnTop = defaults.object(forKey: Self.notesKeepOnTopKey) as? Bool ?? false
@@ -1142,6 +1162,21 @@ final class StatusStore: ObservableObject {
   /// Whether the calendar section should appear in the menu bar popover.
   var isCalendarSectionVisible: Bool {
     showsCalendarSection && (appleCalendarConnected || !dismissedProviders.contains(.google))
+  }
+
+  /// Whether at least one Google Calendar account is currently connected.
+  var hasConnectedGoogleCalendar: Bool {
+    googleAccounts.contains(where: \.isConnected)
+  }
+
+  /// All-day events currently allowed by the user's menu preference.
+  var visibleAllDayEvents: [CalendarEventItem] {
+    showsAllDayEvents ? allDayEvents : []
+  }
+
+  /// Tomorrow's all-day events currently allowed by the user's menu preference.
+  var visibleTomorrowAllDayEvents: [CalendarEventItem] {
+    showsAllDayEvents ? tomorrowAllDayEvents : []
   }
 
   /// Whether the issues section should appear in the menu bar popover.
@@ -1585,6 +1620,25 @@ final class StatusStore: ObservableObject {
     NSWorkspace.shared.open(URL(string: "https://calendar.google.com/calendar/u/0/r/week")!)
   }
 
+  /// Writable enabled device calendars offered by the Apple event editor.
+  var writableAppleCalendars: [AppleCalendarSource] {
+    appleCalendars.filter { $0.isEnabled && $0.allowsModifications }
+  }
+
+  /// Whether Apple Calendar can currently accept a new event.
+  var canCreateAppleCalendarEvent: Bool {
+    appleCalendarConnected && !writableAppleCalendars.isEmpty
+  }
+
+  /// Best writable calendar to preselect for a newly opened event editor.
+  var defaultAppleCalendarEventCalendarID: String {
+    let systemDefault = appleCalendarService.defaultCalendarIDForNewEvents()
+    if let systemDefault, writableAppleCalendars.contains(where: { $0.id == systemDefault }) {
+      return systemDefault
+    }
+    return writableAppleCalendars.first?.id ?? ""
+  }
+
   /// Persists whether calendar event rows show their source calendar names.
   func setShowsCalendarSourceNames(_ shows: Bool) {
     showsCalendarSourceNames = shows
@@ -1593,6 +1647,11 @@ final class StatusStore: ObservableObject {
   /// Persists whether the calendar section appears in the menu bar popover.
   func setShowsCalendarSection(_ shows: Bool) {
     showsCalendarSection = shows
+  }
+
+  /// Persists whether all-day events appear in the menu agenda.
+  func setShowsAllDayEvents(_ shows: Bool) {
+    showsAllDayEvents = shows
   }
 
   /// Persists whether the Linear section appears in the menu bar popover.
@@ -1937,6 +1996,49 @@ final class StatusStore: ObservableObject {
   func requestAppleReminderCreation() {
     guard appleRemindersConnected else { return }
     appleReminderCreationRequestID = UUID()
+  }
+
+  /// Requests the Apple Calendar event creator, resetting its draft.
+  func requestAppleCalendarEventCreation() {
+    appleCalendarEventCreationRequestID = UUID()
+  }
+
+  /// Creates an Apple Calendar event and refreshes the merged agenda.
+  func createAppleCalendarEvent(draft: AppleCalendarEventCreateDraft) async throws {
+    if mockData != nil {
+      let calendar = writableAppleCalendars.first(where: { $0.id == draft.calendarID })
+      guard let calendar else { throw AppleCalendarServiceError.calendarNotWritable }
+      let startDate = draft.isAllDay ? Calendar.current.startOfDay(for: draft.startDate) : draft.startDate
+      let endDate: Date
+      if draft.isAllDay {
+        let selectedEnd = Calendar.current.startOfDay(for: draft.endDate)
+        guard selectedEnd >= startDate else { throw AppleCalendarServiceError.invalidDateRange }
+        endDate = Calendar.current.date(byAdding: .day, value: 1, to: selectedEnd)
+          ?? selectedEnd.addingTimeInterval(24 * 60 * 60)
+      } else {
+        guard draft.endDate > draft.startDate else { throw AppleCalendarServiceError.invalidDateRange }
+        endDate = draft.endDate
+      }
+      let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !title.isEmpty else { throw AppleCalendarServiceError.missingTitle }
+      appleSourceEvents.append(CalendarEventItem(
+        id: "mock-apple-event-\(UUID().uuidString)",
+        title: title,
+        startDate: startDate,
+        endDate: endDate,
+        location: nil,
+        isAllDay: draft.isAllDay,
+        calendarURL: nil,
+        openURL: nil,
+        sourceCalendarNames: [calendar.title],
+        sourceIDs: [CalendarEventItem.sourceID(accountID: AppleCalendarService.accountID, calendarID: calendar.id)]
+      ))
+      rebuildAgendaFromCachedSources()
+      return
+    }
+
+    try appleCalendarService.createEvent(draft)
+    await refresh()
   }
 
   /// Persists whether the full-screen meeting alert is enabled.
@@ -3544,8 +3646,7 @@ final class StatusStore: ObservableObject {
     // cannot hide meetings still inside the alert lead window.
     meetingAlertEvent = CalendarEventItem.mergedAgenda(googleSourceEvents + appleSourceEvents)
       .filter { event in
-        // Skip all-day style events that would fire the alert at midnight.
-        guard event.endDate.timeIntervalSince(event.startDate) < 24 * 60 * 60 else { return false }
+        guard !event.isAllDay else { return false }
         let eventID = event.deduplicationKey ?? event.id
         let snoozedUntil = snoozedMeetingAlertUntilByEventID[eventID]
         if let snoozedUntil, now < snoozedUntil {
@@ -3695,7 +3796,15 @@ final class StatusStore: ObservableObject {
       events = mockData.events
     }
     googleSourceEvents = events
+      + mockData.tomorrowEvents
+      + mockData.allDayEvents
+      + mockData.tomorrowAllDayEvents
+    appleSourceEvents = []
     tomorrowEvents = mockData.tomorrowEvents
+    allDayEvents = mockData.allDayEvents
+    tomorrowAllDayEvents = mockData.tomorrowAllDayEvents
+    appleCalendarConnected = true
+    appleCalendars = mockData.appleCalendars
     allIssues = mockData.issueSources.contains(.linear) ? mockData.issues : []
     allAppleReminders = mockData.issueSources.contains(.reminders) ? mockData.appleReminders : []
     allNotes = mockData.notes
@@ -4000,7 +4109,9 @@ final class StatusStore: ObservableObject {
       tomorrowStart: tomorrowStart,
       dayAfterTomorrow: dayAfterTomorrow,
       todayLimit: Self.todayEventLimit,
-      tomorrowLimit: Self.tomorrowEventLimit
+      tomorrowLimit: Self.tomorrowEventLimit,
+      todayAllDayLimit: Self.todayAllDayEventLimit,
+      tomorrowAllDayLimit: Self.tomorrowAllDayEventLimit
     )
     let warnings = additionalWarnings + sourceBatches.compactMap(\.warning)
     let googleBatches = sourceBatches.filter { $0.provider == .google }
@@ -4010,6 +4121,8 @@ final class StatusStore: ObservableObject {
       appleSourceEvents: appleBatches.flatMap(\.events),
       today: sections.today,
       tomorrow: sections.tomorrow,
+      allDayToday: sections.allDayToday,
+      allDayTomorrow: sections.allDayTomorrow,
       warnings: Array(Set(warnings)).sorted(),
       reauthenticationAccountIDs: reauthenticationAccountIDs,
       shouldReplaceGoogleEvents: googleBatches.isEmpty || googleBatches.contains { $0.warning == nil },
@@ -4032,10 +4145,14 @@ final class StatusStore: ObservableObject {
       tomorrowStart: tomorrowStart,
       dayAfterTomorrow: dayAfterTomorrow,
       todayLimit: Self.todayEventLimit,
-      tomorrowLimit: Self.tomorrowEventLimit
+      tomorrowLimit: Self.tomorrowEventLimit,
+      todayAllDayLimit: Self.todayAllDayEventLimit,
+      tomorrowAllDayLimit: Self.tomorrowAllDayEventLimit
     )
     events = sections.today
     tomorrowEvents = sections.tomorrow
+    allDayEvents = sections.allDayToday
+    tomorrowAllDayEvents = sections.allDayTomorrow
   }
 
   /// Loads Linear issues and packages thrown errors as `Result`.
@@ -4123,6 +4240,8 @@ struct CalendarAgendaLoadResult: Sendable {
   let appleSourceEvents: [CalendarEventItem]
   let today: [CalendarEventItem]
   let tomorrow: [CalendarEventItem]
+  let allDayToday: [CalendarEventItem]
+  let allDayTomorrow: [CalendarEventItem]
   let warnings: [String]
   let reauthenticationAccountIDs: Set<UUID>
   let shouldReplaceGoogleEvents: Bool

@@ -62,6 +62,25 @@ struct CalendarEventItemTests {
     #expect(candidate == nil)
   }
 
+  @Test func menuBarCandidateNeverUsesAllDayEvents() {
+    let now = Date(timeIntervalSince1970: 10_000)
+    let allDay = event(
+      id: "all-day",
+      startDate: now.addingTimeInterval(-60 * 60),
+      endDate: now.addingTimeInterval(20 * 60 * 60),
+      isAllDay: true
+    )
+
+    let candidate = CalendarEventItem.menuBarCandidate(
+      in: [allDay],
+      at: now,
+      leadTime: 30 * 60,
+      postStartGrace: 5 * 60
+    )
+
+    #expect(candidate == nil)
+  }
+
   @Test func mergedAgendaCollapsesSharedMeetingOccurrenceAndCombinesSources() {
     let start = Date(timeIntervalSince1970: 20_000)
     let workCopy = event(
@@ -228,6 +247,56 @@ struct CalendarEventItemTests {
     #expect(sections.tomorrow.map(\.id) == ["tomorrow-1"])
   }
 
+  @Test func agendaSectionsKeepsAllDayEventsOutOfTimedLimits() {
+    let tomorrowStart = Date(timeIntervalSince1970: 86_400)
+    let dayAfterTomorrow = tomorrowStart.addingTimeInterval(86_400)
+    let timed = event(
+      id: "timed",
+      startDate: Date(timeIntervalSince1970: 20_000),
+      endDate: Date(timeIntervalSince1970: 21_000)
+    )
+    let allDay = event(
+      id: "all-day",
+      startDate: Date(timeIntervalSince1970: 0),
+      endDate: tomorrowStart,
+      isAllDay: true
+    )
+    let multiDay = event(
+      id: "multi-day",
+      startDate: Date(timeIntervalSince1970: 0),
+      endDate: dayAfterTomorrow,
+      isAllDay: true
+    )
+
+    let sections = CalendarEventItem.agendaSections(
+      from: [allDay, timed, multiDay],
+      tomorrowStart: tomorrowStart,
+      dayAfterTomorrow: dayAfterTomorrow,
+      todayLimit: 1,
+      tomorrowLimit: 1,
+      todayAllDayLimit: 1,
+      tomorrowAllDayLimit: 1
+    )
+
+    #expect(sections.today == [timed])
+    #expect(sections.allDayToday.map(\.id) == ["all-day"])
+    #expect(sections.allDayTomorrow == [multiDay])
+  }
+
+  @Test func googleDateOnlyValuesResolveAsLocalGregorianDays() throws {
+    let value = try JSONDecoder().decode(
+      GoogleCalendarEventDate.self,
+      from: Data(#"{"date":"2026-08-10"}"#.utf8)
+    )
+    let date = try #require(value.resolvedDate)
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = .current
+
+    #expect(value.isDateOnly)
+    #expect(calendar.dateComponents([.year, .month, .day], from: date)
+      == DateComponents(year: 2026, month: 8, day: 10))
+  }
+
   @Test @MainActor func partialSourceFailureRetainsSuccessfulEvents() {
     let tomorrowStart = Date(timeIntervalSince1970: 86_400)
     let dayAfterTomorrow = tomorrowStart.addingTimeInterval(86_400)
@@ -299,7 +368,8 @@ struct CalendarEventItemTests {
     endDate: Date,
     source: String? = nil,
     deduplicationKey: String? = nil,
-    sourceIDs: [String] = []
+    sourceIDs: [String] = [],
+    isAllDay: Bool = false
   ) -> CalendarEventItem {
     CalendarEventItem(
       id: id,
@@ -307,6 +377,7 @@ struct CalendarEventItemTests {
       startDate: startDate,
       endDate: endDate,
       location: nil,
+      isAllDay: isAllDay,
       calendarURL: nil,
       openURL: nil,
       sourceCalendarNames: source.map { [$0] } ?? [],

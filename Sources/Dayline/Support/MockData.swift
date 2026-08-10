@@ -6,6 +6,9 @@ struct MockData {
   let availableUpdateVersion: String?
   let events: [CalendarEventItem]
   let tomorrowEvents: [CalendarEventItem]
+  let allDayEvents: [CalendarEventItem]
+  let tomorrowAllDayEvents: [CalendarEventItem]
+  let appleCalendars: [AppleCalendarSource]
   let issues: [LinearIssueItem]
   let notes: [LocalNoteItem]
   let connectionStatuses: [ConnectionStatus]
@@ -53,6 +56,27 @@ struct MockData {
         location: location,
         calendarURL: URL(string: "https://calendar.google.com"),
         openURL: URL(string: "https://meet.google.com/mock-dayline-demo"),
+        sourceCalendarNames: [source],
+        deduplicationKey: "mock-\(id)"
+      )
+    }
+
+    func allDayEvent(
+      _ id: String,
+      _ title: String,
+      start: Date,
+      end: Date,
+      source: String
+    ) -> CalendarEventItem {
+      CalendarEventItem(
+        id: id,
+        title: title,
+        startDate: calendar.startOfDay(for: start),
+        endDate: calendar.startOfDay(for: end),
+        location: nil,
+        isAllDay: true,
+        calendarURL: URL(string: "https://calendar.google.com"),
+        openURL: nil,
         sourceCalendarNames: [source],
         deduplicationKey: "mock-\(id)"
       )
@@ -224,6 +248,40 @@ struct MockData {
       tomorrowEvents: [
         event("mock-planning", "Weekly planning", startsIn: calendar.dateComponents([.minute], from: now, to: calendar.date(byAdding: .hour, value: 1, to: tomorrow) ?? tomorrow).minute ?? 0, duration: 45, source: "Work"),
         event("mock-coffee", "Coffee with Maya", startsIn: calendar.dateComponents([.minute], from: now, to: calendar.date(byAdding: .hour, value: 4, to: tomorrow) ?? tomorrow).minute ?? 0, duration: 45, location: "Juniper Cafe", source: "Personal")
+      ],
+      allDayEvents: [
+        allDayEvent(
+          "mock-all-day-today",
+          "Product launch day",
+          start: now,
+          end: calendar.date(byAdding: .day, value: 1, to: now) ?? now,
+          source: "Work"
+        )
+      ],
+      tomorrowAllDayEvents: [
+        allDayEvent(
+          "mock-all-day-tomorrow",
+          "Maya's birthday",
+          start: tomorrow,
+          end: calendar.date(byAdding: .day, value: 1, to: tomorrow) ?? tomorrow,
+          source: "Birthdays"
+        )
+      ],
+      appleCalendars: [
+        AppleCalendarSource(
+          id: "mock-apple-work",
+          title: "Work",
+          sourceName: "iCloud",
+          isEnabled: true,
+          allowsModifications: true
+        ),
+        AppleCalendarSource(
+          id: "mock-apple-read-only",
+          title: "Subscribed",
+          sourceName: "iCloud",
+          isEnabled: true,
+          allowsModifications: false
+        )
       ],
       issues: issues,
       notes: [

@@ -23,6 +23,15 @@ struct EventPreviewPopover: View {
 
   /// Compact start–end time range for the preview.
   private var timeRange: String {
+    if event.isAllDay {
+      let calendar = Calendar.current
+      let inclusiveEnd = calendar.date(byAdding: .day, value: -1, to: event.endDate) ?? event.endDate
+      let startDay = event.startDate.formatted(date: .abbreviated, time: .omitted)
+      let endDay = inclusiveEnd.formatted(date: .abbreviated, time: .omitted)
+      return calendar.isDate(event.startDate, inSameDayAs: inclusiveEnd)
+        ? "\(startDay), all day"
+        : "\(startDay) – \(endDay), all day"
+    }
     let start = event.startDate.formatted(date: .omitted, time: .shortened)
     let end = event.endDate.formatted(date: .omitted, time: .shortened)
     let day = event.startDate.formatted(date: .abbreviated, time: .omitted)

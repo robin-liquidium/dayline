@@ -4,6 +4,8 @@ import Foundation
 struct CalendarAgendaSections: Equatable, Sendable {
   let today: [CalendarEventItem]
   let tomorrow: [CalendarEventItem]
+  let allDayToday: [CalendarEventItem]
+  let allDayTomorrow: [CalendarEventItem]
 }
 
 /// A normalized calendar event ready for display in the menu bar popover.
@@ -22,6 +24,9 @@ struct CalendarEventItem: Identifiable, Equatable, Sendable {
 
   /// Optional location copied from the calendar event.
   let location: String?
+
+  /// Whether this event occupies one or more complete calendar days.
+  let isAllDay: Bool
 
   /// Optional browser URL for opening the calendar event itself.
   let calendarURL: URL?
@@ -44,6 +49,7 @@ struct CalendarEventItem: Identifiable, Equatable, Sendable {
     startDate: Date,
     endDate: Date,
     location: String?,
+    isAllDay: Bool = false,
     calendarURL: URL?,
     openURL: URL?,
     sourceCalendarNames: [String] = [],
@@ -55,6 +61,7 @@ struct CalendarEventItem: Identifiable, Equatable, Sendable {
     self.startDate = startDate
     self.endDate = endDate
     self.location = location
+    self.isAllDay = isAllDay
     self.calendarURL = calendarURL
     self.openURL = openURL
     self.sourceCalendarNames = sourceCalendarNames
@@ -124,6 +131,7 @@ struct CalendarEventItem: Identifiable, Equatable, Sendable {
           startDate: existing.startDate,
           endDate: existing.endDate,
           location: existing.location ?? event.location,
+          isAllDay: existing.isAllDay || event.isAllDay,
           calendarURL: existing.calendarURL ?? event.calendarURL,
           openURL: existing.openURL ?? event.openURL,
           sourceCalendarNames: names,
@@ -145,17 +153,27 @@ struct CalendarEventItem: Identifiable, Equatable, Sendable {
     tomorrowStart: Date,
     dayAfterTomorrow: Date,
     todayLimit: Int,
-    tomorrowLimit: Int
+    tomorrowLimit: Int,
+    todayAllDayLimit: Int = .max,
+    tomorrowAllDayLimit: Int = .max
   ) -> CalendarAgendaSections {
     let merged = mergedAgenda(events)
     return CalendarAgendaSections(
       today: merged
-        .filter { $0.startDate < tomorrowStart }
+        .filter { !$0.isAllDay && $0.startDate < tomorrowStart }
         .prefix(todayLimit)
         .map { $0 },
       tomorrow: merged
-        .filter { $0.endDate > tomorrowStart && $0.startDate < dayAfterTomorrow }
+        .filter { !$0.isAllDay && $0.endDate > tomorrowStart && $0.startDate < dayAfterTomorrow }
         .prefix(tomorrowLimit)
+        .map { $0 },
+      allDayToday: merged
+        .filter { $0.isAllDay && $0.startDate < tomorrowStart }
+        .prefix(todayAllDayLimit)
+        .map { $0 },
+      allDayTomorrow: merged
+        .filter { $0.isAllDay && $0.endDate > tomorrowStart && $0.startDate < dayAfterTomorrow }
+        .prefix(tomorrowAllDayLimit)
         .map { $0 }
     )
   }
@@ -179,11 +197,12 @@ struct CalendarEventItem: Identifiable, Equatable, Sendable {
     leadTime: TimeInterval,
     postStartGrace: TimeInterval
   ) -> CalendarEventItem? {
-    if let activeEvent = events.first(where: { $0.isHappening(at: date) }) {
+    let timedEvents = events.filter { !$0.isAllDay }
+    if let activeEvent = timedEvents.first(where: { $0.isHappening(at: date) }) {
       return activeEvent
     }
 
-    return events.first { event in
+    return timedEvents.first { event in
       date >= event.startDate.addingTimeInterval(-leadTime)
         && date <= event.startDate.addingTimeInterval(postStartGrace)
     }

@@ -40,6 +40,8 @@ struct StatusMenuView: View {
             CalendarSection(
               events: store.events,
               tomorrowEvents: store.tomorrowEvents,
+              allDayEvents: store.visibleAllDayEvents,
+              tomorrowAllDayEvents: store.visibleTomorrowAllDayEvents,
               warnings: store.calendarWarnings,
               hoveredEventID: store.hoveredEventID,
               isTomorrowExpanded: store.isTomorrowExpanded,
@@ -234,9 +236,11 @@ struct StatusMenuView: View {
     let setupItemCount = store.connectionSetupItems.count + store.googleAccountsNeedingAttention.count
     let setupRows = store.hasConnectionSetupItems ? CGFloat(max(setupItemCount, 1)) * 64 + 44 : 0
     let eventRowEstimate: CGFloat = store.showsCalendarSourceNames ? 48 : compactEventRowHeight
-    let eventRows = store.isCalendarSectionVisible ? CGFloat(max(store.events.count, 1)) * eventRowEstimate : 0
+    let todayCalendarRowCount = store.events.count + store.visibleAllDayEvents.count
+    let eventRows = store.isCalendarSectionVisible ? CGFloat(max(todayCalendarRowCount, 1)) * eventRowEstimate : 0
+    let tomorrowCalendarRowCount = store.tomorrowEvents.count + store.visibleTomorrowAllDayEvents.count
     let tomorrowRows = store.isCalendarSectionVisible && store.isTomorrowExpanded
-      ? CGFloat(max(store.tomorrowEvents.count, 1)) * eventRowEstimate + 34 : 0
+      ? CGFloat(max(tomorrowCalendarRowCount, 1)) * eventRowEstimate + 34 : 0
     let issueCounts: [IssueSource: Int] = [
       .linear: store.issues.count,
       .github: store.githubIssues.count,
@@ -1447,6 +1451,12 @@ private struct CalendarSection: View {
   /// Tomorrow's timed calendar events.
   let tomorrowEvents: [CalendarEventItem]
 
+  /// All-day events overlapping today.
+  let allDayEvents: [CalendarEventItem]
+
+  /// All-day events overlapping tomorrow.
+  let tomorrowAllDayEvents: [CalendarEventItem]
+
   /// Recoverable account- or calendar-scoped loading warnings.
   let warnings: [String]
 
@@ -1467,22 +1477,7 @@ private struct CalendarSection: View {
 
         Spacer(minLength: 0)
 
-        Button {
-          store.openGoogleCalendar()
-        } label: {
-          Image(systemName: "plus")
-            .padding(5)
-            .contentShape(Rectangle())
-            .hoverHighlight(isHovered: store.hoveredControlID == .openGoogleCalendar)
-        }
-        .buttonStyle(.plain)
-        .help("Open Google Calendar")
-        .accessibilityLabel("Open Google Calendar")
-        .accessibilityHint("Open Google Calendar's week view to create an event")
-        .accessibilityIdentifier("calendar.new")
-        .onHover { isHovered in
-          store.setHoveredControl(isHovered ? .openGoogleCalendar : nil)
-        }
+        newEventControl
       }
 
       ForEach(Array(warnings.prefix(2).enumerated()), id: \.offset) { _, warning in
@@ -1490,26 +1485,18 @@ private struct CalendarSection: View {
       }
 
       VStack(alignment: .leading, spacing: 0) {
-          if events.isEmpty {
+          if events.isEmpty && allDayEvents.isEmpty {
             MessageRow(title: "No more events today", detail: nil)
               .padding(.horizontal, 16)
               .padding(.vertical, 5)
           } else {
+            ForEach(allDayEvents) { event in
+              calendarEventRow(event)
+            }
+
             ForEach(events) { event in
-              EventRow(
-                event: event,
-                isHovered: hoveredEventID == event.id,
-                now: now,
-                showsSource: store.showsCalendarSourceNames,
-                isCopied: store.copiedEventID == event.id
-              )
-                .onHover { isHovered in
-                  store.setHoveredEvent(isHovered ? event.id : nil)
-                }
-                .popover(isPresented: eventPreviewBinding(for: event.id), arrowEdge: .trailing) {
-                  EventPreviewPopover(event: event)
-                }
-              }
+              calendarEventRow(event)
+            }
           }
 
           TomorrowEventsButton(isExpanded: isTomorrowExpanded) {
@@ -1520,26 +1507,18 @@ private struct CalendarSection: View {
             VStack(alignment: .leading, spacing: 8) {
               SectionTitle(title: "Tomorrow")
 
-              if tomorrowEvents.isEmpty {
-                MessageRow(title: "No timed events tomorrow", detail: nil)
+              if tomorrowEvents.isEmpty && tomorrowAllDayEvents.isEmpty {
+                MessageRow(title: "No events tomorrow", detail: nil)
                   .padding(.horizontal, 16)
                   .padding(.vertical, 5)
               } else {
                 VStack(alignment: .leading, spacing: 0) {
+                  ForEach(tomorrowAllDayEvents) { event in
+                    calendarEventRow(event)
+                  }
+
                   ForEach(tomorrowEvents) { event in
-                    EventRow(
-                      event: event,
-                      isHovered: hoveredEventID == event.id,
-                      now: now,
-                      showsSource: store.showsCalendarSourceNames,
-                      isCopied: store.copiedEventID == event.id
-                    )
-                      .onHover { isHovered in
-                        store.setHoveredEvent(isHovered ? event.id : nil)
-                      }
-                      .popover(isPresented: eventPreviewBinding(for: event.id), arrowEdge: .trailing) {
-                        EventPreviewPopover(event: event)
-                      }
+                    calendarEventRow(event)
                   }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1550,6 +1529,80 @@ private struct CalendarSection: View {
       }
       .frame(maxWidth: .infinity, alignment: .leading)
     }
+  }
+
+  /// Provider-aware control that creates an Apple event or opens Google Calendar.
+  @ViewBuilder
+  private var newEventControl: some View {
+    if store.appleCalendarConnected && store.hasConnectedGoogleCalendar {
+      Menu {
+        Button("New Apple Calendar Event", systemImage: "calendar.badge.plus") {
+          store.requestAppleCalendarEventCreation()
+        }
+        .disabled(!store.canCreateAppleCalendarEvent)
+        .accessibilityIdentifier("calendar.new.apple")
+
+        Button("Open Google Calendar", systemImage: "globe") {
+          store.openGoogleCalendar()
+        }
+        .accessibilityIdentifier("calendar.new.google")
+      } label: {
+        newEventIcon
+      }
+      .menuStyle(.borderlessButton)
+      .menuIndicator(.hidden)
+      .fixedSize()
+      .help("Create a calendar event")
+      .accessibilityLabel("Create a calendar event")
+      .accessibilityIdentifier("calendar.new")
+      .onHover { isHovered in
+        store.setHoveredControl(isHovered ? .newCalendarEvent : nil)
+      }
+    } else {
+      Button {
+        if store.appleCalendarConnected {
+          store.requestAppleCalendarEventCreation()
+        } else {
+          store.openGoogleCalendar()
+        }
+      } label: {
+        newEventIcon
+      }
+      .buttonStyle(.plain)
+      .disabled(store.appleCalendarConnected && !store.canCreateAppleCalendarEvent)
+      .help(store.appleCalendarConnected ? "New Apple Calendar event" : "Open Google Calendar")
+      .accessibilityLabel(store.appleCalendarConnected ? "New Apple Calendar event" : "Open Google Calendar")
+      .accessibilityHint("Open the available calendar event creation flow")
+      .accessibilityIdentifier("calendar.new")
+      .onHover { isHovered in
+        store.setHoveredControl(isHovered ? .newCalendarEvent : nil)
+      }
+    }
+  }
+
+  /// Shared plus icon for the provider-aware calendar action.
+  private var newEventIcon: some View {
+    Image(systemName: "plus")
+      .padding(5)
+      .contentShape(Rectangle())
+      .hoverHighlight(isHovered: store.hoveredControlID == .newCalendarEvent)
+  }
+
+  /// One calendar row with shared hover and preview behavior.
+  private func calendarEventRow(_ event: CalendarEventItem) -> some View {
+    EventRow(
+      event: event,
+      isHovered: hoveredEventID == event.id,
+      now: now,
+      showsSource: store.showsCalendarSourceNames,
+      isCopied: store.copiedEventID == event.id
+    )
+      .onHover { isHovered in
+        store.setHoveredEvent(isHovered ? event.id : nil)
+      }
+      .popover(isPresented: eventPreviewBinding(for: event.id), arrowEdge: .trailing) {
+        EventPreviewPopover(event: event)
+      }
   }
 
   /// Binding that anchors the detail preview to its selected event row.
@@ -2689,7 +2742,7 @@ private struct EventRow: View {
   /// Main event content.
   private var eventContent: some View {
     HStack(alignment: .firstTextBaseline, spacing: 10) {
-      Text(DisplayFormatters.eventTimeRange(start: event.startDate, end: event.endDate))
+      Text(event.isAllDay ? "All day" : DisplayFormatters.eventTimeRange(start: event.startDate, end: event.endDate))
         .font(.caption.monospacedDigit())
         .foregroundStyle(.secondary)
         .lineLimit(1)
@@ -2736,7 +2789,7 @@ private struct EventRow: View {
 
   /// VoiceOver summary for the calendar event row.
   private var accessibilityLabel: String {
-    let time = DisplayFormatters.eventTimeRange(start: event.startDate, end: event.endDate)
+    let time = event.isAllDay ? "All day" : DisplayFormatters.eventTimeRange(start: event.startDate, end: event.endDate)
     if let source = event.accessibilitySourceLabel {
       return "\(event.title), \(time), \(source)"
     }
@@ -2745,7 +2798,7 @@ private struct EventRow: View {
 
   /// Whether this calendar event is currently in progress.
   private var isCurrent: Bool {
-    event.isHappening(at: now)
+    !event.isAllDay && event.isHappening(at: now)
   }
 
   /// Subtle row background that keeps active meetings visibly green.

@@ -36,6 +36,9 @@ struct CalendarSettingsTab: View {
 
         Toggle("Show calendar names", isOn: showsCalendarSourceNamesBinding)
           .accessibilityIdentifier("settings.showsCalendarSourceNames")
+
+        Toggle("Show all-day events", isOn: showsAllDayEventsBinding)
+          .accessibilityIdentifier("settings.showsAllDayEvents")
       } header: {
         Label("Menu", systemImage: "list.bullet")
       }
@@ -106,6 +109,14 @@ struct CalendarSettingsTab: View {
     Binding(
       get: { store.showsCalendarSourceNames },
       set: { store.setShowsCalendarSourceNames($0) }
+    )
+  }
+
+  /// Binding that persists whether all-day events appear in the menu.
+  private var showsAllDayEventsBinding: Binding<Bool> {
+    Binding(
+      get: { store.showsAllDayEvents },
+      set: { store.setShowsAllDayEvents($0) }
     )
   }
 

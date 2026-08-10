@@ -105,6 +105,13 @@ struct DaylineApp: App {
     .defaultSize(width: 580, height: 540)
     .handlesExternalEvents(matching: [])
 
+    Window("New Apple Calendar Event", id: "appleCalendarEventCreator") {
+      AppleCalendarEventEditorView()
+        .environmentObject(store)
+    }
+    .defaultSize(width: 560, height: 440)
+    .handlesExternalEvents(matching: [])
+
     Window("\(appDisplayName) Settings", id: "settings") {
       SettingsView()
         .environmentObject(store)
@@ -151,6 +158,10 @@ private struct MenuBarLabelView: View {
     .onChange(of: store.appleReminderCreationRequestID) {
       openWindow(id: "appleReminderCreator")
       AppleReminderEditorWindowPresenter.bringReminderWindowToFront()
+    }
+    .onChange(of: store.appleCalendarEventCreationRequestID) {
+      openWindow(id: "appleCalendarEventCreator")
+      AppleCalendarEventEditorWindowPresenter.bringEventWindowToFront()
     }
     .onChange(of: store.meetingAlertEvent, initial: true) {
       if let event = store.meetingAlertEvent {

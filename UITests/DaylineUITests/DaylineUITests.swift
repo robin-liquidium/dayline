@@ -432,6 +432,24 @@ final class DaylineUITests: XCTestCase {
   func testCreatesLinearGitHubAndAppleReminder() throws {
     try openMenu()
 
+    element("calendar.new").click()
+    let appleCalendarMenuItem = app.menuItems["New Apple Calendar Event"]
+    XCTAssertTrue(appleCalendarMenuItem.waitForExistence(timeout: 3))
+    appleCalendarMenuItem.click()
+    let calendarEventTitle = element("calendarEventEditor.title")
+    XCTAssertTrue(calendarEventTitle.waitForExistence(timeout: 5))
+    calendarEventTitle.click()
+    calendarEventTitle.typeText("Automated Apple Calendar event")
+    assertEnabled("calendarEventEditor.create")
+    element("calendarEventEditor.create").click()
+
+    try openMenu()
+    XCTAssertTrue(
+      app.descendants(matching: .any)
+        .matching(NSPredicate(format: "label BEGINSWITH %@", "Automated Apple Calendar event"))
+        .firstMatch.waitForExistence(timeout: 5)
+    )
+
     element("linear.new").click()
     let linearTitle = element("linearEditor.title")
     XCTAssertTrue(linearTitle.waitForExistence(timeout: 5))
@@ -648,7 +666,7 @@ final class DaylineUITests: XCTestCase {
 
   func testOpensSettings() throws {
     try openMenu()
-    XCTContext.runActivity(named: "Open Settings and verify General controls") { _ in
+    try XCTContext.runActivity(named: "Open Settings and verify General controls") { _ in
       element("dayline.settings").click()
 
       XCTAssertTrue(app.windows["settings"].waitForExistence(timeout: 5))
@@ -664,6 +682,13 @@ final class DaylineUITests: XCTestCase {
       XCTAssertTrue(calendarTab.waitForExistence(timeout: 5))
       calendarTab.click()
       assertExists("settings.meetingAlertSnooze")
+      let allDayToggle = element("settings.showsAllDayEvents")
+      assertExists("settings.showsAllDayEvents")
+      allDayToggle.click()
+      app.typeKey("w", modifierFlags: .command)
+
+      try openMenu()
+      assertExists("calendar.event.mock-all-day-today")
     }
   }
 
