@@ -37,4 +37,54 @@ struct MeetingAlertTests {
       snoozedUntil: start.addingTimeInterval(25 * 60)
     ) == event.endDate)
   }
+
+  @Test @MainActor func linkOnlyAlertsRejectCalendarPagesAndKeepJoinLinks() {
+    let now = Date(timeIntervalSince1970: 10_000)
+    let calendarURL = URL(string: "https://calendar.google.com/event")!
+    let eventWithoutMeetingLink = CalendarEventItem(
+      id: "calendar-only",
+      title: "Calendar only",
+      startDate: now,
+      endDate: now.addingTimeInterval(30 * 60),
+      location: nil,
+      calendarURL: calendarURL,
+      openURL: calendarURL
+    )
+    let eventWithMeetingLink = CalendarEventItem(
+      id: "linked",
+      title: "Linked meeting",
+      startDate: now,
+      endDate: now.addingTimeInterval(30 * 60),
+      location: nil,
+      calendarURL: calendarURL,
+      openURL: URL(string: "https://meet.google.com/dayline-test")
+    )
+
+    #expect(!eventWithoutMeetingLink.hasMeetingLink)
+    #expect(eventWithMeetingLink.hasMeetingLink)
+    #expect(!StatusStore.isMeetingAlertEligible(
+      eventWithoutMeetingLink,
+      at: now,
+      lead: 0,
+      requiresMeetingLink: true,
+      snoozedUntil: nil,
+      isDismissed: false
+    ))
+    #expect(StatusStore.isMeetingAlertEligible(
+      eventWithMeetingLink,
+      at: now,
+      lead: 0,
+      requiresMeetingLink: true,
+      snoozedUntil: nil,
+      isDismissed: false
+    ))
+    #expect(StatusStore.isMeetingAlertEligible(
+      eventWithoutMeetingLink,
+      at: now,
+      lead: 0,
+      requiresMeetingLink: false,
+      snoozedUntil: nil,
+      isDismissed: false
+    ))
+  }
 }

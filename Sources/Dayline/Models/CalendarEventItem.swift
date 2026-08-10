@@ -34,6 +34,11 @@ struct CalendarEventItem: Identifiable, Equatable, Sendable {
   /// Preferred URL for clicking the event, such as Google Meet or a URL in the location.
   let openURL: URL?
 
+  /// Whether the event has a real join link rather than only its calendar page.
+  var hasMeetingLink: Bool {
+    openURL != nil && openURL != calendarURL
+  }
+
   /// Calendar names contributing this event after cross-calendar deduplication.
   let sourceCalendarNames: [String]
 

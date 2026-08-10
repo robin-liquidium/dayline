@@ -47,6 +47,10 @@ struct CalendarSettingsTab: View {
         Toggle("Full-screen meeting alerts", isOn: meetingAlertEnabledBinding)
           .accessibilityIdentifier("settings.meetingAlertEnabled")
 
+        Toggle("Only alert for meetings with links", isOn: meetingAlertRequiresMeetingLinkBinding)
+          .disabled(!store.meetingAlertEnabled)
+          .accessibilityIdentifier("settings.meetingAlertRequiresMeetingLink")
+
         Picker("Show alert", selection: meetingAlertLeadBinding) {
           ForEach(meetingAlertLeadPickerOptions, id: \.self) { minutes in
             Text(minutes == 0 ? "When the meeting starts" : "\(minutes) min before").tag(minutes)
@@ -125,6 +129,14 @@ struct CalendarSettingsTab: View {
     Binding(
       get: { store.meetingAlertEnabled },
       set: { store.setMeetingAlertEnabled($0) }
+    )
+  }
+
+  /// Binding that limits full-screen alerts to events with real join links.
+  private var meetingAlertRequiresMeetingLinkBinding: Binding<Bool> {
+    Binding(
+      get: { store.meetingAlertRequiresMeetingLink },
+      set: { store.setMeetingAlertRequiresMeetingLink($0) }
     )
   }
 

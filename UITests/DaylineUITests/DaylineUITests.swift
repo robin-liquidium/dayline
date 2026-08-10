@@ -687,6 +687,7 @@ final class DaylineUITests: XCTestCase {
       XCTAssertTrue(calendarTab.waitForExistence(timeout: 5))
       calendarTab.click()
       assertExists("settings.meetingAlertSnooze")
+      assertExists("settings.meetingAlertRequiresMeetingLink")
       let allDayToggle = element("settings.showsAllDayEvents")
       assertExists("settings.showsAllDayEvents")
       allDayToggle.click()

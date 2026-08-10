@@ -318,6 +318,17 @@ final class StatusStore: ObservableObject {
     }
   }
 
+  /// Whether full-screen alerts are limited to events with a real meeting link.
+  @Published var meetingAlertRequiresMeetingLink: Bool {
+    didSet {
+      UserDefaults.standard.set(
+        meetingAlertRequiresMeetingLink,
+        forKey: Self.meetingAlertRequiresMeetingLinkKey
+      )
+      updateMeetingAlert()
+    }
+  }
+
   /// Minutes before a meeting starts when the full-screen alert may appear.
   @Published var meetingAlertLeadMinutes: Int {
     didSet {
@@ -577,6 +588,7 @@ final class StatusStore: ObservableObject {
   private static let appleReminderSelectionsKey = "appleReminderSelections"
   private static let appleRemindersEnabledKey = "appleRemindersEnabled"
   private static let meetingAlertEnabledKey = "meetingAlertEnabled"
+  private static let meetingAlertRequiresMeetingLinkKey = "meetingAlertRequiresMeetingLink"
   private static let meetingAlertLeadMinutesKey = "meetingAlertLeadMinutes"
   private static let meetingAlertSnoozeMinutesKey = "meetingAlertSnoozeMinutes"
   private static let issueSourceKey = "issueSource"
@@ -770,6 +782,9 @@ final class StatusStore: ObservableObject {
     self.issueRowFields = (defaults.object(forKey: Self.issueRowFieldsKey) as? Int)
       .map(IssueRowFields.init(rawValue:)) ?? .default
     self.meetingAlertEnabled = defaults.object(forKey: Self.meetingAlertEnabledKey) as? Bool ?? true
+    self.meetingAlertRequiresMeetingLink = defaults.object(
+      forKey: Self.meetingAlertRequiresMeetingLinkKey
+    ) as? Bool ?? false
     self.meetingAlertLeadMinutes = Self.storedInteger(forKey: Self.meetingAlertLeadMinutesKey, defaultValue: 0)
     self.meetingAlertSnoozeMinutes = Self.clampedMeetingAlertSnoozeMinutes(Self.storedInteger(
       forKey: Self.meetingAlertSnoozeMinutesKey,
@@ -2044,6 +2059,11 @@ final class StatusStore: ObservableObject {
   /// Persists whether the full-screen meeting alert is enabled.
   func setMeetingAlertEnabled(_ enabled: Bool) {
     meetingAlertEnabled = enabled
+  }
+
+  /// Persists whether full-screen alerts require a real meeting link.
+  func setMeetingAlertRequiresMeetingLink(_ requiresMeetingLink: Bool) {
+    meetingAlertRequiresMeetingLink = requiresMeetingLink
   }
 
   /// Persists how early the full-screen meeting alert may appear.
@@ -3646,15 +3666,16 @@ final class StatusStore: ObservableObject {
     // cannot hide meetings still inside the alert lead window.
     meetingAlertEvent = CalendarEventItem.mergedAgenda(googleSourceEvents + appleSourceEvents)
       .filter { event in
-        guard !event.isAllDay else { return false }
         let eventID = event.deduplicationKey ?? event.id
         let snoozedUntil = snoozedMeetingAlertUntilByEventID[eventID]
-        if let snoozedUntil, now < snoozedUntil {
-          return false
-        }
-        return now >= event.startDate.addingTimeInterval(-lead)
-          && now < Self.meetingAlertEligibilityEnd(for: event, snoozedUntil: snoozedUntil)
-          && !dismissedMeetingAlertEventIDs.contains(eventID)
+        return Self.isMeetingAlertEligible(
+          event,
+          at: now,
+          lead: lead,
+          requiresMeetingLink: meetingAlertRequiresMeetingLink,
+          snoozedUntil: snoozedUntil,
+          isDismissed: dismissedMeetingAlertEventIDs.contains(eventID)
+        )
       }
       .min { $0.startDate < $1.startDate }
   }
@@ -3981,6 +4002,27 @@ final class StatusStore: ObservableObject {
   /// Keeps meeting-alert snoozes useful without allowing accidental zero or day-long values.
   static func clampedMeetingAlertSnoozeMinutes(_ minutes: Int) -> Int {
     min(max(minutes, 1), 120)
+  }
+
+  /// Applies the persisted alert filter and the session-specific timing state.
+  static func isMeetingAlertEligible(
+    _ event: CalendarEventItem,
+    at now: Date,
+    lead: TimeInterval,
+    requiresMeetingLink: Bool,
+    snoozedUntil: Date?,
+    isDismissed: Bool
+  ) -> Bool {
+    guard !event.isAllDay,
+          !isDismissed,
+          !requiresMeetingLink || event.hasMeetingLink else {
+      return false
+    }
+    if let snoozedUntil, now < snoozedUntil {
+      return false
+    }
+    return now >= event.startDate.addingTimeInterval(-lead)
+      && now < meetingAlertEligibilityEnd(for: event, snoozedUntil: snoozedUntil)
   }
 
   /// Keeps an explicitly snoozed meeting eligible to re-alert after the original start window.

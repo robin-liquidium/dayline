@@ -106,7 +106,7 @@ struct MeetingAlertView: View {
   /// "Join Meeting" only when the open URL is a real meeting link; when it
   /// just falls back to the calendar page the honest label is "Open Event".
   private var joinButtonLabel: String {
-    if event.openURL != nil, event.openURL != event.calendarURL {
+    if event.hasMeetingLink {
       return "Join Meeting"
     }
     return "Open Event"
