@@ -444,9 +444,20 @@ final class DaylineUITests: XCTestCase {
     let appleCalendarMenuItem = app.menuItems["calendar.new.apple"]
     XCTAssertTrue(appleCalendarMenuItem.waitForExistenceIfNeeded(timeout: 3))
     appleCalendarMenuItem.click()
+    app.activate()
     let calendarEventTitle = element("calendarEventEditor.title")
     XCTAssertTrue(calendarEventTitle.waitForExistenceIfNeeded(timeout: 5))
-    element("calendarEventEditor.start.date").click()
+    let calendarStartDate = element("calendarEventEditor.start.date")
+    XCTAssertTrue(calendarStartDate.waitForExistenceIfNeeded(timeout: 5))
+    if calendarStartDate.isHittable {
+      calendarStartDate.click()
+    } else {
+      XCTAssertFalse(
+        calendarStartDate.frame.isEmpty,
+        "Expected the Apple Calendar start-date control to have a visible frame"
+      )
+      calendarStartDate.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+    }
     XCTAssertTrue(element("calendarEventEditor.start.calendar").waitForExistenceIfNeeded(timeout: 3))
     app.typeKey(.escape, modifierFlags: [])
     calendarEventTitle.click()
