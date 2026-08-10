@@ -104,22 +104,85 @@ struct CalendarEventItem: Identifiable, Equatable, Sendable {
     guard let url = safeWebURL(url), let host = url.host?.lowercased() else {
       return nil
     }
-    let meetingHosts = [
-      "meet.google.com",
-      "zoom.us",
-      "teams.microsoft.com",
-      "teams.live.com",
-      "webex.com",
-      "meet.jit.si",
-      "whereby.com",
-      "facetime.apple.com",
-      "chime.aws",
-      "around.co"
-    ]
-    guard meetingHosts.contains(where: { host == $0 || host.hasSuffix(".\($0)") }) else {
+    let path = url.path.split(separator: "/").map { $0.lowercased() }
+
+    switch host {
+    case "meet.google.com":
+      guard (path.count == 1 && isGoogleMeetCode(path[0]))
+        || (path.count == 2 && path[0] == "lookup" && !path[1].isEmpty) else { return nil }
+    case let host where isHost(host, under: "zoom.us"):
+      guard path.count >= 2,
+            (["j", "s", "w"].contains(path[0]) && path[1].allSatisfy(\.isNumber)
+              || path[0] == "my" && !path[1].isEmpty
+              || path.count == 3 && path[0] == "wc" && path[1] == "join"
+                && path[2].allSatisfy(\.isNumber)
+              || path.count == 3 && path[0] == "wc" && path[1].allSatisfy(\.isNumber)
+                && path[2] == "join") else { return nil }
+    case "teams.microsoft.com", "teams.live.com":
+      let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+      let isLauncher = path == ["dl", "launcher", "launcher.html"]
+        && queryItems.contains(where: {
+          $0.name.caseInsensitiveCompare("type") == .orderedSame
+            && $0.value?.caseInsensitiveCompare("meetup-join") == .orderedSame
+        })
+        && queryItems.contains(where: {
+          $0.name.caseInsensitiveCompare("url") == .orderedSame
+            && $0.value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        })
+      guard isLauncher
+        || (path.count >= 2 && path[0] == "meet" && !path[1].isEmpty)
+        || (path.count >= 3 && path[0] == "l" && path[1] == "meetup-join" && !path[2].isEmpty) else { return nil }
+    case "instant.webex.com":
+      guard path == ["gen", "v1", "talk"]
+        || (path.count == 2 && path[0] == "visit" && !path[1].isEmpty) else { return nil }
+    case let host where isHost(host, under: "webex.com"):
+      let hasGuestJoinPath = host != "join.webex.com"
+        && host.hasSuffix(".join.webex.com")
+        && path.count >= 2
+        && path[0] == "guest"
+        && !path[1].isEmpty
+      let hasMeetingPath = path.contains("meet") || path.contains("join")
+      let hasLegacyJoin = path.last == "j.php"
+        && URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+          .contains(where: { $0.name.caseInsensitiveCompare("MTID") == .orderedSame && $0.value?.isEmpty == false }) == true
+      guard hasGuestJoinPath || hasMeetingPath || hasLegacyJoin else { return nil }
+    case "meet.jit.si":
+      guard let room = path.first, !room.isEmpty, !["about", "static"].contains(room) else { return nil }
+    case let host where isHost(host, under: "whereby.com"):
+      guard let room = path.first,
+            !room.isEmpty,
+            !["about", "information", "pricing"].contains(room) else { return nil }
+    case "facetime.apple.com":
+      guard path.first == "join" else { return nil }
+    case "chime.aws":
+      guard path.count == 1, isChimeMeetingPath(path[0]) else { return nil }
+    case let host where isHost(host, under: "around.co"):
+      guard path.count >= 2, path[0] == "r", !path[1].isEmpty else { return nil }
+    default:
       return nil
     }
     return url
+  }
+
+  private static func isHost(_ host: String, under domain: String) -> Bool {
+    host == domain || host.hasSuffix(".\(domain)")
+  }
+
+  private static func isGoogleMeetCode(_ value: String) -> Bool {
+    let groups = value.split(separator: "-")
+    return groups.map(\.count) == [3, 4, 3]
+      && groups.joined().allSatisfy { $0.isASCII && $0.isLetter }
+  }
+
+  private static func isChimeMeetingPath(_ value: String) -> Bool {
+    if [10, 13].contains(value.count), value.allSatisfy(\.isNumber) {
+      return true
+    }
+    let reserved = ["about", "download", "pricing", "signup"]
+    return (12...35).contains(value.count)
+      && !reserved.contains(value)
+      && value.contains(where: { $0.isASCII && $0.isLetter })
+      && value.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
   }
 
   /// Compact source label for the agenda row.
@@ -206,7 +269,7 @@ struct CalendarEventItem: Identifiable, Equatable, Sendable {
     let merged = mergedAgenda(events)
     return CalendarAgendaSections(
       today: merged
-        .filter { !$0.isAllDay && $0.startDate < tomorrowStart }
+        .filter { !$0.isAllDay && $0.endDate > todayStart && $0.startDate < tomorrowStart }
         .prefix(todayLimit)
         .map { $0 },
       tomorrow: merged

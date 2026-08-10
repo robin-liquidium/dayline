@@ -4097,7 +4097,7 @@ final class StatusStore: ObservableObject {
             let events = try await context.service.fetchEvents(
               accountID: context.accountID,
               calendar: context.calendar,
-              from: now,
+              from: todayStart,
               to: dayAfterTomorrow,
               cutoff: now
             )

@@ -320,10 +320,20 @@ struct CalendarEventItemTests {
     #expect(sections.allDayTomorrow == [multiDay])
   }
 
-  @Test func agendaSectionsDropsAllDayEventsThatEndedAtMidnight() {
+  @Test func agendaSectionsDropsEventsThatEndedAtMidnight() {
     let todayStart = Date(timeIntervalSince1970: 86_400)
     let tomorrowStart = todayStart.addingTimeInterval(86_400)
     let dayAfterTomorrow = tomorrowStart.addingTimeInterval(86_400)
+    let endedTimedEvent = event(
+      id: "ended-timed-event",
+      startDate: todayStart.addingTimeInterval(-60 * 60),
+      endDate: todayStart
+    )
+    let activeTimedEvent = event(
+      id: "active-timed-event",
+      startDate: todayStart,
+      endDate: todayStart.addingTimeInterval(60 * 60)
+    )
     let endedYesterday = event(
       id: "ended-yesterday",
       startDate: todayStart.addingTimeInterval(-86_400),
@@ -338,7 +348,7 @@ struct CalendarEventItemTests {
     )
 
     let sections = CalendarEventItem.agendaSections(
-      from: [endedYesterday, activeToday],
+      from: [endedTimedEvent, activeTimedEvent, endedYesterday, activeToday],
       todayStart: todayStart,
       tomorrowStart: tomorrowStart,
       dayAfterTomorrow: dayAfterTomorrow,
@@ -346,6 +356,7 @@ struct CalendarEventItemTests {
       tomorrowLimit: 8
     )
 
+    #expect(sections.today == [activeTimedEvent])
     #expect(sections.allDayToday == [activeToday])
   }
 
@@ -370,6 +381,35 @@ struct CalendarEventItemTests {
     #expect(value.isDateOnly)
     #expect(calendar.dateComponents([.year, .month, .day], from: date)
       == DateComponents(year: 2026, month: 8, day: 10))
+  }
+
+  @Test func googleEventsRequestSerializesTheLocalDayStartBoundary() throws {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = try #require(TimeZone(identifier: "Europe/Berlin"))
+    let now = try #require(calendar.date(from: DateComponents(
+      year: 2026,
+      month: 8,
+      day: 10,
+      hour: 22,
+      minute: 30
+    )))
+    let todayStart = calendar.startOfDay(for: now)
+    let end = try #require(calendar.date(byAdding: .day, value: 2, to: todayStart))
+    let url = try #require(CalendarService.eventsRequestURL(
+      calendarID: "work@example.com",
+      from: todayStart,
+      to: end
+    ))
+    let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+    let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in
+      item.value.map { (item.name, $0) }
+    })
+    let formatter = ISO8601DateFormatter()
+    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    formatter.formatOptions = [.withInternetDateTime]
+
+    #expect(query["timeMin"] == formatter.string(from: todayStart))
+    #expect(query["timeMin"] != formatter.string(from: now))
   }
 
   @Test @MainActor func partialSourceFailureRetainsSuccessfulEvents() {

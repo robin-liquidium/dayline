@@ -81,30 +81,16 @@ struct CalendarService: Sendable {
     to endDate: Date,
     cutoff: Date
   ) async throws -> [CalendarEventItem] {
-    let isoFormatter = ISO8601DateFormatter()
-    isoFormatter.timeZone = TimeZone(secondsFromGMT: 0)
-    isoFormatter.formatOptions = [.withInternetDateTime]
-
     var events: [CalendarEventItem] = []
     var pageToken: String?
 
     repeat {
-      var components = URLComponents()
-      components.scheme = "https"
-      components.host = "www.googleapis.com"
-      components.percentEncodedPath = "/calendar/v3/calendars/\(Self.percentEncode(calendar.id))/events"
-      components.queryItems = [
-        URLQueryItem(name: "timeMin", value: isoFormatter.string(from: startDate)),
-        URLQueryItem(name: "timeMax", value: isoFormatter.string(from: endDate)),
-        URLQueryItem(name: "singleEvents", value: "true"),
-        URLQueryItem(name: "orderBy", value: "startTime"),
-        URLQueryItem(name: "maxResults", value: "2500")
-      ]
-      if let pageToken {
-        components.queryItems?.append(URLQueryItem(name: "pageToken", value: pageToken))
-      }
-
-      guard let url = components.url else {
+      guard let url = Self.eventsRequestURL(
+        calendarID: calendar.id,
+        from: startDate,
+        to: endDate,
+        pageToken: pageToken
+      ) else {
         throw OAuthError.httpError(-1, "Could not build the Google Calendar request URL.")
       }
 
@@ -117,6 +103,34 @@ struct CalendarService: Sendable {
     } while pageToken != nil
 
     return events.sorted { $0.startDate < $1.startDate }
+  }
+
+  /// Builds the bounded Events.list URL used for every result page.
+  static func eventsRequestURL(
+    calendarID: String,
+    from startDate: Date,
+    to endDate: Date,
+    pageToken: String? = nil
+  ) -> URL? {
+    let isoFormatter = ISO8601DateFormatter()
+    isoFormatter.timeZone = TimeZone(secondsFromGMT: 0)
+    isoFormatter.formatOptions = [.withInternetDateTime]
+
+    var components = URLComponents()
+    components.scheme = "https"
+    components.host = "www.googleapis.com"
+    components.percentEncodedPath = "/calendar/v3/calendars/\(Self.percentEncode(calendarID))/events"
+    components.queryItems = [
+      URLQueryItem(name: "timeMin", value: isoFormatter.string(from: startDate)),
+      URLQueryItem(name: "timeMax", value: isoFormatter.string(from: endDate)),
+      URLQueryItem(name: "singleEvents", value: "true"),
+      URLQueryItem(name: "orderBy", value: "startTime"),
+      URLQueryItem(name: "maxResults", value: "2500")
+    ]
+    if let pageToken {
+      components.queryItems?.append(URLQueryItem(name: "pageToken", value: pageToken))
+    }
+    return components.url
   }
 
   /// Loads the primary calendar identity, whose ID is the stable Google account email.
