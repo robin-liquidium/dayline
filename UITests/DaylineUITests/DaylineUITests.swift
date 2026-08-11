@@ -444,20 +444,27 @@ final class DaylineUITests: XCTestCase {
     let appleCalendarMenuItem = app.menuItems["calendar.new.apple"]
     XCTAssertTrue(appleCalendarMenuItem.waitForExistenceIfNeeded(timeout: 3))
     appleCalendarMenuItem.click()
-    app.activate()
+    let calendarEventWindow = app.windows["appleCalendarEventCreator"]
+    XCTAssertTrue(calendarEventWindow.waitForExistenceIfNeeded(timeout: 5))
     let calendarEventTitle = element("calendarEventEditor.title")
     XCTAssertTrue(calendarEventTitle.waitForExistenceIfNeeded(timeout: 5))
+    let statusMenuIndicator = element("dayline.refresh")
+    if statusMenuIndicator.exists {
+      let statusItem = app.descendants(matching: .statusItem)["dayline.menuBarItem"].firstMatch
+      XCTAssertTrue(statusItem.waitForExistenceIfNeeded(timeout: 3))
+      statusItem.click()
+      waitForRemoval(statusMenuIndicator)
+    }
+    app.activate()
+    XCTAssertTrue(calendarEventWindow.exists, "Expected the Apple Calendar event editor to remain open")
     let calendarStartDate = element("calendarEventEditor.start.date")
     XCTAssertTrue(calendarStartDate.waitForExistenceIfNeeded(timeout: 5))
-    if calendarStartDate.isHittable {
-      calendarStartDate.click()
-    } else {
-      XCTAssertFalse(
-        calendarStartDate.frame.isEmpty,
-        "Expected the Apple Calendar start-date control to have a visible frame"
-      )
-      calendarStartDate.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
-    }
+    let dateButtonHittable = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "hittable == true"),
+      object: calendarStartDate
+    )
+    XCTAssertEqual(XCTWaiter.wait(for: [dateButtonHittable], timeout: 5), .completed)
+    calendarStartDate.click()
     XCTAssertTrue(element("calendarEventEditor.start.calendar").waitForExistenceIfNeeded(timeout: 3))
     app.typeKey(.escape, modifierFlags: [])
     calendarEventTitle.click()
