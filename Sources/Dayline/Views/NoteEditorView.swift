@@ -210,7 +210,17 @@ private final class NoteEditorDraft: ObservableObject {
   let formatting = NoteFormattingBridge()
 
   /// Markdown engine defaults plus Dayline's formatting command bridge.
-  lazy var markdownConfiguration = formatting.configuration
+  lazy var markdownConfiguration: MarkdownEditorConfiguration = {
+    var configuration = formatting.configuration
+    if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
+      configuration.spellChecking = SpellCheckingPolicy(
+        continuousSpellChecking: false,
+        grammarChecking: false,
+        automaticSpellingCorrection: false
+      )
+    }
+    return configuration
+  }()
 
   /// Editable note body.
   @Published var text = ""

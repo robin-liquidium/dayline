@@ -36,6 +36,9 @@ struct CalendarSettingsTab: View {
 
         Toggle("Show calendar names", isOn: showsCalendarSourceNamesBinding)
           .accessibilityIdentifier("settings.showsCalendarSourceNames")
+
+        Toggle("Show all-day events", isOn: showsAllDayEventsBinding)
+          .accessibilityIdentifier("settings.showsAllDayEvents")
       } header: {
         Label("Menu", systemImage: "list.bullet")
       }
@@ -43,6 +46,10 @@ struct CalendarSettingsTab: View {
       Section {
         Toggle("Full-screen meeting alerts", isOn: meetingAlertEnabledBinding)
           .accessibilityIdentifier("settings.meetingAlertEnabled")
+
+        Toggle("Only alert for meetings with links", isOn: meetingAlertRequiresMeetingLinkBinding)
+          .disabled(!store.meetingAlertEnabled)
+          .accessibilityIdentifier("settings.meetingAlertRequiresMeetingLink")
 
         Picker("Show alert", selection: meetingAlertLeadBinding) {
           ForEach(meetingAlertLeadPickerOptions, id: \.self) { minutes in
@@ -109,11 +116,27 @@ struct CalendarSettingsTab: View {
     )
   }
 
+  /// Binding that persists whether all-day events appear in the menu.
+  private var showsAllDayEventsBinding: Binding<Bool> {
+    Binding(
+      get: { store.showsAllDayEvents },
+      set: { store.setShowsAllDayEvents($0) }
+    )
+  }
+
   /// Binding that persists whether full-screen meeting alerts are enabled.
   private var meetingAlertEnabledBinding: Binding<Bool> {
     Binding(
       get: { store.meetingAlertEnabled },
       set: { store.setMeetingAlertEnabled($0) }
+    )
+  }
+
+  /// Binding that limits full-screen alerts to events with real join links.
+  private var meetingAlertRequiresMeetingLinkBinding: Binding<Bool> {
+    Binding(
+      get: { store.meetingAlertRequiresMeetingLink },
+      set: { store.setMeetingAlertRequiresMeetingLink($0) }
     )
   }
 

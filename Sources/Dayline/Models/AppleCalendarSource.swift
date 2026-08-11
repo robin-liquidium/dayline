@@ -14,6 +14,9 @@ struct AppleCalendarSource: Codable, Identifiable, Equatable, Sendable {
   /// Whether Dayline includes this calendar in the merged agenda.
   var isEnabled: Bool
 
+  /// Whether EventKit allows Dayline to create events in this calendar.
+  var allowsModifications: Bool = false
+
   /// Restores explicit saved choices while leaving newly discovered calendars enabled.
   static func restoringSelections(
     in discovered: [AppleCalendarSource],
@@ -27,4 +30,13 @@ struct AppleCalendarSource: Codable, Identifiable, Equatable, Sendable {
       return calendar
     }
   }
+}
+
+/// Values collected by Dayline's Apple Calendar event editor.
+struct AppleCalendarEventCreateDraft: Equatable, Sendable {
+  var title = ""
+  var calendarID = ""
+  var startDate = Date()
+  var endDate = Date().addingTimeInterval(30 * 60)
+  var isAllDay = false
 }

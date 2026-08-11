@@ -71,9 +71,9 @@ cat >"$INFO_PLIST" <<PLIST
   <key>LSUIElement</key>
   <true/>
   <key>NSCalendarsUsageDescription</key>
-  <string>Dayline shows your upcoming Apple Calendar events in the menu bar.</string>
+  <string>Dayline shows your Apple Calendar events and creates events when you ask.</string>
   <key>NSCalendarsFullAccessUsageDescription</key>
-  <string>Dayline shows your upcoming Apple Calendar events in the menu bar.</string>
+  <string>Dayline shows your Apple Calendar events and creates events when you ask.</string>
   <key>NSRemindersFullAccessUsageDescription</key>
   <string>Dayline shows and manages your Apple Reminders from the menu bar.</string>
   <key>NSPrincipalClass</key>

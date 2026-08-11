@@ -8,6 +8,7 @@ struct AppleReminderEditorView: View {
   @State private var draft = AppleReminderCreateDraft()
   @State private var errorMessage: String?
   @State private var isCreating = false
+  @State private var isDueDatePickerPresented = false
 
   var body: some View {
     VStack(spacing: 0) {
@@ -123,12 +124,14 @@ struct AppleReminderEditorView: View {
   @ViewBuilder
   private var dueDateControls: some View {
     if draft.dueDate != nil {
-      DatePicker(
-        "Due date",
-        selection: dueDateBinding,
-        displayedComponents: .date
-      )
-      .accessibilityIdentifier("reminderEditor.dueDate")
+      LabeledContent("Due date") {
+        CalendarDatePickerField(
+          selection: dueDateBinding,
+          isPresented: $isDueDatePickerPresented,
+          fieldIdentifier: "reminderEditor.dueDate",
+          calendarIdentifier: "reminderEditor.dueDate.calendar"
+        )
+      }
 
       Toggle("Include time", isOn: dueTimeEnabledBinding)
         .accessibilityIdentifier("reminderEditor.dueTimeEnabled")
@@ -143,6 +146,7 @@ struct AppleReminderEditorView: View {
       }
 
       Button(role: .destructive) {
+        isDueDatePickerPresented = false
         draft.dueDate = nil
         draft.dueDateIncludesTime = false
       } label: {
@@ -152,6 +156,7 @@ struct AppleReminderEditorView: View {
     } else {
       Button {
         draft.dueDate = Calendar.current.startOfDay(for: Date())
+        isDueDatePickerPresented = true
       } label: {
         Label("Add due date", systemImage: "calendar")
       }
@@ -231,6 +236,7 @@ struct AppleReminderEditorView: View {
       dueDateIncludesTime: false
     )
     errorMessage = nil
+    isDueDatePickerPresented = false
   }
 
   private var validDefaultListID: String {

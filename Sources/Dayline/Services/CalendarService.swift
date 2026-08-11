@@ -81,30 +81,16 @@ struct CalendarService: Sendable {
     to endDate: Date,
     cutoff: Date
   ) async throws -> [CalendarEventItem] {
-    let isoFormatter = ISO8601DateFormatter()
-    isoFormatter.timeZone = TimeZone(secondsFromGMT: 0)
-    isoFormatter.formatOptions = [.withInternetDateTime]
-
     var events: [CalendarEventItem] = []
     var pageToken: String?
 
     repeat {
-      var components = URLComponents()
-      components.scheme = "https"
-      components.host = "www.googleapis.com"
-      components.percentEncodedPath = "/calendar/v3/calendars/\(Self.percentEncode(calendar.id))/events"
-      components.queryItems = [
-        URLQueryItem(name: "timeMin", value: isoFormatter.string(from: startDate)),
-        URLQueryItem(name: "timeMax", value: isoFormatter.string(from: endDate)),
-        URLQueryItem(name: "singleEvents", value: "true"),
-        URLQueryItem(name: "orderBy", value: "startTime"),
-        URLQueryItem(name: "maxResults", value: "2500")
-      ]
-      if let pageToken {
-        components.queryItems?.append(URLQueryItem(name: "pageToken", value: pageToken))
-      }
-
-      guard let url = components.url else {
+      guard let url = Self.eventsRequestURL(
+        calendarID: calendar.id,
+        from: startDate,
+        to: endDate,
+        pageToken: pageToken
+      ) else {
         throw OAuthError.httpError(-1, "Could not build the Google Calendar request URL.")
       }
 
@@ -117,6 +103,34 @@ struct CalendarService: Sendable {
     } while pageToken != nil
 
     return events.sorted { $0.startDate < $1.startDate }
+  }
+
+  /// Builds the bounded Events.list URL used for every result page.
+  static func eventsRequestURL(
+    calendarID: String,
+    from startDate: Date,
+    to endDate: Date,
+    pageToken: String? = nil
+  ) -> URL? {
+    let isoFormatter = ISO8601DateFormatter()
+    isoFormatter.timeZone = TimeZone(secondsFromGMT: 0)
+    isoFormatter.formatOptions = [.withInternetDateTime]
+
+    var components = URLComponents()
+    components.scheme = "https"
+    components.host = "www.googleapis.com"
+    components.percentEncodedPath = "/calendar/v3/calendars/\(Self.percentEncode(calendarID))/events"
+    components.queryItems = [
+      URLQueryItem(name: "timeMin", value: isoFormatter.string(from: startDate)),
+      URLQueryItem(name: "timeMax", value: isoFormatter.string(from: endDate)),
+      URLQueryItem(name: "singleEvents", value: "true"),
+      URLQueryItem(name: "orderBy", value: "startTime"),
+      URLQueryItem(name: "maxResults", value: "2500")
+    ]
+    if let pageToken {
+      components.queryItems?.append(URLQueryItem(name: "pageToken", value: pageToken))
+    }
+    return components.url
   }
 
   /// Loads the primary calendar identity, whose ID is the stable Google account email.
@@ -170,7 +184,7 @@ private struct GoogleCalendarEventsResponse: Decodable {
 }
 
 /// Google Calendar event shape used by the app.
-private struct GoogleCalendarEvent: Decodable {
+struct GoogleCalendarEvent: Decodable {
   let id: String
   let iCalUID: String?
   let status: String?
@@ -185,6 +199,7 @@ private struct GoogleCalendarEvent: Decodable {
 
   /// Converts a Google event into one account- and calendar-scoped display item.
   func displayItem(accountID: UUID, calendar: GoogleCalendarSource, now: Date) -> CalendarEventItem? {
+    let isAllDay = start.isDateOnly && end.isDateOnly
     guard status != "cancelled",
           let startDate = start.resolvedDate,
           let endDate = end.resolvedDate,
@@ -194,33 +209,41 @@ private struct GoogleCalendarEvent: Decodable {
 
     let occurrenceDate = originalStartTime?.resolvedDate ?? startDate
     let deduplicationKey = iCalUID.map { "\($0)|\(occurrenceDate.timeIntervalSince1970)" }
+    let structuredMeetingURL = CalendarEventItem.safeWebURL(conferenceURL)
+    let locationURL = location.flatMap(Self.firstURL(in:)).flatMap(CalendarEventItem.safeWebURL)
+    let meetingURL = structuredMeetingURL ?? CalendarEventItem.recognizedMeetingURL(locationURL)
+    let calendarURL = CalendarEventItem.safeWebURL(htmlLink.flatMap(URL.init(string:)))
     return CalendarEventItem(
       id: CalendarEventItem.compositeID(accountID: accountID, calendarID: calendar.id, eventID: id),
       title: (summary?.isEmpty == false ? summary : "Untitled event") ?? "Untitled event",
       startDate: startDate,
       endDate: endDate,
       location: location,
-      calendarURL: htmlLink.flatMap(URL.init(string:)),
-      openURL: preferredOpenURL,
+      isAllDay: isAllDay,
+      calendarURL: calendarURL,
+      meetingURL: meetingURL,
+      openURL: meetingURL ?? locationURL ?? calendarURL,
       sourceCalendarNames: [calendar.name],
       sourceIDs: [CalendarEventItem.sourceID(accountID: accountID, calendarID: calendar.id)],
       deduplicationKey: deduplicationKey
     )
   }
 
-  /// Best URL to open when the user clicks the event row.
-  private var preferredOpenURL: URL? {
-    conferenceURL ?? location.flatMap(Self.firstURL(in:)) ?? htmlLink.flatMap(URL.init(string:))
-  }
-
   /// Best structured conferencing URL from Google Calendar.
   private var conferenceURL: URL? {
-    if let hangoutURL = hangoutLink.flatMap(URL.init(string:)) {
+    if let hangoutURL = CalendarEventItem.safeWebURL(hangoutLink.flatMap(URL.init(string:))) {
       return hangoutURL
     }
     let entries = conferenceData?.entryPoints ?? []
-    return entries.first(where: { $0.entryPointType == "video" })?.url
-      ?? entries.first(where: { $0.url != nil })?.url
+    if let videoURL = entries
+      .first(where: { $0.entryPointType == "video" })
+      .flatMap({ CalendarEventItem.safeWebURL($0.url) }) {
+      return videoURL
+    }
+    return entries.lazy
+      .filter { $0.entryPointType?.lowercased() != "more" }
+      .compactMap { CalendarEventItem.safeWebURL($0.url) }
+      .first
   }
 
   /// Finds the first URL embedded in a location string.
@@ -231,11 +254,11 @@ private struct GoogleCalendarEvent: Decodable {
   }
 }
 
-private struct GoogleCalendarConferenceData: Decodable {
+struct GoogleCalendarConferenceData: Decodable {
   let entryPoints: [GoogleCalendarEntryPoint]?
 }
 
-private struct GoogleCalendarEntryPoint: Decodable {
+struct GoogleCalendarEntryPoint: Decodable {
   let entryPointType: String?
   let uri: String?
 
@@ -244,16 +267,26 @@ private struct GoogleCalendarEntryPoint: Decodable {
   }
 }
 
-/// Google Calendar date wrapper; all-day dates intentionally resolve to nil.
-private struct GoogleCalendarEventDate: Decodable {
+/// Google Calendar timestamp or floating all-day date.
+struct GoogleCalendarEventDate: Decodable {
   let dateTime: String?
   let date: String?
   let timeZone: String?
 
+  var isDateOnly: Bool {
+    dateTime == nil && date != nil
+  }
+
   var resolvedDate: Date? {
-    guard let dateTime else {
-      return nil
+    if let dateTime {
+      return DateParsers.rfc3339Date(from: dateTime)
     }
-    return DateParsers.rfc3339Date(from: dateTime)
+    guard let date else { return nil }
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = .current
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter.date(from: date)
   }
 }
