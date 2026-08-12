@@ -513,12 +513,18 @@ CI also runs `swift build` and `swift test` for pull requests and pushes to
 
 ### Manual fallback
 
-Install the DMG layout tool once before packaging locally, or use the pinned
-bootstrap script used by CI:
+Install the DMG layout tool with Homebrew before packaging locally:
 
 ```sh
 brew install create-dmg
-./script/install_create_dmg.sh /tmp/dayline-create-dmg
+./script/package_release.sh
+```
+
+Alternatively, use the checksum-pinned bootstrap used by CI:
+
+```sh
+CREATE_DMG_BIN="$(./script/install_create_dmg.sh /tmp/dayline-create-dmg)" \
+  ./script/package_release.sh
 ```
 
 Create local unsigned or development-signed artifacts:
