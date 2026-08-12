@@ -513,6 +513,12 @@ CI also runs `swift build` and `swift test` for pull requests and pushes to
 
 ### Manual fallback
 
+Install the DMG layout tool once before packaging locally:
+
+```sh
+brew install create-dmg
+```
+
 Create local unsigned or development-signed artifacts:
 
 ```sh

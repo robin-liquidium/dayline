@@ -11,15 +11,29 @@ struct UpdateServiceTests {
     #expect(service.availableVersion == "9.9.9")
   }
 
-  @Test func enabledInjectedUpdaterInvokesConfiguredCheckAction() {
-    var invocationCount = 0
-    let service = UpdateService(canCheckForUpdates: true) {
-      invocationCount += 1
+  @Test func enabledInjectedUpdaterActivatesThenChecksOnNextMainLoopTurn() async {
+    var actions: [String] = []
+    var service: UpdateService?
+
+    await withCheckedContinuation { continuation in
+      service = UpdateService(
+        canCheckForUpdates: true,
+        activateApplicationAction: {
+          actions.append("activate")
+        },
+        checkForUpdatesAction: {
+          actions.append("check")
+          continuation.resume()
+        }
+      )
+
+      #expect(service?.isUpdaterAvailable == true)
+      service?.checkForUpdates()
+      #expect(actions.isEmpty)
     }
 
-    #expect(service.isUpdaterAvailable)
-    service.checkForUpdates()
-    #expect(invocationCount == 1)
+    #expect(actions == ["activate", "check"])
+    _ = service
   }
 
   @Test func disabledInjectedUpdaterDoesNotInvokeConfiguredCheckAction() {

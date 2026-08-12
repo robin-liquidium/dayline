@@ -129,6 +129,9 @@ jobs:
           swift build
           swift test
 
+      - name: Install DMG packaging tool
+        run: brew install create-dmg
+
       - name: Preserve and submit signed app
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

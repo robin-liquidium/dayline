@@ -7,12 +7,23 @@ MOCK_PLIST="$ROOT_DIR/dist/Dayline Mock.app/Contents/Info.plist"
 RELEASE_PLIST="$ROOT_DIR/dist/release/Dayline.app/Contents/Info.plist"
 DEV_APP="$ROOT_DIR/dist/Dayline Dev.app"
 RELEASE_APP="$ROOT_DIR/dist/release/Dayline.app"
+RELEASE_DMG="$ROOT_DIR/dist/artifacts/Dayline-0.1.0-dev.dmg"
 TEST_GOOGLE_CLIENT_ID="1234567890-dayline-dev-contract.apps.googleusercontent.com" # autoreview:allow-secret
 TEST_GOOGLE_SCHEME="com.googleusercontent.apps.1234567890-dayline-dev-contract"
 INSTALLER_LOCK_DIR="${TMPDIR:-/tmp}/dayline-dev-installer.lock"
 LOG_FILE="$(mktemp -t dayline-bundle-contract.XXXXXX)"
 MALFORMED_PLIST="$(mktemp -t dayline-malformed-plist.XXXXXX)"
-trap 'rm -f "$LOG_FILE" "$MALFORMED_PLIST"; rm -rf "$INSTALLER_LOCK_DIR"' EXIT
+DMG_MOUNT=""
+
+cleanup() {
+  if [[ -n "$DMG_MOUNT" && -d "$DMG_MOUNT" ]]; then
+    /usr/bin/hdiutil detach "$DMG_MOUNT" >/dev/null 2>&1 || true
+    rmdir "$DMG_MOUNT" 2>/dev/null || true
+  fi
+  rm -f "$LOG_FILE" "$MALFORMED_PLIST"
+  rm -rf "$INSTALLER_LOCK_DIR"
+}
+trap cleanup EXIT
 
 cd "$ROOT_DIR"
 
@@ -141,5 +152,18 @@ assert_nonempty "$RELEASE_PLIST" SUFeedURL
 assert_url_scheme "$RELEASE_PLIST" dayline
 assert_url_scheme "$RELEASE_PLIST" com.googleusercontent.apps.551177930544-9sl0govp6ok205csb939j4p2dhckrgbk
 assert_eventkit_entitlement "$RELEASE_APP"
+
+DMG_MOUNT="$(mktemp -d "${TMPDIR:-/tmp}/dayline-dmg-contract.XXXXXX")"
+/usr/bin/hdiutil attach -readonly -nobrowse -mountpoint "$DMG_MOUNT" "$RELEASE_DMG" >/dev/null
+[[ -d "$DMG_MOUNT/Dayline.app" ]] || fail "release DMG is missing Dayline.app"
+[[ -L "$DMG_MOUNT/Applications" ]] || fail "release DMG is missing the Applications drop link"
+[[ "$(readlink "$DMG_MOUNT/Applications")" == "/Applications" ]] ||
+  fail "release DMG Applications link has the wrong destination"
+[[ -f "$DMG_MOUNT/.DS_Store" ]] || fail "release DMG is missing Finder layout metadata"
+[[ -f "$DMG_MOUNT/.background/DaylineDMGBackground.png" ]] ||
+  fail "release DMG is missing its arrow background"
+/usr/bin/hdiutil detach "$DMG_MOUNT" >/dev/null
+rmdir "$DMG_MOUNT"
+DMG_MOUNT=""
 
 echo "app_bundle_contract_test: passed"

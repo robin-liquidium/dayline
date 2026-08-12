@@ -73,6 +73,9 @@ jobs:
       - name: Resolve Sparkle publishing tools
         run: swift build
 
+      - name: Install DMG packaging tool
+        run: brew install create-dmg
+
       - name: Import Developer ID certificate
         run: |
           certificate_path="$RUNNER_TEMP/developer-id.p12"

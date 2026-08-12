@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 @preconcurrency import Sparkle
@@ -20,6 +21,7 @@ final class UpdateService: NSObject, ObservableObject {
   }
 
   private var updaterController: SPUStandardUpdaterController?
+  private var injectedActivateApplicationAction: (() -> Void)?
   private var injectedCheckForUpdatesAction: (() -> Void)?
   private var automaticallyDownloadsObservation: NSKeyValueObservation?
   private var canCheckForUpdatesObservation: NSKeyValueObservation?
@@ -71,8 +73,13 @@ final class UpdateService: NSObject, ObservableObject {
   }
 
   /// Creates an isolated updater action for unit tests without starting Sparkle.
-  init(canCheckForUpdates: Bool, checkForUpdatesAction: @escaping () -> Void) {
+  init(
+    canCheckForUpdates: Bool,
+    activateApplicationAction: @escaping () -> Void = {},
+    checkForUpdatesAction: @escaping () -> Void
+  ) {
     self.canCheckForUpdates = canCheckForUpdates
+    injectedActivateApplicationAction = activateApplicationAction
     injectedCheckForUpdatesAction = checkForUpdatesAction
     super.init()
   }
@@ -83,16 +90,28 @@ final class UpdateService: NSObject, ObservableObject {
     updaterController?.updater.automaticallyDownloadsUpdates = isEnabled
   }
 
-  /// Runs a user-initiated update check, letting Sparkle present its standard UI.
+  /// Runs a user-initiated update check after the menu-bar sheet finishes dismissing.
   func checkForUpdates() {
     guard canCheckForUpdates else {
       return
     }
-    if let injectedCheckForUpdatesAction {
-      injectedCheckForUpdatesAction()
-      return
+
+    DispatchQueue.main.async { [weak self] in
+      guard let self else {
+        return
+      }
+      if let injectedActivateApplicationAction {
+        injectedActivateApplicationAction()
+      } else {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+      }
+
+      if let injectedCheckForUpdatesAction {
+        injectedCheckForUpdatesAction()
+      } else {
+        updaterController?.checkForUpdates(nil)
+      }
     }
-    updaterController?.checkForUpdates(nil)
   }
 
   /// Keeps the footer reminder for an update Sparkle has staged to install on quit.

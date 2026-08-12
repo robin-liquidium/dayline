@@ -36,6 +36,9 @@ jobs:
       - name: Test
         run: swift test
 
+      - name: Install DMG packaging tool
+        run: brew install create-dmg
+
       - name: Validate automation
         run: |
           bash -n script/*.sh
