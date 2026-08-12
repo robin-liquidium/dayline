@@ -26,8 +26,8 @@ struct AppleCalendarEventCreationTests {
     let store = StatusStore(mockData: MockData.make())
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = .current
-    let start = try #require(calendar.date(from: DateComponents(year: 2026, month: 8, day: 10)))
-    let inclusiveEnd = try #require(calendar.date(from: DateComponents(year: 2026, month: 8, day: 11)))
+    let start = calendar.startOfDay(for: Date())
+    let inclusiveEnd = try #require(calendar.date(byAdding: .day, value: 1, to: start))
 
     try await store.createAppleCalendarEvent(draft: AppleCalendarEventCreateDraft(
       title: "Conference",
