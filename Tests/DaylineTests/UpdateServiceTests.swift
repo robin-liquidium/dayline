@@ -1,3 +1,4 @@
+import Dispatch
 import Testing
 @testable import Dayline
 
@@ -11,7 +12,8 @@ struct UpdateServiceTests {
     #expect(service.availableVersion == "9.9.9")
   }
 
-  @Test func enabledInjectedUpdaterActivatesThenChecksOnNextMainLoopTurn() async {
+  @Test(.timeLimit(.minutes(1)))
+  func enabledInjectedUpdaterActivatesThenChecksOnNextMainLoopTurn() async {
     var actions: [String] = []
     var service: UpdateService?
 
@@ -36,7 +38,8 @@ struct UpdateServiceTests {
     _ = service
   }
 
-  @Test func disabledInjectedUpdaterDoesNotInvokeConfiguredCheckAction() {
+  @Test(.timeLimit(.minutes(1)))
+  func disabledInjectedUpdaterDoesNotInvokeConfiguredCheckAction() async {
     var invocationCount = 0
     let service = UpdateService(canCheckForUpdates: false) {
       invocationCount += 1
@@ -44,6 +47,11 @@ struct UpdateServiceTests {
 
     #expect(service.isUpdaterAvailable)
     service.checkForUpdates()
+    await withCheckedContinuation { continuation in
+      DispatchQueue.main.async {
+        continuation.resume()
+      }
+    }
     #expect(invocationCount == 0)
   }
 

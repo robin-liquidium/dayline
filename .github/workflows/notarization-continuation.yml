@@ -23,23 +23,27 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 45
 
-    env:
-      MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
-      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-      APP_STORE_CONNECT_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 }}
-      APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-
     steps:
       - name: Check out release tooling
         uses: actions/checkout@v7
         with:
           ref: main
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Install pinned DMG packaging tool
+        run: |
+          create_dmg_bin="$(./script/install_create_dmg.sh "$RUNNER_TEMP/create-dmg")"
+          echo "CREATE_DMG_BIN=$create_dmg_bin" >> "$GITHUB_ENV"
 
       - name: Validate release secrets
         env:
           APPCAST_DEPLOY_KEY: ${{ secrets.APPCAST_DEPLOY_KEY }}
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APP_STORE_CONNECT_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           DAYLINE_SPARKLE_PRIVATE_KEY: ${{ secrets.DAYLINE_SPARKLE_PRIVATE_KEY }}
         run: |
           for name in \
@@ -73,10 +77,10 @@ jobs:
       - name: Resolve Sparkle publishing tools
         run: swift build
 
-      - name: Install DMG packaging tool
-        run: brew install create-dmg
-
       - name: Import Developer ID certificate
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
         run: |
           certificate_path="$RUNNER_TEMP/developer-id.p12"
           keychain_path="$RUNNER_TEMP/dayline-signing.keychain-db"
@@ -109,6 +113,10 @@ jobs:
           echo "SIGNING_CERTIFICATE_PATH=$certificate_path" >> "$GITHUB_ENV"
 
       - name: Write App Store Connect API key
+        env:
+          APP_STORE_CONNECT_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
         run: |
           key_path="$RUNNER_TEMP/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
           printf '%s' "$APP_STORE_CONNECT_KEY_P8_BASE64" | /usr/bin/base64 -D > "$key_path"

@@ -412,28 +412,59 @@ advance_accepted_app() {
   local release_id="$1"
   local release_json="$2"
   local state_json="$3"
-  local version build_number app_asset app_sha app_zip dmg dmg_asset dmg_sha now
+  local tag commit_sha resolved_tag_sha version build_number app_asset app_sha tag_root accepted_app tag_artifacts
+  local tag_app_zip tag_dmg app_zip dmg dmg_asset dmg_sha now
 
+  tag="$(jq -r '.tag' <<< "$state_json")"
+  commit_sha="$(jq -r '.commit_sha' <<< "$state_json")"
   version="$(jq -r '.version' <<< "$state_json")"
   build_number="$(jq -r '.build_number' <<< "$state_json")"
   app_asset="$(jq -r '.app_submission_asset' <<< "$state_json")"
   app_sha="$(jq -r '.app_submission_sha256' <<< "$state_json")"
 
   rm -rf "$WORK_DIR" "$RELEASE_DIR" "$ARTIFACT_DIR"
-  mkdir -p "$WORK_DIR" "$RELEASE_DIR"
+  mkdir -p "$WORK_DIR"
   download_asset "$release_json" "$app_asset" "$WORK_DIR/$app_asset" || return 1
   verify_sha256 "$WORK_DIR/$app_asset" "$app_sha" || return 1
-  /usr/bin/ditto -x -k "$WORK_DIR/$app_asset" "$RELEASE_DIR" || return 1
 
-  /usr/bin/codesign --verify --strict --verbose=2 "$APP_BUNDLE"
-  xcrun stapler staple "$APP_BUNDLE"
-  xcrun stapler validate "$APP_BUNDLE"
+  resolved_tag_sha="$(git rev-parse "$tag^{commit}" 2>/dev/null || true)"
+  if [[ -z "$commit_sha" || "$commit_sha" == "null" || "$resolved_tag_sha" != "$commit_sha" ]]; then
+    echo "Persisted release commit does not match $tag ($commit_sha != $resolved_tag_sha)." >&2
+    return 1
+  fi
 
-  MARKETING_VERSION="$version" BUILD_NUMBER="$build_number" \
-    "$ROOT_DIR/script/package_release.sh" --package-existing
+  tag_root="$(mktemp -d "$WORK_DIR/tag-source.XXXXXX")"
+  rmdir "$tag_root"
+  if ! git worktree add --detach "$tag_root" "$commit_sha" >/dev/null; then
+    return 1
+  fi
+  if ! (
+    trap 'git -C "$ROOT_DIR" worktree remove --force "$tag_root" >/dev/null 2>&1 || true; git -C "$ROOT_DIR" worktree prune' EXIT
+    mkdir -p "$tag_root/dist/release"
+    /usr/bin/ditto -x -k "$WORK_DIR/$app_asset" "$tag_root/dist/release"
+    accepted_app="$tag_root/dist/release/$APP_NAME.app"
 
+    /usr/bin/codesign --verify --strict --verbose=2 "$accepted_app"
+    xcrun stapler staple "$accepted_app"
+    xcrun stapler validate "$accepted_app"
+
+    MARKETING_VERSION="$version" BUILD_NUMBER="$build_number" \
+      "$tag_root/script/package_release.sh" --package-existing
+
+    tag_artifacts="$tag_root/dist/artifacts"
+    cp "$tag_artifacts/$APP_NAME-$version.app.zip" "$WORK_DIR/tag-app.zip"
+    cp "$tag_artifacts/$APP_NAME-$version.dmg" "$WORK_DIR/tag.dmg"
+  ); then
+    return 1
+  fi
+
+  tag_app_zip="$WORK_DIR/tag-app.zip"
+  tag_dmg="$WORK_DIR/tag.dmg"
+  mkdir -p "$ARTIFACT_DIR"
   app_zip="$ARTIFACT_DIR/$APP_NAME-$version.app.zip"
   dmg="$ARTIFACT_DIR/$APP_NAME-$version.dmg"
+  cp "$tag_app_zip" "$app_zip"
+  cp "$tag_dmg" "$dmg"
   dmg_asset="$APP_NAME-$version-${GITHUB_RUN_ID:-manual}-dmg-notary.dmg"
   cp "$dmg" "$WORK_DIR/$dmg_asset"
   dmg_sha="$(sha256 "$WORK_DIR/$dmg_asset")"

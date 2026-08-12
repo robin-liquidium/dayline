@@ -162,6 +162,18 @@ DMG_MOUNT="$(mktemp -d "${TMPDIR:-/tmp}/dayline-dmg-contract.XXXXXX")"
 [[ -f "$DMG_MOUNT/.DS_Store" ]] || fail "release DMG is missing Finder layout metadata"
 [[ -f "$DMG_MOUNT/.background/DaylineDMGBackground.png" ]] ||
   fail "release DMG is missing its arrow background"
+[[ "$(/usr/bin/sips -g pixelWidth "$DMG_MOUNT/.background/DaylineDMGBackground.png" 2>/dev/null | awk '/pixelWidth/ { print $2 }')" == "640" ]] ||
+  fail "release DMG background width is not 640 pixels"
+[[ "$(/usr/bin/sips -g pixelHeight "$DMG_MOUNT/.background/DaylineDMGBackground.png" 2>/dev/null | awk '/pixelHeight/ { print $2 }')" == "320" ]] ||
+  fail "release DMG background height is not 320 pixels"
+strings "$DMG_MOUNT/.DS_Store" | grep -Fq "DaylineDMGBackground.png" ||
+  fail "release DMG Finder metadata does not reference its background"
+grep -Fq -- '--window-size 640 390' "$ROOT_DIR/script/package_release.sh" ||
+  fail "release DMG window size changed without updating its layout contract"
+grep -Fq -- '--icon "$APP_NAME.app" 160 160' "$ROOT_DIR/script/package_release.sh" ||
+  fail "release DMG app icon position changed without updating its layout contract"
+grep -Fq -- '--app-drop-link 480 160' "$ROOT_DIR/script/package_release.sh" ||
+  fail "release DMG Applications position changed without updating its layout contract"
 /usr/bin/hdiutil detach "$DMG_MOUNT" >/dev/null
 rmdir "$DMG_MOUNT"
 DMG_MOUNT=""
