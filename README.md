@@ -527,12 +527,6 @@ CREATE_DMG_BIN="$(./script/install_create_dmg.sh /tmp/dayline-create-dmg)" \
   ./script/package_release.sh
 ```
 
-Create local unsigned or development-signed artifacts:
-
-```sh
-./script/package_release.sh
-```
-
 Official notarization should run through GitHub Actions so the preserved artifact,
 submission IDs, and continuation state stay together. The scripts reject dirty,
 untagged, mismatched, corrupt, or duplicate public releases.
