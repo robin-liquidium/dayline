@@ -15,27 +15,39 @@ struct UpdateServiceTests {
   @Test(.timeLimit(.minutes(1)))
   func enabledInjectedUpdaterActivatesThenChecksOnNextMainLoopTurn() async {
     var actions: [String] = []
-    var service: UpdateService?
+    let (checkEvents, checkEventContinuation) = AsyncStream<Void>.makeStream()
+    let service = UpdateService(
+      canCheckForUpdates: true,
+      activateApplicationAction: {
+        actions.append("activate")
+      },
+      checkForUpdatesAction: {
+        actions.append("check")
+        checkEventContinuation.yield()
+      }
+    )
 
-    await withCheckedContinuation { continuation in
-      service = UpdateService(
-        canCheckForUpdates: true,
-        activateApplicationAction: {
-          actions.append("activate")
-        },
-        checkForUpdatesAction: {
-          actions.append("check")
-          continuation.resume()
-        }
-      )
+    #expect(service.isUpdaterAvailable)
+    service.checkForUpdates()
+    #expect(actions.isEmpty)
 
-      #expect(service?.isUpdaterAvailable == true)
-      service?.checkForUpdates()
-      #expect(actions.isEmpty)
+    let receivedCheck = await withTaskGroup(of: Bool.self) { group in
+      group.addTask {
+        var iterator = checkEvents.makeAsyncIterator()
+        return await iterator.next() != nil
+      }
+      group.addTask {
+        try? await Task.sleep(for: .seconds(1))
+        return false
+      }
+      let result = await group.next() ?? false
+      group.cancelAll()
+      checkEventContinuation.finish()
+      return result
     }
 
+    #expect(receivedCheck)
     #expect(actions == ["activate", "check"])
-    _ = service
   }
 
   @Test(.timeLimit(.minutes(1)))
