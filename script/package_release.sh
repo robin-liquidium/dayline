@@ -25,7 +25,8 @@ SPARKLE_FRAMEWORK_NAME="Sparkle.framework"
 SPARKLE_PUBLIC_KEY="b7IXyZXo7zqHoVUdwJeOTwxY6gbmJYP/e0NV4i3G/Hk="
 SPARKLE_FEED_URL="https://dayline.robin.build/appcast.xml"
 DMG_ROOT="$DIST_DIR/dmg-root"
-DMG_BACKGROUND="$ROOT_DIR/Resources/DaylineDMGBackground.png"
+DMG_BACKGROUND_SOURCE="$ROOT_DIR/Resources/DaylineDMGBackground.svg"
+DMG_BACKGROUND="$DIST_DIR/DaylineDMGBackground.png"
 NOTARY_ZIP="$DIST_DIR/$APP_NAME-notary.zip"
 
 INSTALL_APP=false
@@ -302,10 +303,12 @@ create_dmg() {
     echo "create-dmg is required to package Dayline. Install it with: brew install create-dmg" >&2
     exit 2
   fi
-  if [[ ! -f "$DMG_BACKGROUND" ]]; then
-    echo "Missing DMG background: $DMG_BACKGROUND" >&2
+  if [[ ! -f "$DMG_BACKGROUND_SOURCE" ]]; then
+    echo "Missing DMG background: $DMG_BACKGROUND_SOURCE" >&2
     exit 2
   fi
+
+  /usr/bin/sips -s format png "$DMG_BACKGROUND_SOURCE" --out "$DMG_BACKGROUND" >/dev/null
 
   rm -rf "$DMG_ROOT"
   mkdir -p "$DMG_ROOT"
