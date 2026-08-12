@@ -412,7 +412,7 @@ advance_accepted_app() {
   local release_id="$1"
   local release_json="$2"
   local state_json="$3"
-  local tag commit_sha resolved_tag_sha version build_number app_asset app_sha tag_root accepted_app tag_artifacts
+  local tag commit_sha resolved_tag_sha version build_number app_asset app_sha tag_root accepted_app tag_artifacts create_dmg_bin
   local tag_app_zip tag_dmg app_zip dmg dmg_asset dmg_sha now
 
   tag="$(jq -r '.tag' <<< "$state_json")"
@@ -448,7 +448,8 @@ advance_accepted_app() {
     xcrun stapler staple "$accepted_app"
     xcrun stapler validate "$accepted_app"
 
-    MARKETING_VERSION="$version" BUILD_NUMBER="$build_number" \
+    create_dmg_bin="$("$tag_root/script/install_create_dmg.sh" "$WORK_DIR/create-dmg")"
+    CREATE_DMG_BIN="$create_dmg_bin" MARKETING_VERSION="$version" BUILD_NUMBER="$build_number" \
       "$tag_root/script/package_release.sh" --package-existing
 
     tag_artifacts="$tag_root/dist/artifacts"

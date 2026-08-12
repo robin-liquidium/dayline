@@ -45,11 +45,6 @@ jobs:
           test "$(git describe --tags --exact-match HEAD)" = "$RELEASE_TAG"
           git merge-base --is-ancestor HEAD origin/main
 
-      - name: Install pinned DMG packaging tool
-        run: |
-          create_dmg_bin="$(./script/install_create_dmg.sh "$RUNNER_TEMP/create-dmg")"
-          echo "CREATE_DMG_BIN=$create_dmg_bin" >> "$GITHUB_ENV"
-
       - name: Validate release secrets
         env:
           APPCAST_DEPLOY_KEY: ${{ secrets.APPCAST_DEPLOY_KEY }}
