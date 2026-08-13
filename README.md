@@ -513,10 +513,18 @@ CI also runs `swift build` and `swift test` for pull requests and pushes to
 
 ### Manual fallback
 
-Create local unsigned or development-signed artifacts:
+Install the DMG layout tool with Homebrew before packaging locally:
 
 ```sh
+brew install create-dmg
 ./script/package_release.sh
+```
+
+Alternatively, use the checksum-pinned bootstrap used by CI:
+
+```sh
+CREATE_DMG_BIN="$(./script/install_create_dmg.sh /tmp/dayline-create-dmg)" \
+  ./script/package_release.sh
 ```
 
 Official notarization should run through GitHub Actions so the preserved artifact,

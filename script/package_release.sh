@@ -25,6 +25,8 @@ SPARKLE_FRAMEWORK_NAME="Sparkle.framework"
 SPARKLE_PUBLIC_KEY="b7IXyZXo7zqHoVUdwJeOTwxY6gbmJYP/e0NV4i3G/Hk="
 SPARKLE_FEED_URL="https://dayline.robin.build/appcast.xml"
 DMG_ROOT="$DIST_DIR/dmg-root"
+DMG_BACKGROUND_SOURCE="$ROOT_DIR/Resources/DaylineDMGBackground.svg"
+DMG_BACKGROUND="$DIST_DIR/DaylineDMGBackground.png"
 NOTARY_ZIP="$DIST_DIR/$APP_NAME-notary.zip"
 
 INSTALL_APP=false
@@ -71,6 +73,7 @@ Environment:
   NOTARY_KEY_PATH         App Store Connect API key (.p8) for CI notarization.
   NOTARY_KEY_ID           App Store Connect API key ID.
   NOTARY_ISSUER_ID        App Store Connect API issuer ID.
+  CREATE_DMG_BIN          create-dmg executable. Defaults to PATH lookup.
 
 Internal CI stages:
   --prepare-notarization  Build and sign the app, then preserve its notarization ZIP.
@@ -292,14 +295,39 @@ embed_and_sign_sparkle() {
   /usr/bin/codesign --verify --strict --verbose=2 "$destination_framework"
 }
 
-# create_dmg builds the drag-install disk image used for GitHub releases.
+# create_dmg builds the minimal app-to-Applications drag-install image used for releases.
 create_dmg() {
+  local create_dmg_bin
+  create_dmg_bin="${CREATE_DMG_BIN:-$(command -v create-dmg || true)}"
+  if [[ -z "$create_dmg_bin" || ! -x "$create_dmg_bin" ]]; then
+    echo "create-dmg is required to package Dayline. Install it with: brew install create-dmg" >&2
+    exit 2
+  fi
+  if [[ ! -f "$DMG_BACKGROUND_SOURCE" ]]; then
+    echo "Missing DMG background: $DMG_BACKGROUND_SOURCE" >&2
+    exit 2
+  fi
+
+  /usr/bin/sips -s format png "$DMG_BACKGROUND_SOURCE" --out "$DMG_BACKGROUND" >/dev/null
+
   rm -rf "$DMG_ROOT"
   mkdir -p "$DMG_ROOT"
   /usr/bin/ditto "$APP_BUNDLE" "$DMG_ROOT/$APP_NAME.app"
-  ln -s /Applications "$DMG_ROOT/Applications"
   rm -f "$DMG_PATH"
-  /usr/sbin/diskutil image create from --format UDZO --volumeName "$APP_NAME" "$DMG_ROOT" "$DMG_PATH"
+  "$create_dmg_bin" \
+    --overwrite \
+    --volname "$APP_NAME" \
+    --background "$DMG_BACKGROUND" \
+    --window-pos 200 120 \
+    --window-size 640 390 \
+    --icon-size 112 \
+    --text-size 14 \
+    --icon "$APP_NAME.app" 160 160 \
+    --hide-extension "$APP_NAME.app" \
+    --app-drop-link 480 160 \
+    --filesystem APFS \
+    "$DMG_PATH" \
+    "$DMG_ROOT"
   rm -rf "$DMG_ROOT"
 
   if [[ "$SIGNING_IDENTITY" != "-" ]]; then

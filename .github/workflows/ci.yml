@@ -36,6 +36,11 @@ jobs:
       - name: Test
         run: swift test
 
+      - name: Install DMG packaging tool
+        run: |
+          create_dmg_bin="$(./script/install_create_dmg.sh "$RUNNER_TEMP/create-dmg")"
+          echo "CREATE_DMG_BIN=$create_dmg_bin" >> "$GITHUB_ENV"
+
       - name: Validate automation
         run: |
           bash -n script/*.sh

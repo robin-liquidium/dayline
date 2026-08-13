@@ -26,11 +26,6 @@ jobs:
 
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-      MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
-      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-      APP_STORE_CONNECT_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 }}
-      APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
 
     steps:
       - name: Check out tagged source
@@ -53,6 +48,11 @@ jobs:
       - name: Validate release secrets
         env:
           APPCAST_DEPLOY_KEY: ${{ secrets.APPCAST_DEPLOY_KEY }}
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APP_STORE_CONNECT_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           DAYLINE_SPARKLE_PRIVATE_KEY: ${{ secrets.DAYLINE_SPARKLE_PRIVATE_KEY }}
         run: |
           for name in \
@@ -84,6 +84,9 @@ jobs:
           echo "APPCAST_DEPLOY_KEY_PATH=$key_path" >> "$GITHUB_ENV"
 
       - name: Import Developer ID certificate
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
         run: |
           certificate_path="$RUNNER_TEMP/developer-id.p12"
           keychain_path="$RUNNER_TEMP/dayline-signing.keychain-db"
@@ -116,6 +119,10 @@ jobs:
           echo "SIGNING_CERTIFICATE_PATH=$certificate_path" >> "$GITHUB_ENV"
 
       - name: Write App Store Connect API key
+        env:
+          APP_STORE_CONNECT_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
         run: |
           key_path="$RUNNER_TEMP/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
           printf '%s' "$APP_STORE_CONNECT_KEY_P8_BASE64" | /usr/bin/base64 -D > "$key_path"
