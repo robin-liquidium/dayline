@@ -1,6 +1,22 @@
 {
   "releases": [
     {
+      "version": "0.2.7",
+      "date": "2026-08-13",
+      "fixed": [
+        {
+          "title": "Reliable one-click updates",
+          "text": "The Update button in the menu bar now brings Sparkle’s update window forward on the first click.",
+          "pr": 73
+        },
+        {
+          "title": "Easier installation",
+          "text": "The Dayline disk image now opens with a clear drag-to-Applications layout.",
+          "pr": 73
+        }
+      ]
+    },
+    {
       "version": "0.2.6",
       "date": "2026-08-11",
       "new": [
