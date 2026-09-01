@@ -11,8 +11,8 @@ let package = Package(
     .executable(name: "Dayline", targets: ["Dayline"])
   ],
   dependencies: [
-    .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.4"),
-    .package(url: "https://github.com/nodes-app/swift-markdown-engine", exact: "0.11.0")
+    .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6"),
+    .package(url: "https://github.com/nodes-app/swift-markdown-engine", exact: "0.12.0")
   ],
   targets: [
     .executableTarget(
