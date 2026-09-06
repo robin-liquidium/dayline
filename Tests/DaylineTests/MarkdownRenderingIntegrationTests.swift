@@ -52,7 +52,7 @@ struct MarkdownRenderingIntegrationTests {
 
     let sourceNSString = source as NSString
     let bodyFont = try #require(rendered.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
-    #expect(bodyFont.pointSize == NSFont.systemFontSize)
+    #expect(bodyFont.pointSize == NoteEditorAppearance.bodyFont.pointSize)
     #expect(bodyFont.familyName == NoteEditorAppearance.bodyFont.familyName)
 
     let italicContent = sourceNSString.range(of: "italic words")

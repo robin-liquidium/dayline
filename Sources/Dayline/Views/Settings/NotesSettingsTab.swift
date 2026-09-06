@@ -15,7 +15,7 @@ struct NotesSettingsTab: View {
 
         Picker("Notes shown", selection: defaultNoteCountBinding) {
           ForEach(defaultNoteCountPickerOptions, id: \.self) { count in
-            Text("\(count) notes").tag(count)
+            Text(count == 1 ? "1 note" : "\(count) notes").tag(count)
           }
         }
         .disabled(!store.showsNotesSection)
