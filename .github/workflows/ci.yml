@@ -37,6 +37,12 @@ jobs:
         id: swift-test
         run: swift test
 
+      - name: Diagnose failed Swift tests serially
+        if: failure() && steps.swift-test.outcome == 'failure'
+        timeout-minutes: 5
+        continue-on-error: true
+        run: swift test --skip-build --no-parallel
+
       - name: Upload test crash reports
         if: failure() && steps.swift-test.outcome == 'failure'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
