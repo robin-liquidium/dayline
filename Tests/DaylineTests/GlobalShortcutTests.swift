@@ -5,26 +5,11 @@ import Testing
 @testable import Dayline
 
 struct GlobalShortcutTests {
-  @Test func defaultsDoNotConflictWithEachOther() {
-    let defaults = [
-      GlobalShortcut.newNoteDefault,
-      GlobalShortcut.newLinearIssueDefault,
-      GlobalShortcut.openGoogleCalendarDefault,
-      GlobalShortcut.newGitHubIssueDefault,
-      GlobalShortcut.newAppleReminderDefault
-    ]
-    #expect(Set(defaults.map { "\($0.keyCode)-\($0.carbonModifiers)" }).count == defaults.count)
-    #expect(GlobalShortcut.newGitHubIssueFallbacks.allSatisfy { $0 != GlobalShortcut.newNoteDefault })
-    #expect(GlobalShortcut.newGitHubIssueFallbacks.allSatisfy { $0 != GlobalShortcut.newLinearIssueDefault })
-    #expect(GlobalShortcut.newGitHubIssueFallbacks.allSatisfy { $0 != GlobalShortcut.openGoogleCalendarDefault })
-    #expect(GlobalShortcut.newAppleReminderFallbacks.allSatisfy { $0 != GlobalShortcut.newNoteDefault })
-    #expect(GlobalShortcut.newAppleReminderFallbacks.allSatisfy { $0 != GlobalShortcut.newLinearIssueDefault })
-    #expect(GlobalShortcut.newAppleReminderFallbacks.allSatisfy { $0 != GlobalShortcut.openGoogleCalendarDefault })
-    #expect(GlobalShortcut.newAppleReminderFallbacks.allSatisfy { $0 != GlobalShortcut.newGitHubIssueDefault })
-  }
-
   @Test func allDefaultsAndFallbacksArePairwiseUnique() {
-    // Both fallback lists lead with their own default, so they cover all four defaults.
+    // Each fallback list starts with its own default shortcut.
+    #expect(GlobalShortcut.newGitHubIssueFallbacks.first == GlobalShortcut.newGitHubIssueDefault)
+    #expect(GlobalShortcut.openGoogleCalendarFallbacks.first == GlobalShortcut.openGoogleCalendarDefault)
+    #expect(GlobalShortcut.newAppleReminderFallbacks.first == GlobalShortcut.newAppleReminderDefault)
     let shortcuts = [
       GlobalShortcut.newNoteDefault,
       GlobalShortcut.newLinearIssueDefault
@@ -49,6 +34,7 @@ struct GlobalShortcutTests {
     #expect(try JSONDecoder().decode(GlobalShortcut.self, from: data) == shortcut)
   }
 
+  @MainActor
   @Test func displayStringShowsModifiersAndKey() {
     #expect(GlobalShortcut.newNoteDefault.displayString.hasPrefix("⌃⌥⌘"))
     #expect(GlobalShortcut.newNoteDefault.displayString.hasSuffix("N"))
@@ -98,6 +84,29 @@ struct GlobalShortcutTests {
     #expect(StatusStore.hotkeyMatches("L", configured: "l"))
   }
 
+  @MainActor
+  @Test func recorderStopsConsumingKeysAfterRecordingEnds() {
+    let recorder = ShortcutCaptureNSView()
+    let nextResponder = KeyDownResponderSpy()
+    recorder.nextResponder = nextResponder
+    let event = makeKeyEvent(keyCode: UInt16(kVK_ANSI_N), modifiers: [.command])
+    var capturedKeys = 0
+    recorder.onKeyDown = { _ in capturedKeys += 1 }
+
+    recorder.isRecording = true
+    #expect(recorder.performKeyEquivalent(with: event))
+    #expect(capturedKeys == 1)
+    recorder.keyDown(with: event)
+    #expect(capturedKeys == 2)
+    #expect(nextResponder.keyDownCount == 0)
+
+    recorder.isRecording = false
+    recorder.keyDown(with: event)
+    #expect(!recorder.performKeyEquivalent(with: event))
+    #expect(capturedKeys == 2)
+    #expect(nextResponder.keyDownCount == 1)
+  }
+
   /// Builds a synthetic key event for recorder tests.
   private func makeKeyEvent(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> NSEvent {
     NSEvent.keyEvent(
@@ -112,5 +121,14 @@ struct GlobalShortcutTests {
       isARepeat: false,
       keyCode: keyCode
     )!
+  }
+}
+
+@MainActor
+private final class KeyDownResponderSpy: NSResponder {
+  private(set) var keyDownCount = 0
+
+  override func keyDown(with event: NSEvent) {
+    keyDownCount += 1
   }
 }

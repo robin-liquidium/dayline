@@ -205,7 +205,8 @@ struct GitHubService: Sendable {
       url: URL(string: created.htmlURL),
       updatedAt: created.updatedAt,
       labels: created.labels.map(\.displayItem),
-      assignees: created.assignees.map { GitHubAssigneeOption(login: $0.login) }
+      assignees: created.assignees.map { GitHubAssigneeOption(login: $0.login) },
+      body: created.body
     )
   }
 
@@ -315,6 +316,7 @@ struct GitHubService: Sendable {
   private struct SearchItem: Decodable, Sendable {
     let nodeID: String
     let title: String
+    let body: String?
     let number: Int
     let htmlURL: String
     let repositoryURL: String
@@ -336,12 +338,13 @@ struct GitHubService: Sendable {
         url: URL(string: htmlURL),
         updatedAt: updatedAt,
         labels: labels.map(\.displayItem),
-        assignees: assignees.map { GitHubAssigneeOption(login: $0.login) }
+        assignees: assignees.map { GitHubAssigneeOption(login: $0.login) },
+        body: body
       )
     }
 
     enum CodingKeys: String, CodingKey {
-      case nodeID = "nodeId", title, number, htmlURL = "htmlUrl", repositoryURL = "repositoryUrl", updatedAt, labels, assignees, pullRequest
+      case nodeID = "nodeId", title, body, number, htmlURL = "htmlUrl", repositoryURL = "repositoryUrl", updatedAt, labels, assignees, pullRequest
     }
   }
   private struct PullRequestMarker: Decodable, Sendable {}
@@ -356,6 +359,7 @@ struct GitHubService: Sendable {
   private struct CreatedIssueResponse: Decodable, Sendable {
     let nodeID: String
     let title: String
+    let body: String?
     let number: Int
     let htmlURL: String
     let updatedAt: Date?
@@ -363,7 +367,7 @@ struct GitHubService: Sendable {
     let assignees: [UserResponse]
 
     enum CodingKeys: String, CodingKey {
-      case nodeID = "nodeId", title, number, htmlURL = "htmlUrl", updatedAt, labels, assignees
+      case nodeID = "nodeId", title, body, number, htmlURL = "htmlUrl", updatedAt, labels, assignees
     }
   }
   private struct AssigneesResponse: Decodable, Sendable { let assignees: [UserResponse] }

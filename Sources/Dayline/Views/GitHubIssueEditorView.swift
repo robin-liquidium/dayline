@@ -8,15 +8,14 @@ struct GitHubIssueEditorView: View {
   @StateObject private var draft = GitHubIssueDraft()
   @State private var requestedOptionsRepository = ""
 
-  /// Builds the GitHub issue creator window content.
   var body: some View {
     VStack(spacing: 0) {
       Form {
         Section {
-          TextField("Title", text: titleBinding, prompt: Text("Issue title"))
+          TextField("Title", text: $draft.title, prompt: Text("Issue title"))
             .accessibilityIdentifier("githubEditor.title")
 
-          Picker("Repository", selection: repositoryBinding) {
+          Picker("Repository", selection: $draft.repository) {
             Text("Select repository").tag("")
             ForEach(enabledRepositories, id: \.fullName) { repository in
               Text(repository.fullName).tag(repository.fullName)
@@ -24,7 +23,7 @@ struct GitHubIssueEditorView: View {
           }
           .accessibilityIdentifier("githubEditor.repository")
 
-          Picker("Assignee", selection: assigneeBinding) {
+          Picker("Assignee", selection: $draft.assignee) {
             Text("No assignee").tag("")
             if let ownLogin {
               Text("Me (\(ownLogin))").tag(ownLogin)
@@ -38,7 +37,7 @@ struct GitHubIssueEditorView: View {
 
           LabeledContent("Label") {
             ColoredMenuPicker(
-              selection: labelBinding,
+              selection: $draft.selectedLabel,
               items: [ColoredMenuPickerItem(tag: "", title: "None", symbolName: nil, color: .secondary)]
                 + draft.labels.map { label in
                   ColoredMenuPickerItem(
@@ -56,7 +55,7 @@ struct GitHubIssueEditorView: View {
         }
 
         Section {
-          TextEditor(text: bodyBinding)
+          TextEditor(text: $draft.body)
             .font(.body)
             .frame(minHeight: 110)
             .scrollContentBackground(.hidden)
@@ -152,11 +151,6 @@ struct GitHubIssueEditorView: View {
   /// Label names currently selected for the new issue.
   private var selectedLabels: [String] {
     draft.selectedLabel.isEmpty ? [] : [draft.selectedLabel]
-  }
-
-  /// Binding for the label picker.
-  private var labelBinding: Binding<String> {
-    Binding(get: { draft.selectedLabel }, set: { draft.selectedLabel = $0 })
   }
 
   /// Creates the issue, then closes or resets the window when GitHub accepts it.
@@ -257,26 +251,6 @@ struct GitHubIssueEditorView: View {
       draft.labels = []
       draft.errorMessage = draft.errorMessage ?? error.localizedDescription.compactLine(limit: 160)
     }
-  }
-
-  /// Binding for the issue title field.
-  private var titleBinding: Binding<String> {
-    Binding(get: { draft.title }, set: { draft.title = $0 })
-  }
-
-  /// Binding for the issue body field.
-  private var bodyBinding: Binding<String> {
-    Binding(get: { draft.body }, set: { draft.body = $0 })
-  }
-
-  /// Binding for the selected repository.
-  private var repositoryBinding: Binding<String> {
-    Binding(get: { draft.repository }, set: { draft.repository = $0 })
-  }
-
-  /// Binding for the assignee field.
-  private var assigneeBinding: Binding<String> {
-    Binding(get: { draft.assignee }, set: { draft.assignee = $0 })
   }
 }
 

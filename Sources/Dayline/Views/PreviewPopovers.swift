@@ -1,4 +1,5 @@
 import AppKit
+import MarkdownEngine
 import SwiftUI
 
 /// Detail preview for a hovered calendar event.
@@ -50,7 +51,7 @@ struct LinearIssuePreviewPopover: View {
   let issue: LinearIssueItem
 
   var body: some View {
-    PreviewCard(title: issue.title, subtitle: issue.id) {
+    PreviewCard(title: issue.title, subtitle: issue.id, width: 360) {
       PreviewRow(label: "Status", value: issue.stateName, systemImage: "circle.fill")
       PreviewRow(label: "Priority", value: issue.priorityLabel, systemImage: "flag")
 
@@ -78,10 +79,13 @@ struct LinearIssuePreviewPopover: View {
         PreviewRow(label: "Branch", value: branchName, systemImage: "arrow.triangle.branch")
       }
 
+      IssuePreviewDescription(bodyText: issue.body, documentID: "linear-description-\(issue.id)")
+
       if let url = issue.url {
         PreviewOpenButton(title: "Open in Linear", url: url)
       }
     }
+    .accessibilityIdentifier("linear.preview.\(issue.id)")
   }
 }
 
@@ -90,7 +94,7 @@ struct GitHubIssuePreviewPopover: View {
   let issue: GitHubIssueItem
 
   var body: some View {
-    PreviewCard(title: issue.title, subtitle: issue.reference) {
+    PreviewCard(title: issue.title, subtitle: issue.reference, width: 360) {
       if !issue.assignees.isEmpty {
         PreviewRow(label: "Assignees", value: issue.assignees.map(\.login).joined(separator: ", "), systemImage: "person")
       }
@@ -103,9 +107,41 @@ struct GitHubIssuePreviewPopover: View {
         PreviewRow(label: "Updated", value: DisplayFormatters.relative.localizedString(fromTimeInterval: updatedAt.timeIntervalSinceNow), systemImage: "clock")
       }
 
+      IssuePreviewDescription(bodyText: issue.body, documentID: "github-description-\(issue.id)")
+
       if let url = issue.url {
         PreviewOpenButton(title: "Open in GitHub", url: url)
       }
+    }
+    .accessibilityIdentifier("github.preview.\(issue.id)")
+  }
+}
+
+private struct IssuePreviewDescription: View {
+  let bodyText: String?
+  let documentID: String
+
+  private static let configuration = DaylineMarkdownStyle.configuration(compact: true)
+
+  var body: some View {
+    if let bodyText, !bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      Divider()
+      Text("Description")
+        .font(.callout.weight(.semibold))
+      ScrollView {
+        let font = NSFont.systemFont(ofSize: 13)
+        NativeTextViewWrapper(
+          text: .constant(bodyText),
+          configuration: Self.configuration,
+          fontName: font.fontName,
+          fontSize: font.pointSize,
+          documentId: documentID,
+          isEditable: false
+        )
+        .accessibilityLabel("Issue description")
+      }
+      .frame(maxHeight: 260)
+      .scrollBounceBehavior(.basedOnSize)
     }
   }
 }
@@ -164,6 +200,7 @@ struct AppleReminderPreviewPopover: View {
 private struct PreviewCard<Content: View>: View {
   let title: String
   let subtitle: String?
+  var width: CGFloat = 300
   @ViewBuilder let content: Content
 
   var body: some View {
@@ -184,7 +221,7 @@ private struct PreviewCard<Content: View>: View {
       content
     }
     .padding(12)
-    .frame(width: 300, alignment: .leading)
+    .frame(width: width, alignment: .leading)
   }
 }
 

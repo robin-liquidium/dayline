@@ -114,7 +114,8 @@ struct MockData {
         updatedAt: calendar.date(byAdding: .hour, value: -3, to: now),
         projectName: projectName,
         branchName: "alex/\(id.lowercased())-\(title.lowercased().replacingOccurrences(of: " ", with: "-"))",
-        url: URL(string: "https://linear.app/dayline/issue/\(id.lowercased())")
+        url: URL(string: "https://linear.app/dayline/issue/\(id.lowercased())"),
+        body: "Review the current behavior and document the expected result.\n\nInclude the steps to reproduce and verify the change in the menu."
       )
     }
 
@@ -319,7 +320,41 @@ struct MockData {
           url: URL(string: "https://github.com/robin-liquidium/dayline/issues/24"),
           updatedAt: calendar.date(byAdding: .hour, value: -2, to: now),
           labels: [GitHubLabelOption(name: "feature", color: "5E6AD2")],
-          assignees: [GitHubAssigneeOption(login: "alex")]
+          assignees: [GitHubAssigneeOption(login: "alex")],
+          body: """
+          ## GitHub issues in Dayline
+
+          Show **assigned issues** alongside Linear and Reminders, with *readable details* right in the menu.
+
+          ### What to include
+          - Issue title, repository, and number
+          - Labels and assignees
+            - Keep nested items aligned and easy to scan
+          - A longer list item that wraps onto multiple lines so we can check that the continuation lines align with the text rather than the bullet
+
+          ### Try the flow
+          1. Select the GitHub tab.
+          2. Click an issue to show its details.
+          3. Command-click to open the original issue in your browser.
+
+          ### Checklist
+          - [x] Show issue metadata
+          - [x] Support ~~plain-text-only~~ formatted descriptions
+          - [ ] Polish spacing for longer descriptions
+
+          > Keep the common actions close and the details readable.
+
+          Use `issue.number` for the reference and preserve the original URL:
+
+          ```swift
+          let reference = "dayline#24"
+          print(reference)
+          ```
+
+          ---
+
+          Read the [GitHub Markdown guide](https://docs.github.com/en/get-started/writing-on-github) for formatting examples.
+          """
         ),
         GitHubIssueItem(
           id: "mock-gh-2",

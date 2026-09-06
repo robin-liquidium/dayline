@@ -21,9 +21,9 @@ struct StatusMenuView: View {
   @EnvironmentObject private var store: StatusStore
   @EnvironmentObject private var updateService: UpdateService
   @Environment(\.openWindow) private var openWindow
+  @Environment(\.dismiss) private var dismiss
   @StateObject private var keyboardMonitor = MenuKeyboardMonitor()
 
-  /// Builds the compact menu bar popover content.
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       headerBar
@@ -157,6 +157,7 @@ struct StatusMenuView: View {
       HStack {
         Button {
           DaylineDiagnostics.record("Settings requested", category: .interaction)
+          dismiss()
           openWindow(id: "settings")
           SettingsWindowPresenter.bringSettingsToFront()
         } label: {
@@ -311,21 +312,21 @@ struct StatusMenuView: View {
       category: .interaction
     )
     openWindow(value: request)
-    NoteEditorWindowPresenter.bringNoteWindowToFront()
+    WindowPresenterSupport.bringWindowToFront(titled: ["Note", "New Note"])
   }
 
   /// Opens the Linear issue creator window and brings the accessory app forward.
   private func openLinearIssueCreator() {
     store.requestLinearIssueCreation()
     openWindow(id: "linearIssueCreator")
-    LinearIssueEditorWindowPresenter.bringIssueWindowToFront()
+    WindowPresenterSupport.bringWindowToFront(titled: ["New Linear Issue"])
   }
 
   /// Opens the GitHub issue creator window and brings the accessory app forward.
   private func openGitHubIssueCreator() {
     store.requestGitHubIssueCreation()
     openWindow(id: "githubIssueCreator")
-    GitHubIssueEditorWindowPresenter.bringIssueWindowToFront()
+    WindowPresenterSupport.bringWindowToFront(titled: ["New GitHub Issue"])
   }
 
   /// Opens the Apple Reminder creator window and brings the accessory app forward.
@@ -333,7 +334,7 @@ struct StatusMenuView: View {
     guard store.canCreateAppleReminder else { return }
     store.requestAppleReminderCreation()
     openWindow(id: "appleReminderCreator")
-    AppleReminderEditorWindowPresenter.bringReminderWindowToFront()
+    WindowPresenterSupport.bringWindowToFront(titled: ["New Apple Reminder"])
   }
 }
 
@@ -648,7 +649,6 @@ private struct IssuesSection: View {
   /// Action run when the user creates a new Apple Reminder.
   let openNewAppleReminder: () -> Void
 
-  /// Builds the issues section.
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack(spacing: 10) {
@@ -769,18 +769,49 @@ private struct LoadingIssuesRow: View {
   }
 }
 
-/// Liquid Glass switcher between connected issue providers.
 private struct IssueSourceTabSwitcher: View {
   @EnvironmentObject private var store: StatusStore
   @Namespace private var selectionGlass
-
-  /// Issue source currently displayed.
   let activeSource: IssueSource
 
   var body: some View {
     ZStack {
-      pillLayer
-      segmentButtons
+      // Keep glass separate from the buttons so it cannot obscure the selected label.
+      GlassEffectContainer(spacing: 2) {
+        HStack(spacing: 2) {
+          ForEach(store.availableIssueSources) { source in
+            segmentLabel(for: source)
+              .hidden()
+              .background {
+                if source == activeSource {
+                  Color.clear
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .matchedGeometryEffect(id: "selection", in: selectionGlass)
+                }
+              }
+          }
+        }
+      }
+      .accessibilityHidden(true)
+      .allowsHitTesting(false)
+
+      HStack(spacing: 2) {
+        ForEach(store.availableIssueSources) { source in
+          Button {
+            withAnimation(.smooth(duration: 0.25)) {
+              store.setIssueSource(source)
+            }
+          } label: {
+            segmentLabel(for: source)
+              .foregroundStyle(source == activeSource ? .primary : .secondary)
+              .contentShape(Capsule())
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("Show \(source.label) issues")
+          .accessibilityAddTraits(source == activeSource ? [.isSelected] : [])
+          .accessibilityIdentifier("issues.source.\(source.id)")
+        }
+      }
     }
     .padding(2)
     .background {
@@ -789,49 +820,6 @@ private struct IssueSourceTabSwitcher: View {
     }
   }
 
-  /// Hidden layout replicas that carry the glass selection pill as it slides between segments.
-  private var pillLayer: some View {
-    GlassEffectContainer(spacing: 2) {
-      HStack(spacing: 2) {
-        ForEach(store.availableIssueSources) { source in
-          segmentLabel(for: source)
-            .hidden()
-            .background {
-              if source == activeSource {
-                Color.clear
-                  .glassEffect(.regular.interactive(), in: .capsule)
-                  .matchedGeometryEffect(id: "selection", in: selectionGlass)
-              }
-            }
-        }
-      }
-    }
-    .accessibilityHidden(true)
-    .allowsHitTesting(false)
-  }
-
-  /// Visible, static segment labels that handle taps above the sliding pill.
-  private var segmentButtons: some View {
-    HStack(spacing: 2) {
-      ForEach(store.availableIssueSources) { source in
-        Button {
-          withAnimation(.smooth(duration: 0.25)) {
-            store.setIssueSource(source)
-          }
-        } label: {
-          segmentLabel(for: source)
-            .foregroundStyle(source == activeSource ? .primary : .secondary)
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Show \(source.label) issues")
-        .accessibilityAddTraits(source == activeSource ? [.isSelected] : [])
-        .accessibilityIdentifier("issues.source.\(source.id)")
-      }
-    }
-  }
-
-  /// Shared label metrics so the pill layer and the button layer stay aligned.
   private func segmentLabel(for source: IssueSource) -> some View {
     Text(source.label)
       .font(.caption.weight(.medium))
@@ -850,7 +838,6 @@ private struct ConnectionSetupSection: View {
   /// Existing Google accounts that need account-specific reauthentication.
   let googleAccounts: [GoogleAccountStatus]
 
-  /// Builds the setup section.
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack {
@@ -956,7 +943,6 @@ private struct ConnectionSetupRow: View {
   /// Connection status represented by the row.
   let status: ConnectionStatus
 
-  /// Builds the setup row.
   var body: some View {
     HStack(alignment: .center, spacing: 10) {
       Image(systemName: systemImage)
@@ -1078,7 +1064,6 @@ private struct PickerOptionRow<Content: View>: View {
   /// Row label content.
   @ViewBuilder let content: Content
 
-  /// Builds the option row.
   var body: some View {
     Button(action: action) {
       content
@@ -1230,7 +1215,6 @@ private struct StatusPickerPopover: View {
   /// Issue whose status can be changed.
   let issue: LinearIssueItem
 
-  /// Builds the status picker popover.
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       Text("Change Status")
@@ -1314,7 +1298,6 @@ private struct PriorityPickerPopover: View {
   /// Issue whose priority can be changed.
   let issue: LinearIssueItem
 
-  /// Builds the priority picker popover.
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       Text("Change Priority")
@@ -1394,7 +1377,6 @@ private struct DueDatePickerPopover: View {
     )
   }
 
-  /// Builds the due date picker popover.
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       Text("Change Due Date")
@@ -1408,7 +1390,9 @@ private struct DueDatePickerPopover: View {
 
       Divider()
 
-      GraphicalDatePicker(selection: $selectedDate)
+      DatePicker("Due date", selection: $selectedDate, displayedComponents: .date)
+        .datePickerStyle(.graphical)
+        .labelsHidden()
         .disabled(store.updatingDueDateTarget == .linear(issue.id))
         .accessibilityIdentifier("linear.dueDate.calendar.\(issue.id)")
 
@@ -1469,7 +1453,6 @@ private struct CalendarSection: View {
   /// Current clock tick used to identify meetings happening now.
   let now: Date
 
-  /// Builds the calendar section.
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack {
@@ -1628,7 +1611,6 @@ private struct TomorrowEventsButton: View {
   /// Action run when the user toggles tomorrow's events.
   let action: () -> Void
 
-  /// Builds the tomorrow disclosure row.
   var body: some View {
     HStack {
       Button(action: action) {
@@ -1683,7 +1665,6 @@ private struct LinearSection: View {
   /// Identifier for the issue whose due date is being updated.
   let updatingDueDateTarget: IssueActionTarget?
 
-  /// Builds the Linear section.
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       if let error {
@@ -1837,7 +1818,6 @@ private struct GitHubSection: View {
   /// Identifier for the issue whose link was just copied.
   let copiedIssueTarget: IssueActionTarget?
 
-  /// Builds the GitHub section.
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       if let error {
@@ -2087,7 +2067,9 @@ private struct AppleReminderDueDatePickerPopover: View {
       Text("Change Due Date").font(.headline)
       Text(reminder.title).font(.caption).foregroundStyle(.secondary).lineLimit(2)
       Divider()
-      GraphicalDatePicker(selection: $selectedDate)
+      DatePicker("Due date", selection: $selectedDate, displayedComponents: .date)
+        .datePickerStyle(.graphical)
+        .labelsHidden()
         .disabled(store.updatingDueDateTarget == .reminder(reminder.id))
         .accessibilityIdentifier("reminders.dueDate.calendar.\(reminder.id)")
 
@@ -2336,7 +2318,7 @@ private func priorityStyle(_ priority: AppleReminderPriority) -> MetadataStyle {
   }
 }
 
-/// One compact GitHub issue row that opens the issue in the browser.
+/// One compact GitHub issue row with a configurable details or browser action.
 private struct GitHubIssueRow: View {
   @EnvironmentObject private var store: StatusStore
   /// Issue represented by the row.
@@ -2360,12 +2342,9 @@ private struct GitHubIssueRow: View {
     return labels.count > 1 ? "\(first.name) +\(labels.count - 1)" : first.name
   }
 
-  /// Builds the issue row.
   var body: some View {
     Button {
-      if let url = issue.url {
-        NSWorkspace.shared.open(url)
-      }
+      store.activateIssue(.github(issue.id), url: issue.url, modifiers: NSEvent.modifierFlags)
     } label: {
       VStack(alignment: .leading, spacing: 2) {
         Text(issue.title.compactLine(limit: 72))
@@ -2418,6 +2397,7 @@ private struct GitHubIssueRow: View {
       .padding(.horizontal, 16)
       .padding(.vertical, 3)
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+      .contentShape(Rectangle())
       .background {
         if isHovered {
           RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -2432,11 +2412,14 @@ private struct GitHubIssueRow: View {
     .accessibilityLabel("\(issue.title), \(issue.reference)")
     .accessibilityHint(
       issue.url == nil
-        ? "No GitHub link is available. Press Space to preview while hovering."
-        : "Open GitHub issue. While hovering, press Space to preview, \(store.copyIssueHotkey.uppercased()) to copy, \(store.statusPickerHotkey.uppercased()) for status, \(store.labelPickerHotkey.uppercased()) for labels, or \(store.assigneePickerHotkey.uppercased()) for assignees."
+        ? "Click to show details. No GitHub link is available."
+        : "\(store.issueClickHint) While hovering, press Space to preview, \(store.copyIssueHotkey.uppercased()) to copy, \(store.statusPickerHotkey.uppercased()) for status, \(store.labelPickerHotkey.uppercased()) for labels, or \(store.assigneePickerHotkey.uppercased()) for assignees."
     )
     .accessibilityIdentifier("github.issue.\(issue.id)")
-    .disabled(issue.url == nil)
+    .accessibilityAction {
+      store.activateIssue(.github(issue.id), url: issue.url)
+    }
+    .help(issue.url == nil ? "Click to show details. No GitHub link is available." : store.issueClickHint)
     .frame(height: workItemRowHeight)
   }
 }
@@ -2461,7 +2444,6 @@ private struct NotesSection: View {
   /// Action run when the user opens an existing note.
   let openNote: (LocalNoteItem) -> Void
 
-  /// Builds the local section.
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack {
@@ -2544,7 +2526,6 @@ private struct MoreNotesControls: View {
   /// Action run when the user asks for fewer notes.
   let showLess: () -> Void
 
-  /// Builds the note disclosure control row.
   var body: some View {
     HStack {
       if canShowMore {
@@ -2623,7 +2604,6 @@ private struct MoreIssuesControls: View {
   /// Action run when the user asks for fewer issues.
   let showLess: () -> Void
 
-  /// Builds the issue disclosure control row.
   var body: some View {
     HStack {
       if canShowMore {
@@ -2682,7 +2662,6 @@ private struct SectionTitle: View {
   /// Section title text.
   let title: String
 
-  /// Builds the section title.
   var body: some View {
     Text(title)
       .foregroundStyle(.secondary)
@@ -2717,7 +2696,6 @@ private struct EventRow: View {
     showsSource && event.sourceLabel != nil
   }
 
-  /// Builds the event row.
   var body: some View {
     Button {
       if let url = event.openURL {
@@ -2846,25 +2824,21 @@ private struct IssueRow: View {
   /// Action run when the issue is canceled.
   let cancel: () -> Void
 
-  /// Builds the issue row.
   var body: some View {
     HorizontalRevealRow(revealWidth: destructiveRevealWidth) {
       issueContent
         .contentShape(Rectangle())
         .onTapGesture {
-          if let url = issue.url {
-            NSWorkspace.shared.open(url)
-          }
+          store.activateIssue(.linear(issue.id), url: issue.url, modifiers: NSEvent.modifierFlags)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityHint(accessibilityHint)
         .accessibilityIdentifier("linear.issue.\(issue.id)")
+        .help(issue.url == nil ? "Click to show details. No Linear link is available." : store.issueClickHint)
         .accessibilityAction {
-          if let url = issue.url {
-            NSWorkspace.shared.open(url)
-          }
+          store.activateIssue(.linear(issue.id), url: issue.url)
         }
     } action: {
       CompactDestructiveActionButton(
@@ -3002,10 +2976,10 @@ private struct IssueRow: View {
   /// VoiceOver hint with the user-configured Linear row shortcuts.
   private var accessibilityHint: String {
     guard issue.url != nil else {
-      return "No Linear link is available. Press Space to preview while hovering."
+      return "Click to show details. No Linear link is available."
     }
 
-    return "Open Linear issue. While hovering, press Space to preview, \(copyHotkey.uppercased()) to copy, \(statusHotkey.uppercased()) for status, \(priorityHotkey.uppercased()) for priority, \(dueDateHotkey.uppercased()) for due date, \(labelHotkey.uppercased()) for labels, or \(assigneeHotkey.uppercased()) for assignee."
+    return "\(store.issueClickHint) While hovering, press Space to preview, \(copyHotkey.uppercased()) to copy, \(statusHotkey.uppercased()) for status, \(priorityHotkey.uppercased()) for priority, \(dueDateHotkey.uppercased()) for due date, \(labelHotkey.uppercased()) for labels, or \(assigneeHotkey.uppercased()) for assignee."
   }
 
   /// Visual style for the Linear workflow state.
@@ -3070,7 +3044,6 @@ private struct CompactDestructiveActionButton: View {
   /// Action run when the button is pressed.
   let action: () -> Void
 
-  /// Builds the destructive action button.
   var body: some View {
     Button(role: .destructive, action: runAction) {
       ZStack {
@@ -3139,7 +3112,6 @@ private struct NoteRow: View {
   /// Action run when the note is deleted.
   let delete: () -> Void
 
-  /// Builds the note row.
   var body: some View {
     HorizontalRevealRow(revealWidth: destructiveRevealWidth) {
       noteContent
@@ -3255,7 +3227,6 @@ private struct MetadataPill: View {
   /// Semantic icon color.
   let color: Color
 
-  /// Builds the metadata pill.
   var body: some View {
     HStack(spacing: 4) {
       Image(systemName: systemImage)
@@ -3278,7 +3249,6 @@ private struct MessageRow: View {
   /// Optional secondary detail.
   let detail: String?
 
-  /// Builds the message row.
   var body: some View {
     VStack(alignment: .leading, spacing: 3) {
       Text(title)

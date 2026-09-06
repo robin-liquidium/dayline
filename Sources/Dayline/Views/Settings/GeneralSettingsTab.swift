@@ -20,7 +20,7 @@ struct GeneralSettingsTab: View {
           .accessibilityIdentifier("settings.launchAtLogin")
 
         Picker("Refresh interval", selection: cadenceBinding) {
-          ForEach(cadenceOptions, id: \.self) { minutes in
+          ForEach(Array(Set(cadenceOptions + [store.refreshIntervalMinutes])).sorted(), id: \.self) { minutes in
             Text(label(for: minutes)).tag(minutes)
           }
         }
@@ -39,22 +39,24 @@ struct GeneralSettingsTab: View {
           .disabled(!updateService.isUpdaterAvailable)
           .accessibilityIdentifier("settings.automaticUpdates")
 
-        Button("Check for Updates...") {
+        Button("Check for updates…") {
           updateService.checkForUpdates()
         }
         .disabled(!updateService.canCheckForUpdates)
         .accessibilityIdentifier("settings.checkForUpdates")
       } header: {
         Label("Updates", systemImage: "arrow.triangle.2.circlepath")
+      } footer: {
+        Text("Automatic updates download in the background and install when you quit Dayline.")
       }
 
       Section {
-        Button("Submit Feedback...") {
+        Button("Submit feedback…") {
           isShowingFeedback = true
         }
         .accessibilityIdentifier("settings.submitFeedback")
 
-        Button("Export Diagnostics...") {
+        Button("Export diagnostics…") {
           Task { await exportDiagnostics() }
         }
         .disabled(isExportingDiagnostics)
@@ -72,7 +74,7 @@ struct GeneralSettingsTab: View {
             .accessibilityIdentifier("settings.diagnosticExportError")
         }
       } header: {
-        Label("Feedback and Diagnostics", systemImage: "text.bubble")
+        Label("Feedback and diagnostics", systemImage: "text.bubble")
       } footer: {
         Text("Feedback is submitted anonymously as a public GitHub issue. Manual diagnostic exports stay local; diagnostics are uploaded only when you explicitly include them with feedback.")
       }
@@ -81,7 +83,7 @@ struct GeneralSettingsTab: View {
         LabeledContent("Version", value: versionLabel)
           .accessibilityIdentifier("settings.version")
 
-        Button("View Changelog...") {
+        Button("View changelog…") {
           openURL(URL(string: "https://dayline.robin.build/changelog")!)
         }
         .accessibilityIdentifier("settings.viewChangelog")

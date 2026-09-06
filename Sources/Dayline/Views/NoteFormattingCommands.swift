@@ -112,7 +112,7 @@ final class NoteFormattingBridge {
   private lazy var heading = notification("heading")
 
   lazy var configuration: MarkdownEditorConfiguration = {
-    var configuration = MarkdownEditorConfiguration.default
+    var configuration = DaylineMarkdownStyle.configuration(compact: false)
     configuration.services.bus = MarkdownEditorBus(
       applyBoldRequest: bold,
       applyItalicRequest: italic,
@@ -124,8 +124,6 @@ final class NoteFormattingBridge {
       applyOrderedListRequest: orderedList,
       applyLinkRequest: link
     )
-    configuration.lists.autoClosePairsEnabled = false
-    configuration.extensions = [StrikethroughExtension()]
     return configuration
   }()
 

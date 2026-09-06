@@ -20,7 +20,7 @@ enum SettingsWindowPresenter {
   /// Finds the settings window SwiftUI created and makes it key/frontmost.
   private static func orderSettingsWindowFront() {
     let settingsWindow = NSApp.windows.first { window in
-      window.title == "General" || window.identifier?.rawValue.contains("Settings") == true
+      window.title.hasSuffix("Settings") || window.identifier?.rawValue.localizedCaseInsensitiveContains("settings") == true
     }
 
     settingsWindow?.makeKeyAndOrderFront(nil)

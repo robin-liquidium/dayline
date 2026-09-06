@@ -104,6 +104,75 @@ final class DaylineUITests: XCTestCase {
     }
   }
 
+  func testIssueClickDetailsAndConfigurableModifier() throws {
+    try openMenu()
+    for (source, rowID, previewID) in [
+      ("linear", "linear.issue.DAY-104", "linear.preview.DAY-104"),
+      ("github", "github.issue.mock-gh-1", "github.preview.mock-gh-1")
+    ] {
+      element("issues.source.\(source)").click()
+      element(rowID).coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).click()
+      assertExists(previewID)
+      XCTAssertTrue(app.staticTexts["Description"].firstMatch.exists)
+      attachCheckpoint("\(source)-click-details", identifiers: [previewID], screenshotElement: app)
+      app.typeKey(.escape, modifierFlags: [])
+      waitForRemoval(element(previewID))
+    }
+
+    element("dayline.settings").click()
+    let settings = app.windows["settings"]
+    XCTAssertTrue(settings.waitForExistenceIfNeeded(timeout: 5))
+    waitForRemoval(element("dayline.refresh"))
+    app.staticTexts["Issues"].firstMatch.click()
+    element("settings.issueClickAction").click()
+    app.menuItems["Open in browser"].firstMatch.click()
+    attachCheckpoint("issue-click-settings", identifiers: ["settings.issueClickAction", "settings.issueClickModifier"], screenshotElement: settings)
+    app.typeKey("w", modifierFlags: .command)
+    try openMenu()
+
+    // With the default reversed, Command-click must now show details.
+    for (source, rowID, previewID) in [
+      ("linear", "linear.issue.DAY-104", "linear.preview.DAY-104"),
+      ("github", "github.issue.mock-gh-1", "github.preview.mock-gh-1")
+    ] {
+      element("issues.source.\(source)").click()
+      XCUIElement.perform(withKeyModifiers: .command) { element(rowID).click() }
+      assertExists(previewID)
+      app.typeKey(.escape, modifierFlags: [])
+      waitForRemoval(element(previewID))
+    }
+
+    element("dayline.settings").click()
+    XCTAssertTrue(settings.waitForExistenceIfNeeded(timeout: 5))
+    waitForRemoval(element("dayline.refresh"))
+    element("settings.issueClickModifier").click()
+    app.menuItems["Option (⌥)"].firstMatch.click()
+    XCTAssertEqual(element("settings.issueClickModifier").value as? String, "Option (⌥)")
+    app.typeKey("w", modifierFlags: .command)
+    try openMenu()
+    XCUIElement.perform(withKeyModifiers: .option) { element("github.issue.mock-gh-1").click() }
+    assertExists("github.preview.mock-gh-1")
+    app.typeKey(.escape, modifierFlags: [])
+    waitForRemoval(element("github.preview.mock-gh-1"))
+
+    // The UI-testing flag resets mock preferences at launch; omit it for this relaunch.
+    app.terminate()
+    app.launchArguments.removeAll { $0 == "--ui-testing" }
+    app.launch()
+    try openMenu()
+    element("dayline.settings").click()
+    XCTAssertTrue(settings.waitForExistenceIfNeeded(timeout: 5))
+    waitForRemoval(element("dayline.refresh"))
+    app.staticTexts["Issues"].firstMatch.click()
+    XCTAssertEqual(element("settings.issueClickAction").value as? String, "Open in browser")
+    XCTAssertEqual(element("settings.issueClickModifier").value as? String, "Option (⌥)")
+    app.typeKey("w", modifierFlags: .command)
+    try openMenu()
+    element("issues.source.linear").click()
+    XCUIElement.perform(withKeyModifiers: .option) { element("linear.issue.DAY-104").click() }
+    assertExists("linear.preview.DAY-104")
+  }
+
   func testIssueSourceSwitchingPickersAndPagination() throws {
     try openMenu()
 
@@ -724,6 +793,70 @@ final class DaylineUITests: XCTestCase {
       try openMenu()
       assertExists("calendar.event.mock-all-day-today")
     }
+  }
+
+  func testSettingsSearchAndMenuControls() throws {
+    try openMenu()
+    element("dayline.settings").click()
+    let window = app.windows["settings"]
+    XCTAssertTrue(window.waitForExistenceIfNeeded(timeout: 5))
+    let search = app.searchFields.firstMatch
+
+    for (query, resultID, controlID) in [
+      ("crash logs", "exportDiagnostics", "exportDiagnostics"),
+      ("apple icloud", "appleCalendar", "account.apple.calendar.mock-apple-work"),
+      ("notes floating", "notesKeepOnTop", "notesKeepOnTop")
+    ] {
+      search.click()
+      search.typeText(query)
+      let result = element("settings.search.result.\(resultID)")
+      XCTAssertTrue(result.waitForExistenceIfNeeded(timeout: 3))
+      result.click()
+      assertExists("settings.\(controlID)")
+      attachCheckpoint("settings-search-\(resultID)", identifiers: ["settings.\(controlID)"], screenshotElement: window)
+    }
+
+    for (tab, toggleID, dependentIDs, independentID) in [
+      ("Notes", "showsNotesSection", ["defaultNoteCount", "localNoteSortOrder"], "notesKeepOnTop"),
+      ("Calendar", "showsCalendarSection", ["showsCalendarSourceNames", "showsAllDayEvents"], "menuBarEventLeadTime"),
+      ("Issues", "showsLinearSection", ["linearIssueOrder", "linearIssueFilter", "issueRowFieldAssignee"], "linearCreateDefaultTeam")
+    ] {
+      app.staticTexts[tab].firstMatch.click()
+      let toggle = element("settings.\(toggleID)")
+      XCTAssertTrue(toggle.waitForExistenceIfNeeded(timeout: 3))
+      toggle.click()
+      for id in dependentIDs {
+        XCTAssertFalse(element("settings.\(id)").isEnabled)
+      }
+      XCTAssertTrue(element("settings.\(independentID)").isEnabled)
+      toggle.click()
+      for id in dependentIDs {
+        XCTAssertTrue(element("settings.\(id)").isEnabled)
+      }
+      attachCheckpoint("settings-\(tab.lowercased())", identifiers: ["settings.\(toggleID)"], screenshotElement: window)
+    }
+  }
+
+  func testShortcutRecorderRecordsAndCancels() throws {
+    try openMenu()
+    element("dayline.settings").click()
+    let shortcutsTab = app.staticTexts["Shortcuts"].firstMatch
+    XCTAssertTrue(shortcutsTab.waitForExistenceIfNeeded(timeout: 5))
+    shortcutsTab.click()
+
+    let recorder = app.buttons["New note shortcut"].firstMatch
+    XCTAssertTrue(recorder.waitForExistenceIfNeeded(timeout: 5))
+    let original = recorder.value as? String
+    recorder.click()
+    app.typeKey("j", modifierFlags: [.control, .option, .command])
+    XCTAssertEqual(recorder.value as? String, "⌃⌥⌘J")
+
+    recorder.click()
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertEqual(recorder.value as? String, "⌃⌥⌘J")
+    app.buttons["Reset"].firstMatch.click()
+    XCTAssertEqual(recorder.value as? String, original)
+    attachCheckpoint("settings-shortcuts", identifiers: ["settings.newNoteShortcut"], screenshotElement: app.windows["settings"])
   }
 
   func testMeetingAlertShowsCurrentTimeAndSnoozes() throws {

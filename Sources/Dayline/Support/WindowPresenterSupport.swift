@@ -18,11 +18,6 @@ enum WindowPresenterSupport {
   /// Activates the app before trying to foreground a matching window.
   private static func activateAndOrderWindow(titled titles: Set<String>) {
     NSApp.activate()
-    orderWindowFront(titled: titles)
-  }
-
-  /// Finds a SwiftUI-created window by title and makes it key/frontmost.
-  private static func orderWindowFront(titled titles: Set<String>) {
     let matchingWindow = NSApp.windows.reversed().first { window in
       titles.contains(window.title)
     }

@@ -19,7 +19,7 @@ struct AccountsSettingsTab: View {
         Button {
           Task { await store.addGoogleAccount() }
         } label: {
-          Label("Add Google Account", systemImage: "plus")
+          Label("Add Google account", systemImage: "plus")
         }
         .disabled(!store.canAddGoogleAccount || !AuthProvider.google.isConfigured)
         .accessibilityIdentifier("settings.account.google.add")
@@ -57,7 +57,14 @@ struct AccountsSettingsTab: View {
             ForEach(store.appleCalendars) { calendar in
               Toggle(isOn: appleCalendarBinding(for: calendar.id)) {
                 VStack(alignment: .leading, spacing: 2) {
-                  Text(calendar.title)
+                  HStack(spacing: 6) {
+                    Text(calendar.title)
+                    if !calendar.allowsModifications {
+                      Label("Read-only", systemImage: "lock")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                  }
                   Text(calendar.sourceName)
                     .font(.caption)
                     .foregroundStyle(.secondary)

@@ -305,8 +305,7 @@ struct CalendarEventItem: Identifiable, Equatable, Sendable {
   static func menuBarCandidate(
     in events: [CalendarEventItem],
     at date: Date,
-    leadTime: TimeInterval,
-    postStartGrace: TimeInterval
+    leadTime: TimeInterval
   ) -> CalendarEventItem? {
     let timedEvents = events.filter { !$0.isAllDay }
     if let activeEvent = timedEvents.first(where: { $0.isHappening(at: date) }) {
@@ -315,7 +314,7 @@ struct CalendarEventItem: Identifiable, Equatable, Sendable {
 
     return timedEvents.first { event in
       date >= event.startDate.addingTimeInterval(-leadTime)
-        && date <= event.startDate.addingTimeInterval(postStartGrace)
+        && date < event.startDate
     }
   }
 }

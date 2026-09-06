@@ -12,6 +12,95 @@ struct IssuesSettingsTab: View {
   var body: some View {
     Form {
       Section {
+        Toggle("Show issues in menu", isOn: showsLinearSectionBinding)
+          .accessibilityIdentifier("settings.showsLinearSection")
+
+        if isLinearConnected {
+          Picker("Linear issue order", selection: linearIssueOrderBinding) {
+            ForEach(LinearIssueOrder.allCases) { order in
+              Text(order.label).tag(order)
+            }
+          }
+          .disabled(!store.showsLinearSection)
+          .accessibilityIdentifier("settings.linearIssueOrder")
+        }
+      } header: {
+        Label("Menu", systemImage: "list.bullet")
+      }
+
+      Section {
+        Picker("Click an issue", selection: $store.issueClickAction) {
+          ForEach(IssueClickAction.allCases) { action in
+            Text(action.label).tag(action)
+          }
+        }
+        .accessibilityIdentifier("settings.issueClickAction")
+
+        Picker("Alternate click modifier", selection: $store.issueClickModifier) {
+          ForEach(IssueClickModifier.allCases) { modifier in
+            Text(modifier.label).tag(modifier)
+          }
+        }
+        .accessibilityIdentifier("settings.issueClickModifier")
+      } header: {
+        Label("Opening issues", systemImage: "cursorarrow.click")
+      } footer: {
+        Text("Applies to Linear and GitHub. \(store.issueClickHint) Space still shows details while hovering.")
+      }
+      .disabled(!store.showsLinearSection)
+
+      if isLinearConnected || isGitHubConnected {
+        Section {
+          if isLinearConnected {
+            Picker("Linear issues", selection: linearIssueFilterBinding) {
+              ForEach(IssueAssigneeFilter.allCases) { filter in
+                Text(filter.label).tag(filter)
+              }
+            }
+            .accessibilityIdentifier("settings.linearIssueFilter")
+          }
+
+          if isGitHubConnected {
+            Picker("GitHub issues", selection: githubIssueFilterBinding) {
+              ForEach(IssueAssigneeFilter.allCases) { filter in
+                Text(filter.label).tag(filter)
+              }
+            }
+            .accessibilityIdentifier("settings.githubIssueFilter")
+          }
+        } header: {
+          Label("Shown issues", systemImage: "line.3.horizontal.decrease.circle")
+        }
+        .disabled(!store.showsLinearSection)
+      }
+
+      if isLinearConnected || isGitHubConnected || store.appleRemindersConnected {
+        Section {
+          if isLinearConnected || isGitHubConnected {
+            Toggle("Assignee", isOn: issueRowFieldBinding(for: .assignee))
+              .accessibilityIdentifier("settings.issueRowFieldAssignee")
+            Toggle("Labels", isOn: issueRowFieldBinding(for: .labels))
+              .accessibilityIdentifier("settings.issueRowFieldLabels")
+          }
+          if isLinearConnected {
+            Toggle("Project (Linear)", isOn: issueRowFieldBinding(for: .project))
+              .accessibilityIdentifier("settings.issueRowFieldProject")
+          }
+          if isLinearConnected || isGitHubConnected {
+            Toggle("Last updated", isOn: issueRowFieldBinding(for: .updated))
+              .accessibilityIdentifier("settings.issueRowFieldUpdated")
+          }
+          if isLinearConnected || store.appleRemindersConnected {
+            Toggle("Due date", isOn: issueRowFieldBinding(for: .dueDate))
+              .accessibilityIdentifier("settings.issueRowFieldDueDate")
+          }
+        } header: {
+          Label("Issue details", systemImage: "text.line.first.and.arrowtriangle.forward")
+        }
+        .disabled(!store.showsLinearSection)
+      }
+
+      Section {
         if isLinearConnected {
           linearDefaults
         } else {
@@ -19,7 +108,7 @@ struct IssuesSettingsTab: View {
             .foregroundStyle(.secondary)
         }
       } header: {
-        Label("New Linear Issue Defaults", systemImage: "square.and.pencil")
+        Label("New Linear issues", systemImage: "square.and.pencil")
       } footer: {
         if let linearCreateDefaultsError {
           Text(linearCreateDefaultsError)
@@ -41,7 +130,7 @@ struct IssuesSettingsTab: View {
             .foregroundStyle(.secondary)
         }
       } header: {
-        Label("New GitHub Issue Defaults", systemImage: "square.and.pencil")
+        Label("New GitHub issues", systemImage: "square.and.pencil")
       }
 
       Section {
@@ -79,70 +168,7 @@ struct IssuesSettingsTab: View {
             .foregroundStyle(.secondary)
         }
       } header: {
-        Label("New Apple Reminder Defaults", systemImage: "checklist")
-      }
-
-      Section {
-        Toggle("Show issues in menu", isOn: showsLinearSectionBinding)
-          .accessibilityIdentifier("settings.showsLinearSection")
-
-        if isLinearConnected {
-          Picker("Linear issue order", selection: linearIssueOrderBinding) {
-            ForEach(LinearIssueOrder.allCases) { order in
-              Text(order.label).tag(order)
-            }
-          }
-          .accessibilityIdentifier("settings.linearIssueOrder")
-        }
-      } header: {
-        Label("Menu", systemImage: "list.bullet")
-      }
-
-      Section {
-        if isLinearConnected || isGitHubConnected {
-          Toggle("Assignee", isOn: issueRowFieldBinding(for: .assignee))
-            .accessibilityIdentifier("settings.issueRowFieldAssignee")
-          Toggle("Labels", isOn: issueRowFieldBinding(for: .labels))
-            .accessibilityIdentifier("settings.issueRowFieldLabels")
-        }
-        if isLinearConnected {
-          Toggle("Project (Linear)", isOn: issueRowFieldBinding(for: .project))
-            .accessibilityIdentifier("settings.issueRowFieldProject")
-        }
-        if isLinearConnected || isGitHubConnected {
-          Toggle("Last updated", isOn: issueRowFieldBinding(for: .updated))
-            .accessibilityIdentifier("settings.issueRowFieldUpdated")
-        }
-        if isLinearConnected || store.appleRemindersConnected {
-          Toggle("Due date", isOn: issueRowFieldBinding(for: .dueDate))
-            .accessibilityIdentifier("settings.issueRowFieldDueDate")
-        }
-      } header: {
-        Label("Row Fields", systemImage: "text.line.first.and.arrowtriangle.forward")
-      }
-
-      if isLinearConnected || isGitHubConnected {
-        Section {
-          if isLinearConnected {
-            Picker("Linear issues", selection: linearIssueFilterBinding) {
-              ForEach(IssueAssigneeFilter.allCases) { filter in
-                Text(filter.label).tag(filter)
-              }
-            }
-            .accessibilityIdentifier("settings.linearIssueFilter")
-          }
-
-          if isGitHubConnected {
-            Picker("GitHub issues", selection: githubIssueFilterBinding) {
-              ForEach(IssueAssigneeFilter.allCases) { filter in
-                Text(filter.label).tag(filter)
-              }
-            }
-            .accessibilityIdentifier("settings.githubIssueFilter")
-          }
-        } header: {
-          Label("Shown Issues", systemImage: "line.3.horizontal.decrease.circle")
-        }
+        Label("New reminders", systemImage: "checklist")
       }
     }
     .formStyle(.grouped)

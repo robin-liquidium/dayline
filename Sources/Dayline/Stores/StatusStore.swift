@@ -303,6 +303,14 @@ final class StatusStore: ObservableObject {
   /// Whether a Reminders authorization request is currently awaiting the system response.
   @Published private(set) var isAppleRemindersAuthorizationInProgress = false
 
+  @Published var issueClickAction: IssueClickAction {
+    didSet { UserDefaults.standard.set(issueClickAction.rawValue, forKey: Self.issueClickActionKey) }
+  }
+
+  @Published var issueClickModifier: IssueClickModifier {
+    didSet { UserDefaults.standard.set(issueClickModifier.rawValue, forKey: Self.issueClickModifierKey) }
+  }
+
   /// Optional metadata fields shown on issue rows in the menu.
   @Published var issueRowFields: IssueRowFields {
     didSet {
@@ -487,18 +495,6 @@ final class StatusStore: ObservableObject {
     }
   }
 
-  /// Minutes after a meeting starts when the menu bar keeps showing the title.
-  @Published var menuBarEventPostStartGraceMinutes: Int {
-    didSet {
-      let clampedValue = Self.clampedMenuBarPostStartGrace(menuBarEventPostStartGraceMinutes)
-      guard menuBarEventPostStartGraceMinutes == clampedValue else {
-        menuBarEventPostStartGraceMinutes = clampedValue
-        return
-      }
-      UserDefaults.standard.set(menuBarEventPostStartGraceMinutes, forKey: Self.menuBarEventPostStartGraceKey)
-    }
-  }
-
   /// Whether macOS launches Dayline when the user logs in.
   @Published private(set) var launchAtLoginEnabled: Bool
 
@@ -582,6 +578,8 @@ final class StatusStore: ObservableObject {
   private static let showsNotesSectionKey = "showsNotesSection"
   private static let notesKeepOnTopKey = "notesKeepOnTop"
   private static let issueCreateMoreEnabledKey = "issueCreateMoreEnabled"
+  private static let issueClickActionKey = "issueClickAction"
+  private static let issueClickModifierKey = "issueClickModifier"
   private static let issueRowFieldsKey = "issueRowFields"
   private static let appleCalendarSelectionsKey = "appleCalendarSelections"
   private static let appleCalendarEnabledKey = "appleCalendarEnabled"
@@ -608,7 +606,6 @@ final class StatusStore: ObservableObject {
   private static let localNoteSortOrderKey = "localNoteSortOrder"
   private static let defaultVisibleNoteCountKey = "defaultVisibleNoteCount"
   private static let menuBarEventLeadTimeKey = "menuBarEventLeadTimeMinutes"
-  private static let menuBarEventPostStartGraceKey = "menuBarEventPostStartGraceMinutes"
   private static let launchAtLoginDefaultConfiguredKey = "launchAtLoginDefaultConfigured"
   private static let launchAtLoginDefaultPendingKey = "launchAtLoginDefaultPending"
   private static let newNoteShortcutKey = "newNoteGlobalShortcut"
@@ -617,7 +614,6 @@ final class StatusStore: ObservableObject {
   private static let newGitHubIssueShortcutKey = "newGitHubIssueGlobalShortcut"
   private static let newAppleReminderShortcutKey = "newAppleReminderGlobalShortcut"
   private static let defaultMenuBarEventLeadTimeMinutes = 30
-  private static let defaultMenuBarEventPostStartGraceMinutes = 0
   static let defaultMeetingAlertSnoozeMinutes = 5
   private static let fallbackDefaultVisibleNoteCount = 3
   private static let menuBarClockRefreshSeconds: TimeInterval = 15
@@ -779,12 +775,16 @@ final class StatusStore: ObservableObject {
         from: persisted
       )
     }
+    self.issueClickAction = defaults.string(forKey: Self.issueClickActionKey)
+      .flatMap(IssueClickAction.init(rawValue:)) ?? .showDetails
+    self.issueClickModifier = defaults.string(forKey: Self.issueClickModifierKey)
+      .flatMap(IssueClickModifier.init(rawValue:)) ?? .command
     self.issueRowFields = (defaults.object(forKey: Self.issueRowFieldsKey) as? Int)
       .map(IssueRowFields.init(rawValue:)) ?? .default
     self.meetingAlertEnabled = defaults.object(forKey: Self.meetingAlertEnabledKey) as? Bool ?? true
     self.meetingAlertRequiresMeetingLink = defaults.object(
       forKey: Self.meetingAlertRequiresMeetingLinkKey
-    ) as? Bool ?? false
+    ) as? Bool ?? true
     self.meetingAlertLeadMinutes = Self.storedInteger(forKey: Self.meetingAlertLeadMinutesKey, defaultValue: 0)
     self.meetingAlertSnoozeMinutes = Self.clampedMeetingAlertSnoozeMinutes(Self.storedInteger(
       forKey: Self.meetingAlertSnoozeMinutesKey,
@@ -828,15 +828,10 @@ final class StatusStore: ObservableObject {
       forKey: Self.menuBarEventLeadTimeKey,
       defaultValue: Self.defaultMenuBarEventLeadTimeMinutes
     )
-    self.menuBarEventPostStartGraceMinutes = Self.storedInteger(
-      forKey: Self.menuBarEventPostStartGraceKey,
-      defaultValue: Self.defaultMenuBarEventPostStartGraceMinutes
-    )
     if refreshIntervalMinutes <= 0 {
       refreshIntervalMinutes = 15
     }
     menuBarEventLeadTimeMinutes = Self.clampedMenuBarLeadTime(menuBarEventLeadTimeMinutes)
-    menuBarEventPostStartGraceMinutes = Self.clampedMenuBarPostStartGrace(menuBarEventPostStartGraceMinutes)
     if mockData == nil && defaults.object(forKey: Self.launchAtLoginDefaultConfiguredKey) == nil {
       let shouldApplyDefault = defaults.bool(forKey: Self.launchAtLoginDefaultPendingKey)
         || !hadPersistedAppState
@@ -1199,11 +1194,6 @@ final class StatusStore: ObservableObject {
     showsLinearSection && activeIssueSource != nil
   }
 
-  /// Whether one provider was dismissed from the menu's setup section.
-  func isProviderDismissed(_ provider: AuthProvider) -> Bool {
-    dismissedProviders.contains(provider)
-  }
-
   /// Dismisses one provider's setup prompt and hides its menu content until it connects.
   func dismissProvider(_ provider: AuthProvider) {
     dismissedProviders.insert(provider)
@@ -1531,12 +1521,6 @@ final class StatusStore: ObservableObject {
   /// Persists how early the menu bar switches to the meeting title.
   func setMenuBarEventLeadTime(minutes: Int) {
     menuBarEventLeadTimeMinutes = minutes
-    menuBarClockDate = Date()
-  }
-
-  /// Persists how long the menu bar title remains after the meeting starts.
-  func setMenuBarEventPostStartGrace(minutes: Int) {
-    menuBarEventPostStartGraceMinutes = minutes
     menuBarClockDate = Date()
   }
 
@@ -2405,6 +2389,21 @@ final class StatusStore: ObservableObject {
     return true
   }
 
+  func activateIssue(_ target: IssueActionTarget, url: URL?, modifiers: NSEvent.ModifierFlags = []) {
+    let action = issueClickAction.resolved(modifiers: modifiers, alternateModifier: issueClickModifier)
+    if action == .openInBrowser, let url {
+      dismissPreview()
+      NSWorkspace.shared.open(url)
+    } else {
+      setHoveredIssue(target)
+      presentPreviewForHovered()
+    }
+  }
+
+  var issueClickHint: String {
+    "Click to \(issueClickAction.label.lowercased()). \(issueClickModifier.label)-click to \(issueClickAction.alternate.label.lowercased())."
+  }
+
   /// Closes the detail preview.
   func dismissPreview() {
     previewTarget = nil
@@ -2593,7 +2592,8 @@ final class StatusStore: ObservableObject {
           updatedAt: issue.updatedAt,
           projectName: issue.projectName,
           branchName: issue.branchName,
-          url: issue.url
+          url: issue.url,
+          body: issue.body
         ))
       }
       DaylineDiagnostics.record("Linear issue status changed", category: .interaction)
@@ -2641,7 +2641,8 @@ final class StatusStore: ObservableObject {
           updatedAt: issue.updatedAt,
           projectName: issue.projectName,
           branchName: issue.branchName,
-          url: issue.url
+          url: issue.url,
+          body: issue.body
         ))
       }
       DaylineDiagnostics.record("Linear issue priority changed", category: .interaction)
@@ -2693,7 +2694,8 @@ final class StatusStore: ObservableObject {
           updatedAt: issue.updatedAt,
           projectName: issue.projectName,
           branchName: issue.branchName,
-          url: issue.url
+          url: issue.url,
+          body: issue.body
         ))
       }
       updatingDueDateTarget = nil
@@ -3082,7 +3084,8 @@ final class StatusStore: ObservableObject {
         updatedAt: Date(),
         projectName: nil,
         branchName: nil,
-        url: URL(string: "https://linear.app/dayline")
+        url: URL(string: "https://linear.app/dayline"),
+        body: draft.description
       ))
       applyLinearIssueOrder()
       lastUpdatedAt = Date()
@@ -3134,7 +3137,8 @@ final class StatusStore: ObservableObject {
         labels: labels.map { name in
           knownLabels.first(where: { $0.name == name }) ?? GitHubLabelOption(name: name, color: "cccccc")
         },
-        assignees: assignees.map { GitHubAssigneeOption(login: $0) }
+        assignees: assignees.map { GitHubAssigneeOption(login: $0) },
+        body: body
       ), at: 0)
       lastUpdatedAt = Date()
       DaylineDiagnostics.record("GitHub issue created", category: .interaction)
@@ -3648,13 +3652,11 @@ final class StatusStore: ObservableObject {
   /// Returns the event that should currently replace the menu bar icon.
   private func menuBarEvent(at now: Date) -> CalendarEventItem? {
     let leadTime = TimeInterval(menuBarEventLeadTimeMinutes * 60)
-    let postStartGrace = TimeInterval(menuBarEventPostStartGraceMinutes * 60)
 
     return CalendarEventItem.menuBarCandidate(
       in: events,
       at: now,
-      leadTime: leadTime,
-      postStartGrace: postStartGrace
+      leadTime: leadTime
     )
   }
 
@@ -3739,13 +3741,13 @@ final class StatusStore: ObservableObject {
     issues.sorted { lhs, rhs in
       switch linearIssueOrder {
       case .priority:
-        comparePriority(lhs, rhs) ?? compareStatus(lhs, rhs) ?? compareDueDate(lhs, rhs) ?? compareID(lhs, rhs)
+        comparePriority(lhs, rhs) ?? compareStatus(lhs, rhs) ?? compareDueDate(lhs, rhs) ?? (lhs.id < rhs.id)
       case .dueDate:
-        compareDueDate(lhs, rhs) ?? comparePriority(lhs, rhs) ?? compareID(lhs, rhs)
+        compareDueDate(lhs, rhs) ?? comparePriority(lhs, rhs) ?? (lhs.id < rhs.id)
       case .status:
-        compareStatus(lhs, rhs) ?? comparePriority(lhs, rhs) ?? compareDueDate(lhs, rhs) ?? compareID(lhs, rhs)
+        compareStatus(lhs, rhs) ?? comparePriority(lhs, rhs) ?? compareDueDate(lhs, rhs) ?? (lhs.id < rhs.id)
       case .title:
-        compareTitle(lhs, rhs) ?? comparePriority(lhs, rhs) ?? compareID(lhs, rhs)
+        compareTitle(lhs, rhs) ?? comparePriority(lhs, rhs) ?? (lhs.id < rhs.id)
       }
     }
   }
@@ -3780,11 +3782,11 @@ final class StatusStore: ObservableObject {
     notes.sorted { lhs, rhs in
       switch localNoteSortOrder {
       case .updatedAt:
-        compareNewest(lhs.updatedAt, rhs.updatedAt) ?? compareNoteTitle(lhs, rhs) ?? compareNoteID(lhs, rhs)
+        compareNewest(lhs.updatedAt, rhs.updatedAt) ?? compareNoteTitle(lhs, rhs) ?? (lhs.id < rhs.id)
       case .createdAt:
-        compareNewest(lhs.createdAt, rhs.createdAt) ?? compareNoteTitle(lhs, rhs) ?? compareNoteID(lhs, rhs)
+        compareNewest(lhs.createdAt, rhs.createdAt) ?? compareNoteTitle(lhs, rhs) ?? (lhs.id < rhs.id)
       case .title:
-        compareNoteTitle(lhs, rhs) ?? compareNewest(lhs.updatedAt, rhs.updatedAt) ?? compareNoteID(lhs, rhs)
+        compareNoteTitle(lhs, rhs) ?? compareNewest(lhs.updatedAt, rhs.updatedAt) ?? (lhs.id < rhs.id)
       }
     }
   }
@@ -3886,11 +3888,6 @@ final class StatusStore: ObservableObject {
     return comparison == .orderedAscending
   }
 
-  /// Compares two notes by stable local identifier.
-  private func compareNoteID(_ lhs: LocalNoteItem, _ rhs: LocalNoteItem) -> Bool {
-    lhs.id < rhs.id
-  }
-
   /// Compares two issues by Linear priority and returns `nil` for ties.
   private func comparePriority(_ lhs: LinearIssueItem, _ rhs: LinearIssueItem) -> Bool? {
     guard lhs.prioritySortRank != rhs.prioritySortRank else {
@@ -3928,11 +3925,6 @@ final class StatusStore: ObservableObject {
       return nil
     }
     return comparison == .orderedAscending
-  }
-
-  /// Compares two issues by stable Linear identifier.
-  private func compareID(_ lhs: LinearIssueItem, _ rhs: LinearIssueItem) -> Bool {
-    lhs.id < rhs.id
   }
 
   /// Normalizes a user-selected hotkey to a single lowercase character.
@@ -3998,11 +3990,6 @@ final class StatusStore: ObservableObject {
   /// Keeps the pre-meeting title window in a practical Settings range.
   private static func clampedMenuBarLeadTime(_ minutes: Int) -> Int {
     min(max(minutes, 0), 240)
-  }
-
-  /// Keeps the post-start title window in a practical Settings range.
-  private static func clampedMenuBarPostStartGrace(_ minutes: Int) -> Int {
-    min(max(minutes, 0), 60)
   }
 
   /// Keeps meeting-alert snoozes useful without allowing accidental zero or day-long values.

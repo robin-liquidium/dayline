@@ -15,19 +15,23 @@ struct NotesSettingsTab: View {
 
         Picker("Notes shown", selection: defaultNoteCountBinding) {
           ForEach(defaultNoteCountPickerOptions, id: \.self) { count in
-            Text("\(count)").tag(count)
+            Text(count == 1 ? "1 note" : "\(count) notes").tag(count)
           }
         }
+        .disabled(!store.showsNotesSection)
         .accessibilityIdentifier("settings.defaultNoteCount")
 
-        Picker("Notes sort", selection: localNoteSortOrderBinding) {
+        Picker("Sort notes by", selection: localNoteSortOrderBinding) {
           ForEach(LocalNoteSortOrder.allCases) { order in
             Text(order.label).tag(order)
           }
         }
+        .disabled(!store.showsNotesSection)
         .accessibilityIdentifier("settings.localNoteSortOrder")
       } header: {
         Label("Menu", systemImage: "list.bullet")
+      } footer: {
+        Text("The menu initially shows this many notes. Expand it to see more.")
       }
 
       Section {

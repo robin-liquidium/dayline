@@ -19,8 +19,7 @@ struct CalendarEventItemTests {
     let candidate = CalendarEventItem.menuBarCandidate(
       in: [activeEvent, upcomingEvent],
       at: now,
-      leadTime: 30 * 60,
-      postStartGrace: 5 * 60
+      leadTime: 30 * 60
     )
 
     #expect(candidate == activeEvent)
@@ -37,8 +36,7 @@ struct CalendarEventItemTests {
     let candidate = CalendarEventItem.menuBarCandidate(
       in: [upcomingEvent],
       at: now,
-      leadTime: 30 * 60,
-      postStartGrace: 5 * 60
+      leadTime: 30 * 60
     )
 
     #expect(candidate == upcomingEvent)
@@ -55,8 +53,24 @@ struct CalendarEventItemTests {
     let candidate = CalendarEventItem.menuBarCandidate(
       in: [laterEvent],
       at: now,
-      leadTime: 30 * 60,
-      postStartGrace: 5 * 60
+      leadTime: 30 * 60
+    )
+
+    #expect(candidate == nil)
+  }
+
+  @Test func menuBarCandidateDoesNotKeepRecentlyEndedEvents() {
+    let now = Date(timeIntervalSince1970: 10_000)
+    let endedEvent = event(
+      id: "ended",
+      startDate: now.addingTimeInterval(-10 * 60),
+      endDate: now.addingTimeInterval(-60)
+    )
+
+    let candidate = CalendarEventItem.menuBarCandidate(
+      in: [endedEvent],
+      at: now,
+      leadTime: 30 * 60
     )
 
     #expect(candidate == nil)
@@ -74,8 +88,7 @@ struct CalendarEventItemTests {
     let candidate = CalendarEventItem.menuBarCandidate(
       in: [allDay],
       at: now,
-      leadTime: 30 * 60,
-      postStartGrace: 5 * 60
+      leadTime: 30 * 60
     )
 
     #expect(candidate == nil)

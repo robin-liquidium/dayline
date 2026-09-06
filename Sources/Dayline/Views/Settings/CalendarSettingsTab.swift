@@ -7,40 +7,35 @@ struct CalendarSettingsTab: View {
   /// Supported pre-meeting menu bar title lead choices in minutes.
   private let menuBarLeadTimeOptions = [0, 5, 10, 15, 20, 25, 30, 45, 60, 90, 120]
 
-  /// Supported post-start menu bar title grace choices in minutes.
-  private let menuBarPostStartGraceOptions = [0, 1, 2, 5, 10, 15, 20, 25, 30]
-
   var body: some View {
     Form {
       Section {
-        Picker("Show title before", selection: menuBarLeadTimeBinding) {
+        Toggle("Show calendar in menu", isOn: showsCalendarSectionBinding)
+          .accessibilityIdentifier("settings.showsCalendarSection")
+
+        Toggle("Show calendar names", isOn: showsCalendarSourceNamesBinding)
+          .disabled(!store.showsCalendarSection)
+          .accessibilityIdentifier("settings.showsCalendarSourceNames")
+
+        Toggle("Show all-day events", isOn: showsAllDayEventsBinding)
+          .disabled(!store.showsCalendarSection)
+          .accessibilityIdentifier("settings.showsAllDayEvents")
+      } header: {
+        Label("Menu", systemImage: "list.bullet")
+      }
+
+      Section {
+        Picker("Before event starts", selection: menuBarLeadTimeBinding) {
           ForEach(menuBarLeadTimePickerOptions, id: \.self) { minutes in
             Text(minutesLabel(for: minutes)).tag(minutes)
           }
         }
         .accessibilityIdentifier("settings.menuBarEventLeadTime")
 
-        Picker("Show title after", selection: menuBarPostStartGraceBinding) {
-          ForEach(menuBarPostStartGracePickerOptions, id: \.self) { minutes in
-            Text(minutesLabel(for: minutes)).tag(minutes)
-          }
-        }
-        .accessibilityIdentifier("settings.menuBarEventPostStartGrace")
       } header: {
-        Label("Menu Bar Title", systemImage: "menubar.rectangle")
-      }
-
-      Section {
-        Toggle("Show calendar in menu", isOn: showsCalendarSectionBinding)
-          .accessibilityIdentifier("settings.showsCalendarSection")
-
-        Toggle("Show calendar names", isOn: showsCalendarSourceNamesBinding)
-          .accessibilityIdentifier("settings.showsCalendarSourceNames")
-
-        Toggle("Show all-day events", isOn: showsAllDayEventsBinding)
-          .accessibilityIdentifier("settings.showsAllDayEvents")
-      } header: {
-        Label("Menu", systemImage: "list.bullet")
+        Label("Menu bar title", systemImage: "menubar.rectangle")
+      } footer: {
+        Text("Upcoming events appear within the before-start window. Ongoing events stay visible until they end.")
       }
 
       Section {
@@ -67,7 +62,7 @@ struct CalendarSettingsTab: View {
         .disabled(!store.meetingAlertEnabled)
         .accessibilityIdentifier("settings.meetingAlertSnooze")
       } header: {
-        Label("Meeting Alerts", systemImage: "bell.badge")
+        Label("Meeting alerts", systemImage: "bell.badge")
       }
     }
     .formStyle(.grouped)
@@ -82,22 +77,9 @@ struct CalendarSettingsTab: View {
     )
   }
 
-  /// Binding that forwards menu bar post-start window changes to the store.
-  private var menuBarPostStartGraceBinding: Binding<Int> {
-    Binding(
-      get: { store.menuBarEventPostStartGraceMinutes },
-      set: { store.setMenuBarEventPostStartGrace(minutes: $0) }
-    )
-  }
-
   /// Lead time choices plus any existing custom stored value.
   private var menuBarLeadTimePickerOptions: [Int] {
     Array(Set(menuBarLeadTimeOptions + [store.menuBarEventLeadTimeMinutes])).sorted()
-  }
-
-  /// Post-start choices plus any existing custom stored value.
-  private var menuBarPostStartGracePickerOptions: [Int] {
-    Array(Set(menuBarPostStartGraceOptions + [store.menuBarEventPostStartGraceMinutes])).sorted()
   }
 
   /// Binding that persists whether the calendar section appears in the menu.

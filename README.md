@@ -52,6 +52,11 @@ Assigned issues stay within reach. Hover a row and press `C` to copy its URL,
 `S` to change status, `L` to change labels, or `A` to change the assignee.
 Linear issues also support `P` for priority and `D` for due date. The shortcuts are configurable.
 
+Click a Linear or GitHub issue to read its details and description. Command-click
+opens the original issue in your browser. In Settings → Issues → Opening issues,
+choose the normal-click action and use Command, Option, or Shift for the opposite
+action. Space still toggles details while hovering.
+
 Apple Reminders can occupy the same section instead of, or alongside, Linear
 and GitHub. Dayline can show selected reminder lists, create reminders, mark
 them complete, and change priority or due date without leaving the menu when
@@ -394,7 +399,6 @@ push to `main`, so it does not use the local mouse or interrupt local work.
 - `settings.launchAtLogin`
 - `settings.refreshCadence`
 - `settings.menuBarEventLeadTime`
-- `settings.menuBarEventPostStartGrace`
 - `settings.copyIssueHotkey`
 - `settings.statusPickerHotkey`
 - `settings.priorityPickerHotkey`

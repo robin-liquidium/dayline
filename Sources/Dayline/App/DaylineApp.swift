@@ -145,23 +145,23 @@ private struct MenuBarLabelView: View {
     }
     .onChange(of: store.noteCreationRequestID) {
       openWindow(value: NoteEditorRequest.new)
-      NoteEditorWindowPresenter.bringNoteWindowToFront()
+      WindowPresenterSupport.bringWindowToFront(titled: ["Note", "New Note"])
     }
     .onChange(of: store.linearIssueCreationRequestID) {
       openWindow(id: "linearIssueCreator")
-      LinearIssueEditorWindowPresenter.bringIssueWindowToFront()
+      WindowPresenterSupport.bringWindowToFront(titled: ["New Linear Issue"])
     }
     .onChange(of: store.githubIssueCreationRequestID) {
       openWindow(id: "githubIssueCreator")
-      GitHubIssueEditorWindowPresenter.bringIssueWindowToFront()
+      WindowPresenterSupport.bringWindowToFront(titled: ["New GitHub Issue"])
     }
     .onChange(of: store.appleReminderCreationRequestID) {
       openWindow(id: "appleReminderCreator")
-      AppleReminderEditorWindowPresenter.bringReminderWindowToFront()
+      WindowPresenterSupport.bringWindowToFront(titled: ["New Apple Reminder"])
     }
     .onChange(of: store.appleCalendarEventCreationRequestID) {
       openWindow(id: "appleCalendarEventCreator")
-      AppleCalendarEventEditorWindowPresenter.bringEventWindowToFront()
+      WindowPresenterSupport.bringWindowToFront(titled: ["New Apple Calendar Event"])
     }
     .onChange(of: store.meetingAlertEvent, initial: true) {
       if let event = store.meetingAlertEvent {
