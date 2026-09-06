@@ -8,15 +8,14 @@ struct LinearIssueEditorView: View {
   @StateObject private var draft = LinearIssueDraft()
   @State private var isDueDatePickerPresented = false
 
-  /// Builds the Linear issue creator window content.
   var body: some View {
     VStack(spacing: 0) {
       Form {
         Section {
-          TextField("Title", text: titleBinding, prompt: Text("Issue title"))
+          TextField("Title", text: $draft.issue.title, prompt: Text("Issue title"))
             .accessibilityIdentifier("linearEditor.title")
 
-          Picker("Team", selection: teamBinding) {
+          Picker("Team", selection: $draft.issue.team) {
             Text("Select team").tag("")
             ForEach(draft.teams) { team in
               Text(defaultAnnotatedLabel(team.label, isDefault: team.id == store.linearIssueCreateDefaultTeamID))
@@ -27,7 +26,7 @@ struct LinearIssueEditorView: View {
 
           LabeledContent("Status") {
             ColoredMenuPicker(
-              selection: stateBinding,
+              selection: $draft.issue.state,
               items: statusOptions.map { state in
                 ColoredMenuPickerItem(
                   tag: state.id,
@@ -48,7 +47,7 @@ struct LinearIssueEditorView: View {
           LabeledContent("Priority") {
             ColoredMenuPicker(
               selection: priorityTagBinding,
-              items: createPriorityOptions.map { priority in
+              items: LinearPriorityOption.allCases.map { priority in
                 ColoredMenuPickerItem(
                   tag: String(priority.value),
                   title: defaultAnnotatedLabel(
@@ -63,7 +62,7 @@ struct LinearIssueEditorView: View {
           }
           .accessibilityIdentifier("linearEditor.priority")
 
-          Picker("Assignee", selection: assigneeBinding) {
+          Picker("Assignee", selection: $draft.issue.assignee) {
             Text("Me (self)").tag("self")
             Text("No assignee").tag("")
             ForEach(draft.assignees) { assignee in
@@ -80,7 +79,7 @@ struct LinearIssueEditorView: View {
         }
 
         Section {
-          TextEditor(text: descriptionBinding)
+          TextEditor(text: $draft.issue.description)
             .font(.body)
             .frame(minHeight: 110)
             .scrollContentBackground(.hidden)
@@ -99,7 +98,7 @@ struct LinearIssueEditorView: View {
           .disabled(estimateOptions.isEmpty)
           .accessibilityIdentifier("linearEditor.estimate")
 
-          Picker("Project", selection: projectBinding) {
+          Picker("Project", selection: $draft.issue.project) {
             Text("None").tag("")
             ForEach(projectOptions) { project in
               Text(defaultAnnotatedLabel(
@@ -111,7 +110,7 @@ struct LinearIssueEditorView: View {
           }
           .accessibilityIdentifier("linearEditor.project")
 
-          Picker("Milestone", selection: milestoneBinding) {
+          Picker("Milestone", selection: $draft.issue.milestone) {
             Text("None").tag("")
             ForEach(draft.milestones) { milestone in
               Text(milestone.label).tag(milestone.id)
@@ -120,7 +119,7 @@ struct LinearIssueEditorView: View {
           .disabled(draft.issue.project.isEmpty)
           .accessibilityIdentifier("linearEditor.milestone")
 
-          Picker("Cycle", selection: cycleBinding) {
+          Picker("Cycle", selection: $draft.issue.cycle) {
             Text("None").tag("")
             ForEach(draft.cycles) { cycle in
               Text(cycle.label).tag(cycle.id)
@@ -130,7 +129,7 @@ struct LinearIssueEditorView: View {
 
           LabeledContent("Label") {
             ColoredMenuPicker(
-              selection: labelBinding,
+              selection: $draft.issue.label,
               items: [ColoredMenuPickerItem(tag: "", title: "None", symbolName: nil, color: .secondary)]
                 + draft.labels.map { label in
                   ColoredMenuPickerItem(
@@ -147,7 +146,7 @@ struct LinearIssueEditorView: View {
           }
           .accessibilityIdentifier("linearEditor.labels")
 
-          TextField("Parent", text: parentBinding, prompt: Text("TEAM-123"))
+          TextField("Parent", text: $draft.issue.parent, prompt: Text("TEAM-123"))
             .accessibilityIdentifier("linearEditor.parent")
         } header: {
           Label("Advanced", systemImage: "slider.horizontal.3")
@@ -271,11 +270,6 @@ struct LinearIssueEditorView: View {
   /// Estimate options for the selected team's estimation scale.
   private var estimateOptions: [LinearEstimateOption] {
     selectedTeam?.estimateOptions ?? []
-  }
-
-  /// Priority choices accepted by `linear issue create`.
-  private var createPriorityOptions: [LinearPriorityOption] {
-    LinearPriorityOption.allCases
   }
 
   /// Creates the issue, then closes or resets the window when Linear accepts it.
@@ -531,26 +525,6 @@ struct LinearIssueEditorView: View {
     }
   }
 
-  /// Binding for the issue title field.
-  private var titleBinding: Binding<String> {
-    Binding(get: { draft.issue.title }, set: { draft.issue.title = $0 })
-  }
-
-  /// Binding for the issue description field.
-  private var descriptionBinding: Binding<String> {
-    Binding(get: { draft.issue.description }, set: { draft.issue.description = $0 })
-  }
-
-  /// Binding for the selected team ID.
-  private var teamBinding: Binding<String> {
-    Binding(get: { draft.issue.team }, set: { draft.issue.team = $0 })
-  }
-
-  /// Binding for the selected state ID.
-  private var stateBinding: Binding<String> {
-    Binding(get: { draft.issue.state }, set: { draft.issue.state = $0 })
-  }
-
   /// Binding for the selected priority as a menu tag string.
   private var priorityTagBinding: Binding<String> {
     Binding(
@@ -560,11 +534,6 @@ struct LinearIssueEditorView: View {
         draft.issue.priority = value == -1 ? nil : value
       }
     )
-  }
-
-  /// Binding for the assignee field.
-  private var assigneeBinding: Binding<String> {
-    Binding(get: { draft.issue.assignee }, set: { draft.issue.assignee = $0 })
   }
 
   /// Binding for the due date field.
@@ -581,31 +550,6 @@ struct LinearIssueEditorView: View {
       get: { draft.issue.estimate ?? -1 },
       set: { draft.issue.estimate = $0 == -1 ? nil : $0 }
     )
-  }
-
-  /// Binding for the project picker.
-  private var projectBinding: Binding<String> {
-    Binding(get: { draft.issue.project }, set: { draft.issue.project = $0 })
-  }
-
-  /// Binding for the cycle picker.
-  private var cycleBinding: Binding<String> {
-    Binding(get: { draft.issue.cycle }, set: { draft.issue.cycle = $0 })
-  }
-
-  /// Binding for the milestone picker.
-  private var milestoneBinding: Binding<String> {
-    Binding(get: { draft.issue.milestone }, set: { draft.issue.milestone = $0 })
-  }
-
-  /// Binding for the parent issue field.
-  private var parentBinding: Binding<String> {
-    Binding(get: { draft.issue.parent }, set: { draft.issue.parent = $0 })
-  }
-
-  /// Binding for the label picker.
-  private var labelBinding: Binding<String> {
-    Binding(get: { draft.issue.label }, set: { draft.issue.label = $0 })
   }
 }
 

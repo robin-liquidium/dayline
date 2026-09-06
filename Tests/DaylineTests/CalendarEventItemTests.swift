@@ -19,8 +19,7 @@ struct CalendarEventItemTests {
     let candidate = CalendarEventItem.menuBarCandidate(
       in: [activeEvent, upcomingEvent],
       at: now,
-      leadTime: 30 * 60,
-      postStartGrace: 5 * 60
+      leadTime: 30 * 60
     )
 
     #expect(candidate == activeEvent)
@@ -37,8 +36,7 @@ struct CalendarEventItemTests {
     let candidate = CalendarEventItem.menuBarCandidate(
       in: [upcomingEvent],
       at: now,
-      leadTime: 30 * 60,
-      postStartGrace: 5 * 60
+      leadTime: 30 * 60
     )
 
     #expect(candidate == upcomingEvent)
@@ -55,8 +53,7 @@ struct CalendarEventItemTests {
     let candidate = CalendarEventItem.menuBarCandidate(
       in: [laterEvent],
       at: now,
-      leadTime: 30 * 60,
-      postStartGrace: 5 * 60
+      leadTime: 30 * 60
     )
 
     #expect(candidate == nil)
@@ -74,8 +71,7 @@ struct CalendarEventItemTests {
     let candidate = CalendarEventItem.menuBarCandidate(
       in: [allDay],
       at: now,
-      leadTime: 30 * 60,
-      postStartGrace: 5 * 60
+      leadTime: 30 * 60
     )
 
     #expect(candidate == nil)

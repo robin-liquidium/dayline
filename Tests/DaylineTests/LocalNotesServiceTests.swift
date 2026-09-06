@@ -29,6 +29,5 @@ struct LocalNotesServiceTests {
     let restored = try service.loadNotes()
 
     #expect(restored == [note])
-    #expect(restored.first?.text == source)
   }
 }

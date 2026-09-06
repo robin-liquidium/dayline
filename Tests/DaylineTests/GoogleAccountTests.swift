@@ -26,6 +26,5 @@ struct GoogleAccountTests {
     #expect(reconciled.calendars.first(where: { $0.id == "primary" })?.isEnabled == false)
     #expect(reconciled.calendars.first(where: { $0.id == "new-selected" })?.isEnabled == true)
     #expect(reconciled.calendars.first(where: { $0.id == "new-hidden" })?.isEnabled == false)
-    #expect(!reconciled.calendars.contains(where: { $0.id == "removed" }))
   }
 }

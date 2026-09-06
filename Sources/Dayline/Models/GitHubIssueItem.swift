@@ -26,6 +26,8 @@ struct GitHubIssueItem: Identifiable, Equatable, Sendable {
   /// Users currently assigned to the issue.
   let assignees: [GitHubAssigneeOption]
 
+  var body: String? = nil
+
   /// Compact `owner/name#123` reference for row metadata.
   var reference: String {
     "\(repoFullName)#\(number)"
@@ -37,7 +39,7 @@ struct GitHubIssueItem: Identifiable, Equatable, Sendable {
   ) -> GitHubIssueItem {
     GitHubIssueItem(
       id: id, title: title, repoFullName: repoFullName, number: number, url: url,
-      updatedAt: updatedAt, labels: labels ?? self.labels, assignees: assignees ?? self.assignees
+      updatedAt: updatedAt, labels: labels ?? self.labels, assignees: assignees ?? self.assignees, body: body
     )
   }
 }

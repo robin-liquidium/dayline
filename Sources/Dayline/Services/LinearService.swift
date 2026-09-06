@@ -33,7 +33,7 @@ struct LinearService {
     repeat {
       var variables: [String: Any] = ["first": 100]
       if let after { variables["after"] = after }
-      let response = try await graphQL(query, variables: variables, as: LinearAccountDiscoveryResponse.self)
+      let response = try await graphQL(query, variables: variables, as: LinearResponse<LinearAccountDiscoveryData>.self)
       workspaceName = response.data.organization.name
       userLabel = response.data.viewer.accountLabel
       teams.append(contentsOf: response.data.teams.nodes.map {
@@ -61,6 +61,7 @@ struct LinearService {
             updatedAt
             project { name }
             branchName
+            description
             url
             state { id name type }
             assignee { id name displayName active }
@@ -83,7 +84,7 @@ struct LinearService {
     repeat {
       var variables: [String: Any] = ["first": 25]
       if let after { variables["after"] = after }
-      let response = try await graphQL(query, variables: variables, as: LinearAPIResponse.self)
+      let response = try await graphQL(query, variables: variables, as: LinearResponse<LinearData>.self)
       let connection = response.data.viewer.assignedIssues
       issues.append(contentsOf: connection.nodes.map(\.displayItem).filter { issue in
         enabledTeamIDs?.contains(issue.teamID) ?? true
@@ -108,6 +109,7 @@ struct LinearService {
           updatedAt
           project { name }
           branchName
+          description
           url
           state { id name type }
           assignee { id name displayName active }
@@ -133,7 +135,7 @@ struct LinearService {
     repeat {
       var variables: [String: Any] = ["first": 25, "filter": filter]
       if let after { variables["after"] = after }
-      let response = try await graphQL(query, variables: variables, as: LinearIssuesResponse.self)
+      let response = try await graphQL(query, variables: variables, as: LinearResponse<LinearIssuesData>.self)
       let connection = response.data.issues
       issues.append(contentsOf: connection.nodes.map(\.displayItem))
       after = connection.pageInfo.nextCursor
@@ -156,6 +158,7 @@ struct LinearService {
           updatedAt
           project { name }
           branchName
+          description
           url
           state { id name type }
           assignee { id name displayName active }
@@ -174,7 +177,7 @@ struct LinearService {
     let response = try await graphQL(mutation, variables: [
       "id": issueID,
       "stateId": stateID
-    ], as: LinearUpdateResponse.self)
+    ], as: LinearResponse<LinearUpdateData>.self)
     guard response.data.issueUpdate.success else {
       throw LinearServiceError.statusUpdateFailed
     }
@@ -196,6 +199,7 @@ struct LinearService {
           updatedAt
           project { name }
           branchName
+          description
           url
           state { id name type }
           assignee { id name displayName active }
@@ -214,7 +218,7 @@ struct LinearService {
     let response = try await graphQL(mutation, variables: [
       "id": issueID,
       "priority": priority
-    ], as: LinearUpdateResponse.self)
+    ], as: LinearResponse<LinearUpdateData>.self)
     guard response.data.issueUpdate.success else {
       throw LinearServiceError.priorityUpdateFailed
     }
@@ -236,6 +240,7 @@ struct LinearService {
           updatedAt
           project { name }
           branchName
+          description
           url
           state { id name type }
           assignee { id name displayName active }
@@ -253,7 +258,7 @@ struct LinearService {
 
     var variables: [String: Any] = ["id": issueID]
     variables["dueDate"] = dueDate ?? NSNull()
-    let response = try await graphQL(mutation, variables: variables, as: LinearUpdateResponse.self)
+    let response = try await graphQL(mutation, variables: variables, as: LinearResponse<LinearUpdateData>.self)
     guard response.data.issueUpdate.success else {
       throw LinearServiceError.dueDateUpdateFailed
     }
@@ -283,7 +288,7 @@ struct LinearService {
     repeat {
       var variables: [String: Any] = ["id": issueID]
       if let after { variables["after"] = after }
-      let response = try await graphQL(query, variables: variables, as: LinearAppliedLabelsResponse.self)
+      let response = try await graphQL(query, variables: variables, as: LinearResponse<LinearAppliedLabelsData>.self)
       guard let connection = response.data.issue?.labels else {
         throw LinearServiceError.unresolvedField("No Linear issue \"\(issueID)\".")
       }
@@ -304,7 +309,7 @@ struct LinearService {
       issueUpdate(id: $id, input: $input) {
         success
         issue {
-          identifier title priority priorityLabel dueDate updatedAt branchName url
+          identifier title priority priorityLabel dueDate updatedAt branchName description url
           project { name }
           state { id name type }
           assignee { id name displayName active }
@@ -317,7 +322,7 @@ struct LinearService {
     let response = try await graphQL(
       mutation,
       variables: ["id": issueID, "input": input],
-      as: LinearUpdateResponse.self
+      as: LinearResponse<LinearUpdateData>.self
     )
     guard response.data.issueUpdate.success else { throw LinearServiceError.issueUpdateFailed }
     return response.data.issueUpdate.issue.displayItem
@@ -349,7 +354,7 @@ struct LinearService {
     }
     """
 
-    let response = try await graphQL(query, variables: ["first": 50], as: LinearTeamsResponse.self)
+    let response = try await graphQL(query, variables: ["first": 50], as: LinearResponse<LinearTeamsData>.self)
     return response.data.teams.nodes.map(\.displayItem)
   }
 
@@ -374,7 +379,7 @@ struct LinearService {
     repeat {
       var variables: [String: Any] = ["first": 100]
       if let after { variables["after"] = after }
-      let response = try await graphQL(query, variables: variables, as: LinearUsersResponse.self)
+      let response = try await graphQL(query, variables: variables, as: LinearResponse<LinearUsersData>.self)
       users.append(contentsOf: response.data.users.nodes)
       after = response.data.users.pageInfo.nextCursor
     } while after != nil
@@ -403,7 +408,7 @@ struct LinearService {
         "filter": ["state": ["nin": ["completed", "canceled"]]]
       ]
       if let after { variables["after"] = after }
-      let response = try await graphQL(query, variables: variables, as: LinearProjectsResponse.self)
+      let response = try await graphQL(query, variables: variables, as: LinearResponse<LinearProjectsData>.self)
       projects.append(contentsOf: response.data.projects.nodes)
       after = response.data.projects.pageInfo.nextCursor
     } while after != nil
@@ -435,7 +440,7 @@ struct LinearService {
         "filter": ["or": [["isActive": ["eq": true]], ["isFuture": ["eq": true]]]]
       ]
       if let after { variables["after"] = after }
-      let response = try await graphQL(query, variables: variables, as: LinearCyclesResponse.self)
+      let response = try await graphQL(query, variables: variables, as: LinearResponse<LinearCyclesData>.self)
       guard let connection = response.data.team?.cycles else { break }
       cycles.append(contentsOf: connection.nodes)
       after = connection.pageInfo.nextCursor
@@ -464,7 +469,7 @@ struct LinearService {
     repeat {
       var variables: [String: Any] = ["id": teamID, "first": 50]
       if let after { variables["after"] = after }
-      let response = try await graphQL(query, variables: variables, as: LinearLabelsResponse.self)
+      let response = try await graphQL(query, variables: variables, as: LinearResponse<LinearLabelsData>.self)
       guard let connection = response.data.team?.labels else { break }
       labels.append(contentsOf: connection.nodes)
       after = connection.pageInfo.nextCursor
@@ -493,7 +498,7 @@ struct LinearService {
     repeat {
       var variables: [String: Any] = ["id": projectID, "first": 50]
       if let after { variables["after"] = after }
-      let response = try await graphQL(query, variables: variables, as: LinearMilestonesResponse.self)
+      let response = try await graphQL(query, variables: variables, as: LinearResponse<LinearMilestonesData>.self)
       guard let connection = response.data.project?.projectMilestones else { break }
       milestones.append(contentsOf: connection.nodes)
       after = connection.pageInfo.nextCursor
@@ -575,7 +580,7 @@ struct LinearService {
     }
     """
 
-    let response = try await graphQL(mutation, variables: ["input": input], as: LinearCreateResponse.self)
+    let response = try await graphQL(mutation, variables: ["input": input], as: LinearResponse<LinearCreateData>.self)
     guard response.data.issueCreate.success else {
       throw LinearServiceError.createFailed
     }
@@ -607,7 +612,7 @@ struct LinearService {
 
   /// Loads the authenticated user's Linear ID.
   private func fetchViewerID() async throws -> String {
-    let response = try await graphQL("query Viewer { viewer { id } }", variables: [:], as: LinearViewerIDResponse.self)
+    let response = try await graphQL("query Viewer { viewer { id } }", variables: [:], as: LinearResponse<LinearViewerIDData>.self)
     return response.data.viewer.id
   }
 
@@ -619,7 +624,7 @@ struct LinearService {
     }
     """
 
-    let response = try await graphQL(query, variables: ["id": identifier], as: LinearIssueIDResponse.self)
+    let response = try await graphQL(query, variables: ["id": identifier], as: LinearResponse<LinearIssueIDData>.self)
     guard let issueID = response.data.issue?.id else {
       throw LinearServiceError.unresolvedField("No Linear issue \"\(identifier)\".")
     }
@@ -676,6 +681,10 @@ enum LinearServiceError: LocalizedError {
   }
 }
 
+private struct LinearResponse<Payload: Decodable>: Decodable {
+  let data: Payload
+}
+
 /// GraphQL error envelope checked before decoding operation payloads.
 private struct GraphQLErrorEnvelope: Decodable {
   /// GraphQL errors returned by Linear, if any.
@@ -698,11 +707,6 @@ private struct LinearViewerIdentity: Decodable {
     if let displayName, !displayName.isEmpty { return displayName }
     return name
   }
-}
-
-/// Root response for Linear workspace and team discovery.
-private struct LinearAccountDiscoveryResponse: Decodable {
-  let data: LinearAccountDiscoveryData
 }
 
 private struct LinearAccountDiscoveryData: Decodable {
@@ -732,46 +736,10 @@ private struct GraphQLErrorItem: Decodable {
   let message: String
 }
 
-/// Root GraphQL response shape for the assigned issue query.
-private struct LinearAPIResponse: Decodable {
-  /// GraphQL data payload.
-  let data: LinearData
-}
-
-/// Root GraphQL response shape for the open issue query.
-private struct LinearIssuesResponse: Decodable {
-  /// GraphQL data payload.
-  let data: LinearIssuesData
-}
-
 /// Linear GraphQL data payload for the open issue query.
 private struct LinearIssuesData: Decodable {
   /// Open issue connection.
   let issues: LinearAssignedIssues
-}
-
-/// Root GraphQL response shape for an issue status mutation.
-private struct LinearUpdateResponse: Decodable {
-  /// GraphQL data payload.
-  let data: LinearUpdateData
-}
-
-/// Root GraphQL response shape for team options.
-private struct LinearTeamsResponse: Decodable {
-  /// GraphQL data payload.
-  let data: LinearTeamsData
-}
-
-/// Root GraphQL response shape for user options.
-private struct LinearUsersResponse: Decodable {
-  /// GraphQL data payload.
-  let data: LinearUsersData
-}
-
-/// Root GraphQL response shape for the create mutation.
-private struct LinearCreateResponse: Decodable {
-  /// GraphQL data payload.
-  let data: LinearCreateData
 }
 
 /// Issue create mutation data payload.
@@ -786,12 +754,6 @@ private struct LinearIssueCreate: Decodable {
   let success: Bool
 }
 
-/// Root GraphQL response shape for the viewer ID query.
-private struct LinearViewerIDResponse: Decodable {
-  /// GraphQL data payload.
-  let data: LinearViewerIDData
-}
-
 /// Viewer ID query data payload.
 private struct LinearViewerIDData: Decodable {
   /// Current authenticated user.
@@ -802,42 +764,6 @@ private struct LinearViewerIDData: Decodable {
 private struct LinearViewerID: Decodable {
   /// Stable Linear user identifier.
   let id: String
-}
-
-/// Root GraphQL response shape for project lookups.
-private struct LinearProjectsResponse: Decodable {
-  /// GraphQL data payload.
-  let data: LinearProjectsData
-}
-
-/// Root GraphQL response shape for milestone lookups.
-private struct LinearMilestonesResponse: Decodable {
-  /// GraphQL data payload.
-  let data: LinearMilestonesData
-}
-
-/// Root GraphQL response shape for cycle lookups.
-private struct LinearCyclesResponse: Decodable {
-  /// GraphQL data payload.
-  let data: LinearCyclesData
-}
-
-/// Root GraphQL response shape for issue ID lookups.
-private struct LinearIssueIDResponse: Decodable {
-  /// GraphQL data payload.
-  let data: LinearIssueIDData
-}
-
-/// Root GraphQL response shape for label lookups.
-private struct LinearLabelsResponse: Decodable {
-  /// GraphQL data payload.
-  let data: LinearLabelsData
-}
-
-/// Root GraphQL response shape for applied label ID lookups.
-private struct LinearAppliedLabelsResponse: Decodable {
-  /// GraphQL data payload.
-  let data: LinearAppliedLabelsData
 }
 
 /// Project lookup data payload.
@@ -1167,6 +1093,7 @@ private struct LinearAssignedIssues: Decodable {
 private struct LinearIssueNode: Decodable {
   /// Linear identifier such as `DEV-123`.
   let identifier: String
+  let description: String?
 
   /// Issue title.
   let title: String
@@ -1224,7 +1151,8 @@ private struct LinearIssueNode: Decodable {
       updatedAt: updatedAt.flatMap(DateParsers.rfc3339Date(from:)),
       projectName: project?.name,
       branchName: branchName,
-      url: url.flatMap(URL.init(string:))
+      url: url.flatMap(URL.init(string:)),
+      body: description
     )
   }
 }

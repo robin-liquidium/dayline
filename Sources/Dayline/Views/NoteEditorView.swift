@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Native visual defaults shared by the note editor and its rendering tests.
 enum NoteEditorAppearance {
-  static let bodyFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+  static let bodyFont = NSFont.systemFont(ofSize: 14)
 }
 
 /// Stock SwiftUI window for creating notes and editing note text locally.
@@ -19,7 +19,6 @@ struct NoteEditorView: View {
   @State private var linkURL = ""
   @State private var isShowingLinkPrompt = false
 
-  /// Builds the note editor window content.
   var body: some View {
     VStack(spacing: 0) {
       NativeTextViewWrapper(
@@ -56,14 +55,12 @@ struct NoteEditorView: View {
             .keyboardShortcut(.cancelAction)
             .accessibilityIdentifier("noteEditor.cancel")
 
-            Button(saveButtonTitle) {
-              Task { await save() }
-            }
-            .buttonStyle(.glassProminent)
-            .buttonBorderShape(.capsule)
-            .keyboardShortcut(.defaultAction)
-            .disabled(!canSave)
-            .accessibilityIdentifier("noteEditor.save")
+            Button("Save", action: save)
+              .buttonStyle(.glassProminent)
+              .buttonBorderShape(.capsule)
+              .keyboardShortcut(.defaultAction)
+              .disabled(!canSave)
+              .accessibilityIdentifier("noteEditor.save")
           }
         }
       }
@@ -85,7 +82,7 @@ struct NoteEditorView: View {
         linkURL = ""
       }
       Button("Insert") {
-        draft.performLink(url: linkURL.trimmingCharacters(in: .whitespacesAndNewlines))
+        draft.formatting.performLink(url: linkURL.trimmingCharacters(in: .whitespacesAndNewlines))
         linkURL = ""
       }
       .disabled(linkURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -99,21 +96,13 @@ struct NoteEditorView: View {
     if case .link = action {
       isShowingLinkPrompt = true
     } else {
-      draft.performFormatting(action)
+      draft.formatting.perform(action)
     }
-  }
-
-  /// Title for the primary save action.
-  private var saveButtonTitle: String {
-    if draft.isSaving {
-      return "Saving..."
-    }
-    return "Save"
   }
 
   /// Whether the current editor contents can be saved locally.
   private var canSave: Bool {
-    !draft.isSaving && !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
   /// Seeds the editor from the cached note for existing-note windows.
@@ -136,22 +125,19 @@ struct NoteEditorView: View {
   }
 
   /// Saves the editor contents as a local note.
-  private func save() async {
+  private func save() {
     guard canSave else {
       return
     }
 
-    draft.isSaving = true
     draft.errorMessage = nil
 
     do {
-      _ = try store.saveLocalNote(id: existingNoteID, text: draft.text)
+      try store.saveLocalNote(id: existingNoteID, text: draft.text)
       dismiss()
     } catch {
       draft.errorMessage = error.localizedDescription.compactLine(limit: 140)
     }
-
-    draft.isSaving = false
   }
 
   /// Existing note identifier when this editor is updating a local note.
@@ -228,19 +214,6 @@ private final class NoteEditorDraft: ObservableObject {
   /// Compact save/load error text.
   @Published var errorMessage: String?
 
-  /// Whether a save command is currently in flight.
-  @Published var isSaving = false
-
   /// Whether the initial cached note has been copied into this draft.
   @Published var hasLoadedInitialNote = false
-
-  /// Routes a native formatting command to this editor instance.
-  func performFormatting(_ action: NoteFormattingAction) {
-    formatting.perform(action)
-  }
-
-  /// Applies the URL collected by the native link prompt to the active selection.
-  func performLink(url: String) {
-    formatting.performLink(url: url)
-  }
 }

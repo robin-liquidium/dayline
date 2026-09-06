@@ -5,26 +5,8 @@ import Testing
 @testable import Dayline
 
 struct GlobalShortcutTests {
-  @Test func defaultsDoNotConflictWithEachOther() {
-    let defaults = [
-      GlobalShortcut.newNoteDefault,
-      GlobalShortcut.newLinearIssueDefault,
-      GlobalShortcut.openGoogleCalendarDefault,
-      GlobalShortcut.newGitHubIssueDefault,
-      GlobalShortcut.newAppleReminderDefault
-    ]
-    #expect(Set(defaults.map { "\($0.keyCode)-\($0.carbonModifiers)" }).count == defaults.count)
-    #expect(GlobalShortcut.newGitHubIssueFallbacks.allSatisfy { $0 != GlobalShortcut.newNoteDefault })
-    #expect(GlobalShortcut.newGitHubIssueFallbacks.allSatisfy { $0 != GlobalShortcut.newLinearIssueDefault })
-    #expect(GlobalShortcut.newGitHubIssueFallbacks.allSatisfy { $0 != GlobalShortcut.openGoogleCalendarDefault })
-    #expect(GlobalShortcut.newAppleReminderFallbacks.allSatisfy { $0 != GlobalShortcut.newNoteDefault })
-    #expect(GlobalShortcut.newAppleReminderFallbacks.allSatisfy { $0 != GlobalShortcut.newLinearIssueDefault })
-    #expect(GlobalShortcut.newAppleReminderFallbacks.allSatisfy { $0 != GlobalShortcut.openGoogleCalendarDefault })
-    #expect(GlobalShortcut.newAppleReminderFallbacks.allSatisfy { $0 != GlobalShortcut.newGitHubIssueDefault })
-  }
-
   @Test func allDefaultsAndFallbacksArePairwiseUnique() {
-    // Both fallback lists lead with their own default, so they cover all four defaults.
+    // Each fallback list starts with its own default shortcut.
     let shortcuts = [
       GlobalShortcut.newNoteDefault,
       GlobalShortcut.newLinearIssueDefault
@@ -96,6 +78,23 @@ struct GlobalShortcutTests {
     #expect(!StatusStore.hotkeyMatches("", configured: "c"))
     #expect(!StatusStore.hotkeyMatches("   ", configured: "s"))
     #expect(StatusStore.hotkeyMatches("L", configured: "l"))
+  }
+
+  @MainActor
+  @Test func recorderStopsConsumingKeysAfterRecordingEnds() {
+    let recorder = ShortcutCaptureNSView()
+    let event = makeKeyEvent(keyCode: UInt16(kVK_ANSI_N), modifiers: [.command])
+    var capturedKeys = 0
+    recorder.onKeyDown = { _ in capturedKeys += 1 }
+
+    recorder.isRecording = true
+    #expect(recorder.performKeyEquivalent(with: event))
+    #expect(capturedKeys == 1)
+
+    recorder.isRecording = false
+    recorder.keyDown(with: event)
+    #expect(!recorder.performKeyEquivalent(with: event))
+    #expect(capturedKeys == 1)
   }
 
   /// Builds a synthetic key event for recorder tests.

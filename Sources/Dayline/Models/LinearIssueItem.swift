@@ -50,6 +50,8 @@ struct LinearIssueItem: Identifiable, Equatable {
   /// Browser URL for opening the issue in Linear.
   let url: URL?
 
+  var body: String? = nil
+
   /// Sort rank that puts urgent and high-priority issues before unprioritized work.
   var prioritySortRank: Int {
     priority == 0 ? Int.max : priority
@@ -74,7 +76,7 @@ struct LinearIssueItem: Identifiable, Equatable {
       id: id, title: title, priority: priority, priorityLabel: priorityLabel,
       stateName: stateName, stateID: stateID, stateType: stateType, workflowStates: workflowStates,
       teamID: teamID, labels: labels ?? self.labels, assignee: assignee ?? self.assignee,
-      dueDate: dueDate, updatedAt: updatedAt, projectName: projectName, branchName: branchName, url: url
+      dueDate: dueDate, updatedAt: updatedAt, projectName: projectName, branchName: branchName, url: url, body: body
     )
   }
 }

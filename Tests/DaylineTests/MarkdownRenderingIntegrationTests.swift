@@ -49,7 +49,6 @@ struct MarkdownRenderingIntegrationTests {
     }
     let rendered = try #require(textView.textStorage)
     #expect(rendered.string == source)
-    #expect(rendered.string.contains("🚀 and café"))
 
     let sourceNSString = source as NSString
     let bodyFont = try #require(rendered.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)

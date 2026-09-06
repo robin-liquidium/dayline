@@ -71,7 +71,7 @@ struct ShortcutsSettingsTab: View {
         }
         .accessibilityIdentifier("settings.assigneePickerHotkey")
       } header: {
-        Label("Hover Shortcuts", systemImage: "cursorarrow.rays")
+        Label("Hover shortcuts", systemImage: "cursorarrow.rays")
       } footer: {
         Text("Press the key while hovering an issue in the menu.")
       }
@@ -132,7 +132,7 @@ struct ShortcutsSettingsTab: View {
         }
         .accessibilityIdentifier("settings.openGoogleCalendarShortcut")
       } header: {
-        Label("Global Shortcuts", systemImage: "globe")
+        Label("Global shortcuts", systemImage: "globe")
       } footer: {
         VStack(alignment: .leading, spacing: 4) {
           Text("Global shortcuts work from anywhere, even when Dayline is in the background.")

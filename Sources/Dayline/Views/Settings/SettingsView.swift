@@ -2,7 +2,6 @@ import SwiftUI
 
 /// Native settings window with a System Settings-style sidebar and cross-tab search.
 struct SettingsView: View {
-  @EnvironmentObject private var store: StatusStore
   @State private var selectedTab: SettingsTab? = .general
   @State private var searchText = ""
 
