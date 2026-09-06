@@ -21,6 +21,7 @@ struct StatusMenuView: View {
   @EnvironmentObject private var store: StatusStore
   @EnvironmentObject private var updateService: UpdateService
   @Environment(\.openWindow) private var openWindow
+  @Environment(\.dismiss) private var dismiss
   @StateObject private var keyboardMonitor = MenuKeyboardMonitor()
 
   var body: some View {
@@ -156,6 +157,7 @@ struct StatusMenuView: View {
       HStack {
         Button {
           DaylineDiagnostics.record("Settings requested", category: .interaction)
+          dismiss()
           openWindow(id: "settings")
           SettingsWindowPresenter.bringSettingsToFront()
         } label: {

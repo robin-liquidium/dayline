@@ -86,6 +86,8 @@ struct GlobalShortcutTests {
   @MainActor
   @Test func recorderStopsConsumingKeysAfterRecordingEnds() {
     let recorder = ShortcutCaptureNSView()
+    let nextResponder = KeyDownResponderSpy()
+    recorder.nextResponder = nextResponder
     let event = makeKeyEvent(keyCode: UInt16(kVK_ANSI_N), modifiers: [.command])
     var capturedKeys = 0
     recorder.onKeyDown = { _ in capturedKeys += 1 }
@@ -93,11 +95,15 @@ struct GlobalShortcutTests {
     recorder.isRecording = true
     #expect(recorder.performKeyEquivalent(with: event))
     #expect(capturedKeys == 1)
+    recorder.keyDown(with: event)
+    #expect(capturedKeys == 2)
+    #expect(nextResponder.keyDownCount == 0)
 
     recorder.isRecording = false
     recorder.keyDown(with: event)
     #expect(!recorder.performKeyEquivalent(with: event))
-    #expect(capturedKeys == 1)
+    #expect(capturedKeys == 2)
+    #expect(nextResponder.keyDownCount == 1)
   }
 
   /// Builds a synthetic key event for recorder tests.
@@ -114,5 +120,14 @@ struct GlobalShortcutTests {
       isARepeat: false,
       keyCode: keyCode
     )!
+  }
+}
+
+@MainActor
+private final class KeyDownResponderSpy: NSResponder {
+  private(set) var keyDownCount = 0
+
+  override func keyDown(with event: NSEvent) {
+    keyDownCount += 1
   }
 }

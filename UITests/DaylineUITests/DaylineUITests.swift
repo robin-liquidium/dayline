@@ -121,6 +121,7 @@ final class DaylineUITests: XCTestCase {
     element("dayline.settings").click()
     let settings = app.windows["settings"]
     XCTAssertTrue(settings.waitForExistenceIfNeeded(timeout: 5))
+    waitForRemoval(element("dayline.refresh"))
     app.staticTexts["Issues"].firstMatch.click()
     element("settings.issueClickAction").click()
     app.menuItems["Open in browser"].firstMatch.click()
@@ -141,6 +142,7 @@ final class DaylineUITests: XCTestCase {
 
     element("dayline.settings").click()
     XCTAssertTrue(settings.waitForExistenceIfNeeded(timeout: 5))
+    waitForRemoval(element("dayline.refresh"))
     element("settings.issueClickModifier").click()
     app.menuItems["Option (⌥)"].firstMatch.click()
     app.typeKey("w", modifierFlags: .command)
@@ -156,6 +158,7 @@ final class DaylineUITests: XCTestCase {
     try openMenu()
     element("dayline.settings").click()
     XCTAssertTrue(settings.waitForExistenceIfNeeded(timeout: 5))
+    waitForRemoval(element("dayline.refresh"))
     app.staticTexts["Issues"].firstMatch.click()
     XCTAssertEqual(element("settings.issueClickAction").value as? String, "Open in browser")
     XCTAssertEqual(element("settings.issueClickModifier").value as? String, "Option (⌥)")

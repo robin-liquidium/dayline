@@ -34,7 +34,25 @@ jobs:
         run: swift build
 
       - name: Test
+        id: swift-test
         run: swift test
+
+      - name: Upload test crash reports
+        if: failure() && steps.swift-test.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Dayline-test-crash-reports
+          path: |
+            ~/Library/Logs/DiagnosticReports/Dayline*.ips
+            ~/Library/Logs/DiagnosticReports/Dayline*.crash
+            ~/Library/Logs/DiagnosticReports/swiftpm-testing-helper*.ips
+            ~/Library/Logs/DiagnosticReports/swiftpm-testing-helper*.crash
+            /Library/Logs/DiagnosticReports/Dayline*.ips
+            /Library/Logs/DiagnosticReports/Dayline*.crash
+            /Library/Logs/DiagnosticReports/swiftpm-testing-helper*.ips
+            /Library/Logs/DiagnosticReports/swiftpm-testing-helper*.crash
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Install DMG packaging tool
         run: |
