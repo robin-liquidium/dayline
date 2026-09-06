@@ -1,6 +1,43 @@
 {
   "releases": [
     {
+      "version": "0.2.8",
+      "date": "2026-09-06",
+      "new": [
+        {
+          "title": "Read issues without leaving Dayline",
+          "text": "Click a Linear or GitHub issue to see its details and formatted description. Command-click opens it in your browser. Change the click action or modifier in Settings → Issues → Opening issues; Space still shows details while hovering.",
+          "pr": 77
+        }
+      ],
+      "fixed": [
+        {
+          "title": "More readable Markdown",
+          "text": "Notes and issue descriptions have clearer headings, tighter list spacing, more readable links, and distinct code blocks. Issue descriptions support lists, checkboxes, quotes, and other Markdown formatting.",
+          "pr": 77
+        },
+        {
+          "title": "Clearer settings",
+          "text": "Related options are grouped together, controls reflect whether their menu section is enabled, and Settings search understands words across labels and descriptions.",
+          "pr": 77
+        },
+        {
+          "title": "Focused meeting alerts",
+          "text": "Meeting alerts now default to events with a video-call link, while keeping existing saved choices. The unused Show title after setting is removed; ongoing events remain in the menu-bar title until they end.",
+          "pr": 77
+        },
+        {
+          "title": "Native date and shortcut controls",
+          "text": "Date fields use native SwiftUI calendars. Click a shortcut in Settings → Shortcuts to record a replacement, or press Escape to cancel; recording no longer keeps consuming keys after it ends.",
+          "pr": 77
+        },
+        {
+          "text": "Opening Settings closes the menu and reliably brings the window forward.",
+          "pr": 77
+        }
+      ]
+    },
+    {
       "version": "0.2.7",
       "date": "2026-08-13",
       "fixed": [
