@@ -23,7 +23,7 @@
         },
         {
           "title": "Focused meeting alerts",
-          "text": "Meeting alerts now default to events with a video-call link, while keeping existing saved choices. The unused After event starts setting is removed; ongoing events remain in the menu-bar title until they end.",
+          "text": "Meeting alerts now default to events with a video-call link, while keeping existing saved choices. The unused Show title after setting is removed; ongoing events remain in the menu-bar title until they end.",
           "pr": 77
         },
         {
