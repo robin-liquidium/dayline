@@ -6,6 +6,11 @@ import Testing
 
 @MainActor
 struct MarkdownRenderingIntegrationTests {
+  init() {
+    // SwiftPM does not launch an AppKit application before constructing editor views.
+    _ = NSApplication.shared
+  }
+
   @Test func noteEditorUsesProductionFont() throws {
     let store = StatusStore(mockData: MockData.make())
     let editor = NoteEditorView(request: .existing("mock-note-1"))

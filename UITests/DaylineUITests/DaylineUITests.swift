@@ -116,6 +116,7 @@ final class DaylineUITests: XCTestCase {
       XCTAssertTrue(app.staticTexts["Description"].firstMatch.exists)
       attachCheckpoint("\(source)-click-details", identifiers: [previewID], screenshotElement: app)
       app.typeKey(.escape, modifierFlags: [])
+      waitForRemoval(element(previewID))
     }
 
     element("dayline.settings").click()
@@ -138,6 +139,7 @@ final class DaylineUITests: XCTestCase {
       XCUIElement.perform(withKeyModifiers: .command) { element(rowID).click() }
       assertExists(previewID)
       app.typeKey(.escape, modifierFlags: [])
+      waitForRemoval(element(previewID))
     }
 
     element("dayline.settings").click()
@@ -145,11 +147,13 @@ final class DaylineUITests: XCTestCase {
     waitForRemoval(element("dayline.refresh"))
     element("settings.issueClickModifier").click()
     app.menuItems["Option (⌥)"].firstMatch.click()
+    XCTAssertEqual(element("settings.issueClickModifier").value as? String, "Option (⌥)")
     app.typeKey("w", modifierFlags: .command)
     try openMenu()
     XCUIElement.perform(withKeyModifiers: .option) { element("github.issue.mock-gh-1").click() }
     assertExists("github.preview.mock-gh-1")
     app.typeKey(.escape, modifierFlags: [])
+    waitForRemoval(element("github.preview.mock-gh-1"))
 
     // The UI-testing flag resets mock preferences at launch; omit it for this relaunch.
     app.terminate()

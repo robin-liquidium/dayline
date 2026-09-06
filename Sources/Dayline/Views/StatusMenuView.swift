@@ -83,6 +83,7 @@ struct StatusMenuView: View {
       footerBar
     }
     .frame(width: 400)
+    .allowsWindowActivationEvents()
     .background {
       MenuWindowReader { window in
         guard let window else {

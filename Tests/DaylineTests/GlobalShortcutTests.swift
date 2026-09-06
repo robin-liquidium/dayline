@@ -34,6 +34,7 @@ struct GlobalShortcutTests {
     #expect(try JSONDecoder().decode(GlobalShortcut.self, from: data) == shortcut)
   }
 
+  @MainActor
   @Test func displayStringShowsModifiersAndKey() {
     #expect(GlobalShortcut.newNoteDefault.displayString.hasPrefix("⌃⌥⌘"))
     #expect(GlobalShortcut.newNoteDefault.displayString.hasSuffix("N"))

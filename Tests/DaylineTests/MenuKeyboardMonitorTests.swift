@@ -4,6 +4,11 @@ import Testing
 
 @MainActor
 struct MenuKeyboardMonitorTests {
+  init() {
+    // Initialize AppKit before constructing windows, independent of test order.
+    _ = NSApplication.shared
+  }
+
   private func makeWindow(visible: Bool) -> NSWindow {
     let window = NSWindow(
       contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),

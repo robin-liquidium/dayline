@@ -90,6 +90,7 @@ struct GlobalShortcut: Codable, Equatable {
   }
 
   /// Human-readable shortcut label such as "⌃⌥⌘N".
+  @MainActor
   var displayString: String {
     var result = ""
     if carbonModifiers & UInt32(controlKey) != 0 {
@@ -108,6 +109,7 @@ struct GlobalShortcut: Codable, Equatable {
   }
 
   /// Resolves the display character for a Carbon key code using the active keyboard layout.
+  @MainActor
   private static func keyString(for keyCode: UInt32) -> String {
     if let specialName = specialKeyNames[keyCode] {
       return specialName
