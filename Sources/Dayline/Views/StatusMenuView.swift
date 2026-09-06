@@ -2344,7 +2344,6 @@ private struct GitHubIssueRow: View {
 
   var body: some View {
     Button {
-      DaylineDiagnostics.record("GitHub issue button action", category: .interaction)
       store.activateIssue(.github(issue.id), url: issue.url, modifiers: NSEvent.modifierFlags)
     } label: {
       VStack(alignment: .leading, spacing: 2) {
@@ -2398,6 +2397,7 @@ private struct GitHubIssueRow: View {
       .padding(.horizontal, 16)
       .padding(.vertical, 3)
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+      .contentShape(Rectangle())
       .background {
         if isHovered {
           RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -2417,7 +2417,6 @@ private struct GitHubIssueRow: View {
     )
     .accessibilityIdentifier("github.issue.\(issue.id)")
     .accessibilityAction {
-      DaylineDiagnostics.record("GitHub issue accessibility action", category: .interaction)
       store.activateIssue(.github(issue.id), url: issue.url)
     }
     .help(issue.url == nil ? "Click to show details. No GitHub link is available." : store.issueClickHint)
@@ -2830,7 +2829,6 @@ private struct IssueRow: View {
       issueContent
         .contentShape(Rectangle())
         .onTapGesture {
-          DaylineDiagnostics.record("Linear issue tap action", category: .interaction)
           store.activateIssue(.linear(issue.id), url: issue.url, modifiers: NSEvent.modifierFlags)
         }
         .accessibilityElement(children: .ignore)
@@ -2840,7 +2838,6 @@ private struct IssueRow: View {
         .accessibilityIdentifier("linear.issue.\(issue.id)")
         .help(issue.url == nil ? "Click to show details. No Linear link is available." : store.issueClickHint)
         .accessibilityAction {
-          DaylineDiagnostics.record("Linear issue accessibility action", category: .interaction)
           store.activateIssue(.linear(issue.id), url: issue.url)
         }
     } action: {

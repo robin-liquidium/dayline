@@ -111,7 +111,7 @@ final class DaylineUITests: XCTestCase {
       ("github", "github.issue.mock-gh-1", "github.preview.mock-gh-1")
     ] {
       element("issues.source.\(source)").click()
-      element(rowID).click()
+      element(rowID).coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).click()
       assertExists(previewID)
       XCTAssertTrue(app.staticTexts["Description"].firstMatch.exists)
       attachCheckpoint("\(source)-click-details", identifiers: [previewID], screenshotElement: app)

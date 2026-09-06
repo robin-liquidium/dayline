@@ -2391,11 +2391,6 @@ final class StatusStore: ObservableObject {
 
   func activateIssue(_ target: IssueActionTarget, url: URL?, modifiers: NSEvent.ModifierFlags = []) {
     let action = issueClickAction.resolved(modifiers: modifiers, alternateModifier: issueClickModifier)
-    let event = NSApp?.currentEvent
-    DaylineDiagnostics.record(
-      "Issue click modifiers=\(modifiers.rawValue) globalModifiers=\(NSEvent.modifierFlags.rawValue) selectedModifier=\(issueClickModifier.rawValue) action=\(action.rawValue) eventType=\(event.map { String($0.type.rawValue) } ?? "none") eventModifiers=\(event.map { String($0.modifierFlags.rawValue) } ?? "none") previewBefore=\(previewTarget != nil)",
-      category: .interaction
-    )
     if action == .openInBrowser, let url {
       dismissPreview()
       NSWorkspace.shared.open(url)
@@ -2403,7 +2398,6 @@ final class StatusStore: ObservableObject {
       setHoveredIssue(target)
       presentPreviewForHovered()
     }
-    DaylineDiagnostics.record("Issue click previewAfter=\(previewTarget != nil)", category: .interaction)
   }
 
   var issueClickHint: String {
@@ -2412,7 +2406,6 @@ final class StatusStore: ObservableObject {
 
   /// Closes the detail preview.
   func dismissPreview() {
-    DaylineDiagnostics.record("Preview dismissal previewBefore=\(previewTarget != nil)", category: .interaction)
     previewTarget = nil
   }
 
