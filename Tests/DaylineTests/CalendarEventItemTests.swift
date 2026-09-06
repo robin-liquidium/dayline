@@ -59,6 +59,23 @@ struct CalendarEventItemTests {
     #expect(candidate == nil)
   }
 
+  @Test func menuBarCandidateDoesNotKeepRecentlyEndedEvents() {
+    let now = Date(timeIntervalSince1970: 10_000)
+    let endedEvent = event(
+      id: "ended",
+      startDate: now.addingTimeInterval(-10 * 60),
+      endDate: now.addingTimeInterval(-60)
+    )
+
+    let candidate = CalendarEventItem.menuBarCandidate(
+      in: [endedEvent],
+      at: now,
+      leadTime: 30 * 60
+    )
+
+    #expect(candidate == nil)
+  }
+
   @Test func menuBarCandidateNeverUsesAllDayEvents() {
     let now = Date(timeIntervalSince1970: 10_000)
     let allDay = event(

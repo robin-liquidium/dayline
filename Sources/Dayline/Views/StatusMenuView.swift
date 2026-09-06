@@ -2316,7 +2316,7 @@ private func priorityStyle(_ priority: AppleReminderPriority) -> MetadataStyle {
   }
 }
 
-/// One compact GitHub issue row that opens the issue in the browser.
+/// One compact GitHub issue row with a configurable details or browser action.
 private struct GitHubIssueRow: View {
   @EnvironmentObject private var store: StatusStore
   /// Issue represented by the row.
@@ -2416,7 +2416,7 @@ private struct GitHubIssueRow: View {
     .accessibilityAction {
       store.activateIssue(.github(issue.id), url: issue.url)
     }
-    .help(store.issueClickHint)
+    .help(issue.url == nil ? "Click to show details. No GitHub link is available." : store.issueClickHint)
     .frame(height: workItemRowHeight)
   }
 }
@@ -2833,7 +2833,7 @@ private struct IssueRow: View {
         .accessibilityLabel(accessibilityLabel)
         .accessibilityHint(accessibilityHint)
         .accessibilityIdentifier("linear.issue.\(issue.id)")
-        .help(store.issueClickHint)
+        .help(issue.url == nil ? "Click to show details. No Linear link is available." : store.issueClickHint)
         .accessibilityAction {
           store.activateIssue(.linear(issue.id), url: issue.url)
         }

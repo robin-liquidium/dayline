@@ -7,6 +7,9 @@ import Testing
 struct GlobalShortcutTests {
   @Test func allDefaultsAndFallbacksArePairwiseUnique() {
     // Each fallback list starts with its own default shortcut.
+    #expect(GlobalShortcut.newGitHubIssueFallbacks.first == GlobalShortcut.newGitHubIssueDefault)
+    #expect(GlobalShortcut.openGoogleCalendarFallbacks.first == GlobalShortcut.openGoogleCalendarDefault)
+    #expect(GlobalShortcut.newAppleReminderFallbacks.first == GlobalShortcut.newAppleReminderDefault)
     let shortcuts = [
       GlobalShortcut.newNoteDefault,
       GlobalShortcut.newLinearIssueDefault
