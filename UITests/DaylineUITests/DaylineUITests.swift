@@ -521,7 +521,7 @@ final class DaylineUITests: XCTestCase {
     if statusMenuIndicator.exists {
       let statusItem = app.descendants(matching: .statusItem)["dayline.menuBarItem"].firstMatch
       XCTAssertTrue(statusItem.waitForExistenceIfNeeded(timeout: 3))
-      statusItem.click()
+      try clickMenuBarItem(statusItem)
       waitForRemoval(statusMenuIndicator)
     }
     app.activate()
@@ -890,8 +890,41 @@ final class DaylineUITests: XCTestCase {
       return
     }
 
-    statusItem.click()
+    try clickMenuBarItem(statusItem)
     XCTAssertTrue(element("dayline.refresh").waitForExistenceIfNeeded(timeout: 5))
+  }
+
+  private func clickMenuBarItem(_ statusItem: XCUIElement) throws {
+    // MenuBarExtra clicks don't acknowledge XCTest's mouse-up event, so its default
+    // confirmation timeout adds five seconds even after the panel is ready. This
+    // private XCTest setting changes only that timeout; idle/readiness checks remain.
+    let sessionClass = try XCTUnwrap(
+      NSClassFromString("XCTRunnerDaemonSession") as? NSObject.Type,
+      "This Xcode version no longer exposes the UI automation session"
+    )
+    let sharedSession = NSSelectorFromString("sharedSession")
+    guard sessionClass.responds(to: sharedSession) else {
+      XCTFail("This Xcode version no longer exposes the shared UI automation session")
+      return
+    }
+    let session = try XCTUnwrap(
+      sessionClass.perform(sharedSession)?.takeUnretainedValue() as? NSObject
+    )
+    let key = "implicitEventConfirmationIntervalForCurrentContext"
+    let overrideKey = "implicitEventConfirmationIntervalForCurrentContextWithoutSideEffects"
+    guard session.responds(to: NSSelectorFromString(key)),
+          session.responds(to: NSSelectorFromString("setImplicitEventConfirmationIntervalForCurrentContextWithoutSideEffects:")) else {
+      XCTFail("This Xcode version no longer supports the scoped menu click confirmation timeout")
+      return
+    }
+    let previousInterval = try XCTUnwrap(session.value(forKey: key) as? NSNumber)
+    // The ordinary setter restores only at test teardown, not at activity end.
+    // Restore explicitly so subsequent clicks retain XCTest's normal confirmation.
+    defer { session.setValue(previousInterval, forKey: overrideKey) }
+    XCTContext.runActivity(named: "Toggle menu bar panel") { _ in
+      session.setValue(0.1, forKey: overrideKey)
+      statusItem.click()
+    }
   }
 
   private func element(_ identifier: String) -> XCUIElement {

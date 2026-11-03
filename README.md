@@ -333,6 +333,10 @@ the complete runner log, privacy-safe app breadcrumbs, and always-kept visual
 and element-state checkpoints for successful as well as failed tests. The
 checkpoint PNGs and text files are also extracted into a directly browsable
 `checkpoints/` directory.
+Menu-bar clicks use a scoped, private XCTest event-confirmation timeout to avoid
+its five-second wait for a missing mouse-up acknowledgement. The normal timeout
+is restored after each toggle, and app-idle and panel-readiness checks remain
+enabled. The helper fails explicitly if an Xcode update removes the required API.
 The same suite runs on a GitHub-hosted macOS runner for every pull request and
 push to `main`, so it does not use the local mouse or interrupt local work.
 
