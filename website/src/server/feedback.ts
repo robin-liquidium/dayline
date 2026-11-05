@@ -98,7 +98,9 @@ export async function handleFeedbackRequest(
   request: Request,
   environment: FeedbackEnvironment,
   createIssue: IssueCreator = createGitHubIssue,
-  rateLimiter: FeedbackRateLimiterNamespace | undefined = environment.FEEDBACK_RATE_LIMITER,
+  rateLimiter:
+    | FeedbackRateLimiterNamespace
+    | undefined = environment.FEEDBACK_RATE_LIMITER,
   attachmentStore?: FeedbackAttachmentStoreNamespace,
 ): Promise<Response> {
   if (request.method !== "POST") {
@@ -149,7 +151,8 @@ export async function handleFeedbackRequest(
       JSON.parse(rawBody),
     ));
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Invalid feedback.";
+    const message =
+      error instanceof Error ? error.message : "Invalid feedback.";
     return jsonResponse({ error: message }, 400);
   }
 
@@ -162,8 +165,7 @@ export async function handleFeedbackRequest(
   }
 
   let hourlyReservation:
-    | { limiter: FeedbackRateLimiterStub; hour: number }
-    | undefined;
+    { limiter: FeedbackRateLimiterStub; hour: number } | undefined;
   try {
     if (!rateLimiter) {
       throw new Error("Feedback rate limiter is unavailable.");
@@ -188,10 +190,11 @@ export async function handleFeedbackRequest(
   try {
     if (diagnosticsArchive) {
       attachmentID = crypto.randomUUID();
-      attachment = attachmentStore!.getByName(attachmentStoreShard(attachmentID));
+      attachment = attachmentStore!.getByName(
+        attachmentStoreShard(attachmentID),
+      );
       await attachment.save(attachmentID, diagnosticsArchive);
-      submission.diagnosticsURL =
-        `${canonicalWebsiteOrigin}/api/feedback/diagnostics/${attachmentID}`;
+      submission.diagnosticsURL = `${canonicalWebsiteOrigin}/api/feedback/diagnostics/${attachmentID}`;
     }
     const issue = await createIssue(submission, environment);
     return jsonResponse({
@@ -242,7 +245,9 @@ export async function handleFeedbackAttachmentRequest(
   environment?: FeedbackAttachmentEnvironment,
 ): Promise<Response> {
   if (request.method !== "GET") {
-    return jsonResponse({ error: "Method not allowed." }, 405, { Allow: "GET" });
+    return jsonResponse({ error: "Method not allowed." }, 405, {
+      Allow: "GET",
+    });
   }
   if (
     !attachmentStore ||
@@ -374,7 +379,9 @@ async function validateSubmission(value: unknown): Promise<{
   }
 
   const candidate = value as Record<string, unknown>;
-  if (!(["bug", "feature", "other"] as unknown[]).includes(candidate.category)) {
+  if (
+    !(["bug", "feature", "other"] as unknown[]).includes(candidate.category)
+  ) {
     throw new Error("Choose a valid feedback type.");
   }
 
@@ -389,7 +396,9 @@ async function validateSubmission(value: unknown): Promise<{
     throw new Error("Feedback must be at least 10 characters.");
   }
   if (message.length > maximumMessageLength) {
-    throw new Error(`Feedback must be ${maximumMessageLength} characters or fewer.`);
+    throw new Error(
+      `Feedback must be ${maximumMessageLength} characters or fewer.`,
+    );
   }
 
   const metadata =
@@ -412,7 +421,10 @@ async function validateSubmission(value: unknown): Promise<{
 
 class FeedbackBodyTooLargeError extends Error {}
 
-async function readLimitedText(request: Request, maximumBytes: number): Promise<string> {
+async function readLimitedText(
+  request: Request,
+  maximumBytes: number,
+): Promise<string> {
   if (!request.body) {
     return "";
   }
@@ -484,7 +496,9 @@ interface ParsedZipEntry extends CentralZipEntry {
   localEnd: number;
 }
 
-async function validateDiagnosticsArchive(value: unknown): Promise<ArrayBuffer> {
+async function validateDiagnosticsArchive(
+  value: unknown,
+): Promise<ArrayBuffer> {
   const maximumBase64Length = Math.ceil(maximumDiagnosticsBytes / 3) * 4;
   if (
     typeof value !== "string" ||
@@ -497,7 +511,9 @@ async function validateDiagnosticsArchive(value: unknown): Promise<ArrayBuffer> 
 
   let archive: Uint8Array;
   try {
-    archive = Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+    archive = Uint8Array.from(atob(value), (character) =>
+      character.charCodeAt(0),
+    );
   } catch {
     throw new Error("Invalid diagnostic archive.");
   }
@@ -522,7 +538,11 @@ async function validateDiagnosticsArchive(value: unknown): Promise<ArrayBuffer> 
  * region exactly once with no prefix, hidden record, overlap, or gap.
  */
 function parseDiagnosticsZip(archive: Uint8Array): ParsedZipEntry[] {
-  const view = new DataView(archive.buffer, archive.byteOffset, archive.byteLength);
+  const view = new DataView(
+    archive.buffer,
+    archive.byteOffset,
+    archive.byteLength,
+  );
   const endOfCentralDirectory = findEndOfCentralDirectory(view);
   if (endOfCentralDirectory === undefined) {
     throw new Error("Invalid diagnostic archive.");
@@ -581,7 +601,8 @@ function parseDiagnosticsZip(archive: Uint8Array): ParsedZipEntry[] {
     const startingDisk = readUint16(view, cursor + 34);
     const externalAttributes = readUint32(view, cursor + 38);
     const localHeaderOffset = readUint32(view, cursor + 42);
-    const recordEnd = cursor + 46 + nameLength + extraLength + fileCommentLength;
+    const recordEnd =
+      cursor + 46 + nameLength + extraLength + fileCommentLength;
 
     if (
       recordEnd > endOfCentralDirectory ||
@@ -808,7 +829,7 @@ async function verifyDiagnosticsZipContents(
 
     if (
       actualEntryBytes !== entry.uncompressedSize ||
-      ((checksum ^ 0xffffffff) >>> 0) !== entry.expectedCRC32
+      (checksum ^ 0xffffffff) >>> 0 !== entry.expectedCRC32
     ) {
       throw new Error("Invalid diagnostic archive.");
     }
@@ -817,7 +838,11 @@ async function verifyDiagnosticsZipContents(
 
 function findEndOfCentralDirectory(view: DataView): number | undefined {
   const minimumOffset = Math.max(0, view.byteLength - 22 - 0xffff);
-  for (let offset = view.byteLength - 22; offset >= minimumOffset; offset -= 1) {
+  for (
+    let offset = view.byteLength - 22;
+    offset >= minimumOffset;
+    offset -= 1
+  ) {
     if (readUint32(view, offset) === 0x06054b50) {
       return offset;
     }
@@ -959,7 +984,9 @@ async function createGitHubIssue(
     );
   }
 
-  const installation = (await installationResponse.json()) as { token?: string };
+  const installation = (await installationResponse.json()) as {
+    token?: string;
+  };
   const installationToken = installation.token; // autoreview:allow-secret
   if (!installationToken) {
     throw new Error("GitHub did not return an installation token.");
@@ -1002,7 +1029,10 @@ export async function resolveGitHubIssueCreation(
 
   try {
     const issue = (await issueResponse.json()) as Partial<GitHubIssue>;
-    if (typeof issue.html_url !== "string" || typeof issue.number !== "number") {
+    if (
+      typeof issue.html_url !== "string" ||
+      typeof issue.number !== "number"
+    ) {
       throw new Error("Invalid GitHub issue response.");
     }
     return issue as GitHubIssue;
@@ -1018,7 +1048,9 @@ async function createGitHubAppJWT(
   privateKeyPEM: string,
 ): Promise<string> {
   const issuedAt = Math.floor(Date.now() / 1_000) - 60;
-  const header = base64URL(new TextEncoder().encode(JSON.stringify({ alg: "RS256", typ: "JWT" })));
+  const header = base64URL(
+    new TextEncoder().encode(JSON.stringify({ alg: "RS256", typ: "JWT" })),
+  );
   const payload = base64URL(
     new TextEncoder().encode(
       JSON.stringify({ iat: issuedAt, exp: issuedAt + 540, iss: appID }),
@@ -1043,13 +1075,9 @@ async function createGitHubAppJWT(
 
 function pemBytes(privateKeyPEM: string): ArrayBuffer {
   const normalized = privateKeyPEM.replace(/\\n/g, "\n");
-  const base64 = normalized
-    .replace(/-{5}[^-]+-{5}/g, "")
-    .replace(/\s/g, "");
-  return Uint8Array.from(
-    atob(base64),
-    (character) => character.charCodeAt(0),
-  ).buffer as ArrayBuffer;
+  const base64 = normalized.replace(/-{5}[^-]+-{5}/g, "").replace(/\s/g, "");
+  return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0))
+    .buffer as ArrayBuffer;
 }
 
 function githubHeaders(token: string): Record<string, string> {
@@ -1066,10 +1094,7 @@ function base64URL(value: Uint8Array): string {
   for (const byte of value) {
     binary += String.fromCharCode(byte);
   }
-  return btoa(binary)
-    .replace(/=/g, "")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_");
+  return btoa(binary).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 }
 
 function renderInertGitHubText(value: string): string {
@@ -1081,7 +1106,9 @@ function renderInertGitHubText(value: string): string {
 }
 
 function toHex(value: Uint8Array): string {
-  return Array.from(value, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return Array.from(value, (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  );
 }
 
 function rateLimitedResponse(): Response {

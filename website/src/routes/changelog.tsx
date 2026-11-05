@@ -28,8 +28,8 @@ function ChangelogPage() {
             What&apos;s new
           </h1>
           <p className="mt-5 max-w-2xl text-lg leading-relaxed text-mute">
-            Every feature, improvement, and fix — Dayline keeps getting a
-            little better, one quiet release at a time.
+            Every feature, improvement, and fix — Dayline keeps getting a little
+            better, one quiet release at a time.
           </p>
         </header>
 

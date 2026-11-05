@@ -17,7 +17,11 @@ function environment(
   } = {},
 ) {
   const burstKeys: string[] = [];
-  const hourlyReservations: Array<{ hour: number; key: string; limit: number }> = [];
+  const hourlyReservations: Array<{
+    hour: number;
+    key: string;
+    limit: number;
+  }> = [];
   const hourlyReleases: Array<{ hour: number; key: string }> = [];
   const mock: FeedbackEnvironment = {
     FEEDBACK_RATE_LIMIT: {
@@ -205,8 +209,7 @@ function crc32(bytes: Iterable<number>): number {
   for (const byte of bytes) {
     checksum ^= byte;
     for (let bit = 0; bit < 8; bit += 1) {
-      checksum =
-        (checksum >>> 1) ^ (checksum & 1 ? 0xedb88320 : 0);
+      checksum = (checksum >>> 1) ^ (checksum & 1 ? 0xedb88320 : 0);
     }
   }
   return (checksum ^ 0xffffffff) >>> 0;
@@ -272,11 +275,15 @@ describe("feedback endpoint", () => {
     });
     expect(capturedDraft?.labels).toEqual(["feedback", "bug"]);
     expect(capturedDraft?.body).toContain("Dayline: 0.1.8 (build 33)");
-    expect(capturedDraft?.body).toContain("    The menu disappears. \\@\u200Bsomeone");
+    expect(capturedDraft?.body).toContain(
+      "    The menu disappears. \\@\u200Bsomeone",
+    );
     expect(capturedDraft?.body).not.toContain("\\@someone");
     expect(capturedDraft?.body).toContain("\n    robin-liquidium/dayline#123");
     expect(capturedDraft?.body).not.toContain("\nrobin-liquidium/dayline#123");
-    expect(capturedDraft?.body).toContain("\n    https://github.com/robin-liquidium/dayline/issues/123");
+    expect(capturedDraft?.body).toContain(
+      "\n    https://github.com/robin-liquidium/dayline/issues/123",
+    );
     expect(capturedDraft?.body).not.toContain("192.0.2.1");
     expect(burstKeys[0]).not.toContain("192.0.2.1");
     expect(hourlyReservations).toHaveLength(1);
@@ -339,9 +346,7 @@ describe("feedback endpoint", () => {
     expect(download.headers.get("Content-Disposition")).toContain(
       "Dayline-Diagnostics.zip",
     );
-    expect(new Uint8Array(await download.arrayBuffer())).toEqual(
-      archive,
-    );
+    expect(new Uint8Array(await download.arrayBuffer())).toEqual(archive);
   });
 
   test("accepts a real macOS 27 ditto archive with Unix extras and signed descriptors", async () => {
@@ -384,7 +389,9 @@ describe("feedback endpoint", () => {
     expect(unsupportedMethod.headers.get("Allow")).toBe("GET");
 
     const invalidID = await handleFeedbackAttachmentRequest(
-      new Request("https://dayline.robin.build/api/feedback/diagnostics/not-an-id"),
+      new Request(
+        "https://dayline.robin.build/api/feedback/diagnostics/not-an-id",
+      ),
       "not-an-id",
       attachments.namespace,
       mock,
@@ -495,9 +502,7 @@ describe("feedback endpoint", () => {
       }),
       mock,
       async () => {
-        throw new AmbiguousIssueCreationError(
-          "simulated lost GitHub response",
-        );
+        throw new AmbiguousIssueCreationError("simulated lost GitHub response");
       },
       mock.FEEDBACK_RATE_LIMITER,
       attachments.namespace,
@@ -505,7 +510,8 @@ describe("feedback endpoint", () => {
 
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({
-      error: "Feedback may have been submitted. Check GitHub before trying again.",
+      error:
+        "Feedback may have been submitted. Check GitHub before trying again.",
     });
     expect(attachments.archives.size).toBe(1);
     expect(hourlyReservations).toHaveLength(1);
@@ -728,8 +734,7 @@ describe("feedback endpoint", () => {
       "Dayline Diagnostics/README.txt",
       ...Array.from(
         { length: 3 },
-        (_, index) =>
-          `Dayline Diagnostics/Crash Reports/Dayline-${index}.ips`,
+        (_, index) => `Dayline Diagnostics/Crash Reports/Dayline-${index}.ips`,
       ),
     ].map((path) => ({
       path,
@@ -858,22 +863,25 @@ describe("feedback endpoint", () => {
         })),
       ],
     },
-  ])("rejects unsafe or pathological ZIP archives: $name", async ({ entries }) => {
-    const { mock } = environment();
-    const response = await handleFeedbackRequest(
-      feedbackRequest({
-        category: "bug",
-        message: "The menu crashed while navigating with the keyboard.",
-        diagnosticsArchive: encodedDiagnosticsZip(entries),
-      }),
-      mock,
-    );
+  ])(
+    "rejects unsafe or pathological ZIP archives: $name",
+    async ({ entries }) => {
+      const { mock } = environment();
+      const response = await handleFeedbackRequest(
+        feedbackRequest({
+          category: "bug",
+          message: "The menu crashed while navigating with the keyboard.",
+          diagnosticsArchive: encodedDiagnosticsZip(entries),
+        }),
+        mock,
+      );
 
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({
-      error: "Invalid diagnostic archive.",
-    });
-  });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        error: "Invalid diagnostic archive.",
+      });
+    },
+  );
 
   test("rejects ZIP64 markers", async () => {
     const { mock } = environment();
@@ -962,7 +970,10 @@ describe("feedback endpoint", () => {
     const { burstKeys, mock } = environment({ hourlyLimitFails: true });
     let createdIssue = false;
     const response = await handleFeedbackRequest(
-      feedbackRequest({ category: "other", message: "This is valid feedback." }),
+      feedbackRequest({
+        category: "other",
+        message: "This is valid feedback.",
+      }),
       mock,
       async () => {
         createdIssue = true;
@@ -1005,8 +1016,8 @@ describe("GitHub issue creation outcome", () => {
   });
 
   test("classifies a GitHub client failure as definite", async () => {
-    const error = await resolveGitHubIssueCreation(async () =>
-      new Response(null, { status: 422 }),
+    const error = await resolveGitHubIssueCreation(
+      async () => new Response(null, { status: 422 }),
     ).catch((caught) => caught);
 
     expect(error).toBeInstanceOf(Error);

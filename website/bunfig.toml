@@ -46,5 +46,8 @@ rules = { "@typescript-eslint/require-await" = "off" }
 
 # Durable Object RPC methods and blockConcurrencyWhile callbacks are async by contract.
 [[lint.overrides]]
-files = ["src/server/feedback-attachment-store.ts", "src/server/feedback-rate-limiter.ts"]
+files = [
+  "src/server/feedback-attachment-store.ts",
+  "src/server/feedback-rate-limiter.ts",
+]
 rules = { "@typescript-eslint/require-await" = "off" }
