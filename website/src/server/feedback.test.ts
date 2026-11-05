@@ -1018,7 +1018,7 @@ describe("GitHub issue creation outcome", () => {
   test("classifies a GitHub client failure as definite", async () => {
     const error = await resolveGitHubIssueCreation(
       async () => new Response(null, { status: 422 }),
-    ).catch((caught) => caught);
+    ).catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toBeInstanceOf(AmbiguousIssueCreationError);

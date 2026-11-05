@@ -315,7 +315,7 @@ export function makeGitHubIssueDraft(
 
   const firstLine = submission.message.split("\n", 1)[0] ?? "";
   const summary = firstLine
-    .replace(/[\\`*_{}\[\]()<>#+.!|~@]/g, " ")
+    .replace(/[\\`*_{}[\]()<>#+.!|~@]/g, " ")
     .replace(/https?:\/\/\S+/gi, "link")
     .replace(/\s+/g, " ")
     .trim()
@@ -390,6 +390,7 @@ async function validateSubmission(value: unknown): Promise<{
   }
 
   const message = candidate.message
+    // eslint-disable-next-line no-control-regex -- removing control characters is the point
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
     .trim();
   if (message.length < 10) {
@@ -901,6 +902,7 @@ function validateDiagnosticsPath(path: string): void {
     path.includes("\\") ||
     path.startsWith("/") ||
     /^[A-Za-z]:/.test(path) ||
+    // eslint-disable-next-line no-control-regex -- rejecting control characters is the point
     /[\u0000-\u001f\u007f]/.test(path) ||
     path.split("/").some((component) => component === "..")
   ) {
@@ -933,7 +935,7 @@ const crc32Table = Uint32Array.from({ length: 256 }, (_, index) => {
 function updateCRC32(checksum: number, bytes: Uint8Array): number {
   let result = checksum;
   for (const byte of bytes) {
-    result = (result >>> 8) ^ crc32Table[(result ^ byte) & 0xff]!;
+    result = (result >>> 8) ^ crc32Table[(result ^ byte) & 0xff];
   }
   return result >>> 0;
 }
@@ -1077,7 +1079,7 @@ function pemBytes(privateKeyPEM: string): ArrayBuffer {
   const normalized = privateKeyPEM.replace(/\\n/g, "\n");
   const base64 = normalized.replace(/-{5}[^-]+-{5}/g, "").replace(/\s/g, "");
   return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0))
-    .buffer as ArrayBuffer;
+    .buffer;
 }
 
 function githubHeaders(token: string): Record<string, string> {

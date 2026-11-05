@@ -9,7 +9,7 @@ interface RateLimitState {
 export class FeedbackRateLimiter extends DurableObject {
   constructor(ctx: DurableObjectState, env: unknown) {
     super(ctx, env);
-    ctx.blockConcurrencyWhile(async () => {
+    void ctx.blockConcurrencyWhile(async () => {
       this.ctx.storage.sql.exec(`
         CREATE TABLE IF NOT EXISTS rate_limit (
           id INTEGER PRIMARY KEY CHECK (id = 1),
