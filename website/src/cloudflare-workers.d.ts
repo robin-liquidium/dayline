@@ -24,5 +24,7 @@ interface DurableObjectStorage {
 
 interface DurableObjectState {
   storage: DurableObjectStorage;
-  blockConcurrencyWhile<Result>(callback: () => Promise<Result>): Promise<Result>;
+  blockConcurrencyWhile<Result>(
+    callback: () => Promise<Result>,
+  ): Promise<Result>;
 }

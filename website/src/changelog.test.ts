@@ -74,8 +74,8 @@ describe("changelog data", () => {
     expect(new Set(versions).size).toBe(versions.length);
 
     const keys = versions.map(semverKey);
-    const sorted = [...keys].sort((a, b) =>
-      b[0] - a[0] || b[1] - a[1] || b[2] - a[2],
+    const sorted = [...keys].sort(
+      (a, b) => b[0] - a[0] || b[1] - a[1] || b[2] - a[2],
     );
     expect(keys).toEqual(sorted);
   });

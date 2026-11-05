@@ -29,9 +29,7 @@ export function Hero() {
           Download for macOS
         </a>
         <CodeBox command={site.brewCommand} />
-        <p className="text-xs text-mute">
-          {site.systemNote}
-        </p>
+        <p className="text-xs text-mute">{site.systemNote}</p>
       </div>
 
       <div className="mt-16 w-full max-w-3xl">

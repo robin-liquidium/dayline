@@ -9,7 +9,12 @@ type LegalPageProps = {
   children: ReactNode;
 };
 
-export function LegalPage({ title, summary, updated, children }: LegalPageProps) {
+export function LegalPage({
+  title,
+  summary,
+  updated,
+  children,
+}: LegalPageProps) {
   return (
     <div className="min-h-screen">
       <Nav />

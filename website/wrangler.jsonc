@@ -8,7 +8,7 @@
   "exports": {
     "FeedbackAttachmentStore": {
       "type": "durable-object",
-      "storage": "sqlite"
+      "storage": "sqlite",
     },
     "FeedbackRateLimiter": {
       "type": "durable-object",

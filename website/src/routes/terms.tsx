@@ -5,7 +5,10 @@ export const Route = createFileRoute("/terms")({
   head: () => ({
     meta: [
       { title: "Terms of Service — Dayline" },
-      { name: "description", content: "Terms governing use of the Dayline macOS app." },
+      {
+        name: "description",
+        content: "Terms governing use of the Dayline macOS app.",
+      },
     ],
   }),
   component: TermsOfService,
@@ -65,14 +68,14 @@ function TermsOfService() {
 
       <LegalSection title="Contact">
         <p>
-          Questions about these terms can be sent to{
-          " "
-          }<a
+          Questions about these terms can be sent to{" "}
+          <a
             href="mailto:info@liquidium.fi"
             className="text-ink underline decoration-line underline-offset-4 hover:decoration-ember"
           >
             info@liquidium.fi
-          </a>.
+          </a>
+          .
         </p>
       </LegalSection>
     </LegalPage>
