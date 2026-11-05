@@ -8,7 +8,12 @@
     "preview": "vite preview",
     "deploy": "bun run build && wrangler deploy",
     "cf-typegen": "wrangler types",
-    "test": "bun test"
+    "test": "bun test",
+    "lint": "bun lint --no-script",
+    "lint:fix": "bun lint --no-script --fix",
+    "fmt": "bun fmt --no-script",
+    "fmt:check": "bun fmt --check --no-script",
+    "check": "bun check --no-script"
   },
   "dependencies": {
     "@tanstack/react-router": "1.170.41",
@@ -23,6 +28,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "bun": "1.4.4-canary.20261102.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.1.5",
