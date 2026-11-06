@@ -7,7 +7,7 @@ import Legal from "../layouts/Legal.astro";
   description="How Dayline handles Google Calendar, Apple Reminders, Linear, GitHub, and local note data."
   title="Privacy Policy"
   summary="Dayline is local-first software. It has no Dayline account system, advertising, analytics, or tracking. Only feedback you deliberately submit is sent through a Dayline service."
-  updated="August 10, 2026"
+  updated="November 6, 2026"
 >
   <LegalSection title="Google user data Dayline accesses">
     <p>
@@ -89,7 +89,9 @@ import Legal from "../layouts/Legal.astro";
       Worker does not retain the feedback message or anonymous app and system
       information. If you explicitly include a diagnostic archive, the Worker
       stores that archive behind the public, unguessable link added to the issue
-      for up to 30 days.
+      for up to 30 days. After deletion, Cloudflare&apos;s storage can keep a
+      recoverable copy for up to 30 more days, so an archive may exist for up to
+      60 days in total.
     </p>
     <p>
       Cloudflare necessarily processes the connection&apos;s IP address. To
@@ -173,7 +175,8 @@ import Legal from "../layouts/Legal.astro";
       until a maintainer edits or removes it. You can use the contact address
       below to request removal. An explicitly included diagnostic archive is
       deleted automatically after 30 days, at which point its download link
-      stops working.
+      stops working. Cloudflare may keep a recoverable copy of the deleted data
+      for up to 30 more days before it is gone for good.
     </p>
     <p>
       Dayline rotates its diagnostic log at approximately 512 KB and keeps at
