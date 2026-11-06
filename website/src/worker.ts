@@ -24,7 +24,8 @@ interface ExecutionContext {
 
 export default {
   fetch(request: Request, environment: Environment, context: ExecutionContext) {
-    const { pathname } = new URL(request.url);
+    // Trailing slashes are ignored, as they were under TanStack Start.
+    const pathname = new URL(request.url).pathname.replace(/(.)\/+$/, "$1");
 
     if (pathname === "/api/feedback") {
       if (request.method !== "POST") {
