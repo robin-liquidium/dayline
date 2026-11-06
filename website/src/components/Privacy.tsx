@@ -52,7 +52,7 @@ export function Privacy() {
             rel="noreferrer"
             className="mt-5 inline-block text-sm font-medium text-ember underline-offset-4 hover:underline"
           >
-            Read the details in the README →
+            Read the details in the README
           </a>
         </div>
         <div className="overflow-hidden rounded-3xl border border-line bg-card shadow-lg shadow-amber-900/5">
