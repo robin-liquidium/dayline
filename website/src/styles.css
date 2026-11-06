@@ -168,6 +168,7 @@
 .brew {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   align-items: center;
   gap: 12px 18px;
   margin-top: 20px;

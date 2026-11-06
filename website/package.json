@@ -16,7 +16,7 @@
     "check": "bun check --no-script && astro check"
   },
   "dependencies": {
-    "@robin-build/landing-kit": "github:robin-liquidium/landing-kit#v1.0.2",
+    "@robin-build/landing-kit": "github:robin-liquidium/landing-kit#v1.1.0",
     "astro": "7.3.2"
   },
   "devDependencies": {
