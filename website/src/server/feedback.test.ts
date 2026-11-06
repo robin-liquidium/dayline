@@ -3,6 +3,7 @@ import {
   AmbiguousIssueCreationError,
   type FeedbackAttachmentStoreNamespace,
   type FeedbackEnvironment,
+  type FeedbackSubmission,
   handleFeedbackAttachmentRequest,
   handleFeedbackRequest,
   makeGitHubIssueDraft,
@@ -55,12 +56,13 @@ function environment(
 function feedbackRequest(
   body: unknown,
   url = "https://dayline.robin.build/api/feedback",
+  clientHeader = "X-Dayline-Client",
 ) {
   return new Request(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Dayline-Client": "macOS",
+      [clientHeader]: "macOS",
       "CF-Connecting-IP": "192.0.2.1",
     },
     body: JSON.stringify(body),
@@ -1022,5 +1024,157 @@ describe("GitHub issue creation outcome", () => {
 
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toBeInstanceOf(AmbiguousIssueCreationError);
+  });
+});
+
+describe("Heliarc feedback", () => {
+  const heliarcRequest = (body: unknown) =>
+    feedbackRequest(
+      body,
+      "https://dayline.robin.build/api/feedback",
+      "X-Heliarc-Client",
+    );
+  const heliarcArchive = (logPath = "Heliarc Diagnostics/Logs/heliarc.log") =>
+    diagnosticsZip([
+      {
+        path: "Heliarc Diagnostics/README.txt",
+        data: new TextEncoder().encode("Heliarc diagnostics"),
+      },
+      { path: logPath, data: new TextEncoder().encode("Heliarc started") },
+    ]);
+
+  test("files Heliarc feedback with the Helium version and Heliarc wording", async () => {
+    const { mock } = environment();
+    let captured: FeedbackSubmission | undefined;
+    const response = await handleFeedbackRequest(
+      heliarcRequest({
+        category: "bug",
+        message: "The switcher shows an Untitled tab with PiP open.",
+        metadata: {
+          appVersion: "1.2.1",
+          build: "12",
+          macOSVersion: "26.2.0",
+          architecture: "Apple Silicon",
+          heliumVersion: "0.21.1.1",
+        },
+      }),
+      mock,
+      async (submission) => {
+        captured = submission;
+        return { html_url: "https://github.com/example/issues/7", number: 7 };
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(captured?.app).toBe("heliarc");
+    const draft = makeGitHubIssueDraft(captured!);
+    expect(draft.body).toContain("- Heliarc: 1.2.1 (build 12)");
+    expect(draft.body).toContain("- Helium: 0.21.1.1");
+    expect(draft.body).toContain("Submitted anonymously from Heliarc.");
+    expect(draft.body).not.toContain("Dayline");
+    expect(draft.labels).toEqual(["feedback", "bug"]);
+  });
+
+  test("names the empty-summary title after the app", () => {
+    const draft = makeGitHubIssueDraft({
+      app: "heliarc",
+      category: "other",
+      message: "##########",
+    });
+    expect(draft.title).toBe("[Feedback] Anonymous Heliarc feedback");
+  });
+
+  test("rejects a Helium version from Dayline", async () => {
+    const { mock } = environment();
+    const response = await handleFeedbackRequest(
+      feedbackRequest({
+        category: "bug",
+        message: "The menu disappears after waking.",
+        metadata: {
+          appVersion: "0.2.8",
+          build: "40",
+          macOSVersion: "26.2.0",
+          architecture: "Apple Silicon",
+          heliumVersion: "0.21.1.1",
+        },
+      }),
+      mock,
+      async () => {
+        throw new Error("must not create an issue");
+      },
+    );
+    expect(response.status).toBe(400);
+  });
+
+  test("stores a Heliarc archive under a prefixed ID and serves it as Heliarc diagnostics", async () => {
+    const { mock } = environment();
+    const attachments = attachmentStorage();
+    const archive = heliarcArchive();
+    let diagnosticsURL: string | undefined;
+    const response = await handleFeedbackRequest(
+      heliarcRequest({
+        category: "bug",
+        message: "Ctrl-Tab stopped working after an update.",
+        diagnosticsArchive: Buffer.from(archive).toString("base64"),
+      }),
+      mock,
+      async (submission) => {
+        diagnosticsURL = submission.diagnosticsURL;
+        return { html_url: "https://github.com/example/issues/8", number: 8 };
+      },
+      mock.FEEDBACK_RATE_LIMITER,
+      attachments.namespace,
+    );
+
+    expect(response.status).toBe(200);
+    expect(diagnosticsURL).toMatch(
+      /^https:\/\/dayline\.robin\.build\/api\/feedback\/diagnostics\/heliarc-[0-9a-f-]{36}$/,
+    );
+    const download = await handleFeedbackAttachmentRequest(
+      new Request(diagnosticsURL!),
+      diagnosticsURL!.split("/").at(-1)!,
+      attachments.namespace,
+      mock,
+    );
+    expect(download.status).toBe(200);
+    expect(download.headers.get("Content-Disposition")).toContain(
+      "Heliarc-Diagnostics.zip",
+    );
+    expect(new Uint8Array(await download.arrayBuffer())).toEqual(archive);
+  });
+
+  test("rejects archives with another app's layout", async () => {
+    const { mock } = environment();
+    for (const [request, archive] of [
+      [heliarcRequest, diagnosticsZip()],
+      [heliarcRequest, heliarcArchive("Heliarc Diagnostics/Logs/dayline.log")],
+      [(body: unknown) => feedbackRequest(body), heliarcArchive()],
+    ] as const) {
+      const response = await handleFeedbackRequest(
+        request({
+          category: "bug",
+          message: "Ctrl-Tab stopped working after an update.",
+          diagnosticsArchive: Buffer.from(archive).toString("base64"),
+        }),
+        mock,
+        async () => {
+          throw new Error("must not create an issue");
+        },
+        mock.FEEDBACK_RATE_LIMITER,
+        attachmentStorage().namespace,
+      );
+      expect(response.status).toBe(400);
+    }
+  });
+
+  test("rejects unknown download prefixes", async () => {
+    const { mock } = environment();
+    const response = await handleFeedbackAttachmentRequest(
+      new Request("https://dayline.robin.build/api/feedback/diagnostics/x"),
+      "other-0b6f4b8e-6f7b-4c39-9d2a-4c1f0e3b8a11",
+      attachmentStorage().namespace,
+      mock,
+    );
+    expect(response.status).toBe(404);
   });
 });

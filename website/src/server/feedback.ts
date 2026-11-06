@@ -1,5 +1,4 @@
 const githubOwner = "robin-liquidium";
-const githubRepository = "dayline";
 const githubApiVersion = "2022-11-28";
 const maximumMessageLength = 5_000;
 const maximumRequestBytes = 2_100_000;
@@ -13,14 +12,54 @@ const canonicalWebsiteOrigin = "https://dayline.robin.build";
 
 type FeedbackCategory = "bug" | "feature" | "other";
 
+/** Native apps whose feedback this relay files, each in its own public repository. */
+export type FeedbackApp = "dayline" | "heliarc";
+
+const feedbackApps: Record<
+  FeedbackApp,
+  {
+    name: string;
+    repository: string;
+    clientHeader: string;
+    logFiles: readonly string[];
+    footer: string;
+    footerWithDiagnostics: string;
+  }
+> = {
+  dayline: {
+    name: "Dayline",
+    repository: "dayline",
+    clientHeader: "X-Dayline-Client",
+    logFiles: ["dayline.log", "dayline.previous.log"],
+    footer:
+      "Submitted anonymously from Dayline. No account, calendar, Linear, note, device-name, IP-address, token, or log data is included.",
+    footerWithDiagnostics:
+      "Submitted anonymously from Dayline. The diagnostic archive was explicitly included by the submitter; no account, calendar, Linear, note, or token contents are collected by Dayline's own log.",
+  },
+  heliarc: {
+    name: "Heliarc",
+    repository: "heliarc",
+    clientHeader: "X-Heliarc-Client",
+    logFiles: ["heliarc.log"],
+    footer:
+      "Submitted anonymously from Heliarc. No tab title, URL, browsing-history, device-name, IP-address, or log data is included.",
+    footerWithDiagnostics:
+      "Submitted anonymously from Heliarc. The diagnostic archive was explicitly included by the submitter; Heliarc's own log does not record tab titles, URLs, or browsing history.",
+  },
+};
+
 interface FeedbackMetadata {
   appVersion: string;
   build: string;
   macOSVersion: string;
   architecture: "Apple Silicon" | "Intel" | "Unknown";
+  /** Heliarc only: the installed Helium browser version. */
+  heliumVersion?: string;
 }
 
 export interface FeedbackSubmission {
+  /** Defaults to Dayline, whose shipped clients predate other apps. */
+  app?: FeedbackApp;
   category: FeedbackCategory;
   message: string;
   metadata?: FeedbackMetadata;
@@ -93,7 +132,7 @@ export class AmbiguousIssueCreationError extends Error {
   }
 }
 
-/** Handles one native Dayline feedback submission and any explicitly included attachment. */
+/** Handles one native app feedback submission and any explicitly included attachment. */
 export async function handleFeedbackRequest(
   request: Request,
   environment: FeedbackEnvironment,
@@ -109,7 +148,11 @@ export async function handleFeedbackRequest(
     });
   }
 
-  if (request.headers.get("X-Dayline-Client") !== "macOS") {
+  const app = (Object.keys(feedbackApps) as FeedbackApp[]).find(
+    (candidate) =>
+      request.headers.get(feedbackApps[candidate].clientHeader) === "macOS",
+  );
+  if (!app) {
     return jsonResponse({ error: "Invalid client." }, 403);
   }
 
@@ -149,6 +192,7 @@ export async function handleFeedbackRequest(
   try {
     ({ submission, diagnosticsArchive } = await validateSubmission(
       JSON.parse(rawBody),
+      app,
     ));
   } catch (error) {
     const message =
@@ -189,7 +233,8 @@ export async function handleFeedbackRequest(
   let attachmentID: string | undefined;
   try {
     if (diagnosticsArchive) {
-      attachmentID = crypto.randomUUID();
+      // The app prefix names the download; Dayline keeps its original bare IDs.
+      attachmentID = `${app === "dayline" ? "" : `${app}-`}${crypto.randomUUID()}`;
       attachment = attachmentStore!.getByName(
         attachmentStoreShard(attachmentID),
       );
@@ -249,14 +294,14 @@ export async function handleFeedbackAttachmentRequest(
       Allow: "GET",
     });
   }
-  if (
-    !attachmentStore ||
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+  const attachmentMatch =
+    /^(?:(heliarc)-)?[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.exec(
       attachmentID,
-    )
-  ) {
+    );
+  if (!attachmentStore || !attachmentMatch) {
     return jsonResponse({ error: "Diagnostic archive not found." }, 404);
   }
+  const app: FeedbackApp = attachmentMatch[1] ? "heliarc" : "dayline";
 
   if (!environment) {
     console.error("Feedback download rate limiter is unavailable.");
@@ -296,7 +341,7 @@ export async function handleFeedbackAttachmentRequest(
     headers: {
       "Cache-Control": "no-store",
       "Content-Length": archive.byteLength.toString(),
-      "Content-Disposition": 'attachment; filename="Dayline-Diagnostics.zip"',
+      "Content-Disposition": `attachment; filename="${feedbackApps[app].name}-Diagnostics.zip"`,
       "Content-Type": "application/zip",
       "X-Content-Type-Options": "nosniff",
     },
@@ -307,6 +352,7 @@ export async function handleFeedbackAttachmentRequest(
 export function makeGitHubIssueDraft(
   submission: FeedbackSubmission,
 ): GitHubIssueDraft {
+  const app = feedbackApps[submission.app ?? "dayline"];
   const categoryLabel = {
     bug: "Bug",
     feature: "Feature request",
@@ -325,7 +371,10 @@ export function makeGitHubIssueDraft(
     ? [
         "## Anonymous system information",
         "",
-        `- Dayline: ${submission.metadata.appVersion} (build ${submission.metadata.build})`,
+        `- ${app.name}: ${submission.metadata.appVersion} (build ${submission.metadata.build})`,
+        ...(submission.metadata.heliumVersion
+          ? [`- Helium: ${submission.metadata.heliumVersion}`]
+          : []),
         `- macOS: ${submission.metadata.macOSVersion}`,
         `- Chip: ${submission.metadata.architecture}`,
         "",
@@ -344,7 +393,7 @@ export function makeGitHubIssueDraft(
     : "";
 
   return {
-    title: `[${categoryLabel}] ${summary || "Anonymous Dayline feedback"}`,
+    title: `[${categoryLabel}] ${summary || `Anonymous ${app.name} feedback`}`,
     body: [
       "## Feedback",
       "",
@@ -353,9 +402,7 @@ export function makeGitHubIssueDraft(
       metadata,
       diagnostics,
       "---",
-      submission.diagnosticsURL
-        ? "Submitted anonymously from Dayline. The diagnostic archive was explicitly included by the submitter; no account, calendar, Linear, note, or token contents are collected by Dayline's own log."
-        : "Submitted anonymously from Dayline. No account, calendar, Linear, note, device-name, IP-address, token, or log data is included.",
+      submission.diagnosticsURL ? app.footerWithDiagnostics : app.footer,
     ]
       .filter(Boolean)
       .join("\n"),
@@ -370,7 +417,10 @@ export function makeGitHubIssueDraft(
   };
 }
 
-async function validateSubmission(value: unknown): Promise<{
+async function validateSubmission(
+  value: unknown,
+  app: FeedbackApp,
+): Promise<{
   submission: FeedbackSubmission;
   diagnosticsArchive?: ArrayBuffer;
 }> {
@@ -405,13 +455,14 @@ async function validateSubmission(value: unknown): Promise<{
   const metadata =
     candidate.metadata === undefined
       ? undefined
-      : validateMetadata(candidate.metadata);
+      : validateMetadata(candidate.metadata, app);
   const diagnosticsArchive =
     candidate.diagnosticsArchive === undefined
       ? undefined
-      : await validateDiagnosticsArchive(candidate.diagnosticsArchive);
+      : await validateDiagnosticsArchive(candidate.diagnosticsArchive, app);
   return {
     submission: {
+      app,
       category: candidate.category as FeedbackCategory,
       message,
       metadata,
@@ -454,7 +505,7 @@ async function readLimitedText(
   }
 }
 
-function validateMetadata(value: unknown): FeedbackMetadata {
+function validateMetadata(value: unknown, app: FeedbackApp): FeedbackMetadata {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Invalid anonymous system information.");
   }
@@ -472,7 +523,11 @@ function validateMetadata(value: unknown): FeedbackMetadata {
     !macOSVersion.test(metadata.macOSVersion) ||
     !(["Apple Silicon", "Intel", "Unknown"] as unknown[]).includes(
       metadata.architecture,
-    )
+    ) ||
+    (metadata.heliumVersion !== undefined &&
+      (app !== "heliarc" ||
+        typeof metadata.heliumVersion !== "string" ||
+        !shortValue.test(metadata.heliumVersion)))
   ) {
     throw new Error("Invalid anonymous system information.");
   }
@@ -499,6 +554,7 @@ interface ParsedZipEntry extends CentralZipEntry {
 
 async function validateDiagnosticsArchive(
   value: unknown,
+  app: FeedbackApp,
 ): Promise<ArrayBuffer> {
   const maximumBase64Length = Math.ceil(maximumDiagnosticsBytes / 3) * 4;
   if (
@@ -525,7 +581,7 @@ async function validateDiagnosticsArchive(
     throw new Error("Invalid diagnostic archive.");
   }
   try {
-    const entries = parseDiagnosticsZip(archive);
+    const entries = parseDiagnosticsZip(archive, app);
     await verifyDiagnosticsZipContents(archive, entries);
   } catch {
     throw new Error("Invalid diagnostic archive.");
@@ -538,7 +594,10 @@ async function validateDiagnosticsArchive(
  * define the expected entries; local records must cover the entire local-data
  * region exactly once with no prefix, hidden record, overlap, or gap.
  */
-function parseDiagnosticsZip(archive: Uint8Array): ParsedZipEntry[] {
+function parseDiagnosticsZip(
+  archive: Uint8Array,
+  app: FeedbackApp,
+): ParsedZipEntry[] {
   const view = new DataView(
     archive.buffer,
     archive.byteOffset,
@@ -625,7 +684,7 @@ function parseDiagnosticsZip(archive: Uint8Array): ParsedZipEntry[] {
     const path = decodeZipPath(
       archive.subarray(cursor + 46, cursor + 46 + nameLength),
     );
-    validateDiagnosticsPath(path);
+    validateDiagnosticsPath(path, app);
     if (paths.has(path) || localOffsets.has(localHeaderOffset)) {
       throw new Error("Invalid diagnostic archive.");
     }
@@ -660,7 +719,7 @@ function parseDiagnosticsZip(archive: Uint8Array): ParsedZipEntry[] {
       throw new Error("Invalid diagnostic archive.");
     }
     declaredUncompressedBytes += uncompressedSize;
-    hasReadme ||= path === "Dayline Diagnostics/README.txt";
+    hasReadme ||= path === `${feedbackApps[app].name} Diagnostics/README.txt`;
     centralEntries.push({
       path,
       flags,
@@ -684,7 +743,7 @@ function parseDiagnosticsZip(archive: Uint8Array): ParsedZipEntry[] {
   const localOrder = [...entries].sort(
     (left, right) => left.localHeaderOffset - right.localHeaderOffset,
   );
-  // Dayline uses `ditto --keepParent`; require its local records to tile the archive prefix exactly.
+  // The apps use `ditto --keepParent`; require its local records to tile the archive prefix exactly.
   let expectedOffset = 0;
   for (const entry of localOrder) {
     if (entry.localHeaderOffset !== expectedOffset) {
@@ -888,15 +947,17 @@ function decodeZipPath(bytes: Uint8Array): string {
   }
 }
 
-function validateDiagnosticsPath(path: string): void {
+function validateDiagnosticsPath(path: string, app: FeedbackApp): void {
+  const root = `${feedbackApps[app].name} Diagnostics/`;
+  const crashReports = `${root}Crash Reports/`;
   const allowed =
-    path === "Dayline Diagnostics/" ||
-    path === "Dayline Diagnostics/README.txt" ||
-    path === "Dayline Diagnostics/Logs/" ||
-    path === "Dayline Diagnostics/Logs/dayline.log" ||
-    path === "Dayline Diagnostics/Logs/dayline.previous.log" ||
-    path === "Dayline Diagnostics/Crash Reports/" ||
-    /^Dayline Diagnostics\/Crash Reports\/[^/]+\.ips$/.test(path);
+    path === root ||
+    path === `${root}README.txt` ||
+    path === `${root}Logs/` ||
+    feedbackApps[app].logFiles.some((file) => path === `${root}Logs/${file}`) ||
+    path === crashReports ||
+    (path.startsWith(crashReports) &&
+      /^[^/]+\.ips$/.test(path.slice(crashReports.length)));
   if (
     !allowed ||
     path.includes("\\") ||
@@ -942,7 +1003,8 @@ function updateCRC32(checksum: number, bytes: Uint8Array): number {
 
 /** Bounds random-read storage amplification while distributing real attachment traffic. */
 function attachmentStoreShard(attachmentID: string): string {
-  return `feedback-diagnostics-${attachmentID.slice(0, 2).toLowerCase()}`;
+  // Shard on the UUID itself so an app prefix does not concentrate one app's archives.
+  return `feedback-diagnostics-${attachmentID.slice(-36, -34).toLowerCase()}`;
 }
 
 async function anonymousClientKey(
@@ -996,7 +1058,7 @@ async function createGitHubIssue(
 
   return resolveGitHubIssueCreation(() =>
     fetch(
-      `https://api.github.com/repos/${githubOwner}/${githubRepository}/issues`,
+      `https://api.github.com/repos/${githubOwner}/${feedbackApps[submission.app ?? "dayline"].repository}/issues`,
       {
         method: "POST",
         headers: {
