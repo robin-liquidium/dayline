@@ -1,70 +1,252 @@
-@import "tailwindcss";
-
-@theme {
-  --color-cream: #faf6ee;
-  --color-sand: #f3ecdd;
-  --color-card: #fffdf8;
-  --color-ink: #191410;
-  --color-mute: #6f6557;
-  --color-line: #e7dcc7;
-  --color-glow: #f59e0b;
-  --color-ember: #ea580c;
-
-  --font-display: "Instrument Serif", Georgia, "Times New Roman", serif;
-  --font-sans:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-}
-
-@utility eyebrow {
-  @apply font-display text-lg text-ember italic;
-}
-
-html {
-  scroll-behavior: smooth;
-}
-
-body {
-  background-color: var(--color-cream);
-  color: var(--color-ink);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-}
-
-::selection {
-  background-color: #fde68a;
-}
-
-/* Landing kit: header, footer and donations in Dayline's colours and type. */
+/* Dayline: neutral paper and sunrise orange; the app rises over a dawn sky. */
 :root {
-  --bg: var(--color-cream);
-  --ink: var(--color-ink);
-  --muted: var(--color-mute);
-  --line: var(--color-line);
-  --accent: var(--color-ink);
-  --accent-hover: #000;
-  --on-accent: var(--color-cream);
-  --code: var(--color-sand);
-  /* The kit's defaults would replace Tailwind's theme fonts, so restate them. */
-  --font-sans:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-display: "Instrument Serif", Georgia, "Times New Roman", serif;
-  --font-mono:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    "Courier New", monospace;
-  --shell: 1056px;
+  --bg: #f3f2f0;
+  --fg: #121015;
+  --muted: #5e5a62;
+  --faint: #676668;
+  --line: #dddad6;
+  --surface: #e9e7e3;
+  --accent: #c84a0c;
+  --accent-hover: #ad3f09;
+  --on-accent: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-auto-dark] {
+    --bg: #0b0a0e;
+    --fg: #efedf0;
+    --muted: #a19ca6;
+    --faint: #828084;
+    --line: #25222a;
+    --surface: #16141a;
+    --accent: #ff8a3d;
+    --accent-hover: #ffa466;
+    --on-accent: #120a05;
+  }
 }
 
-.rb-brand {
-  font-size: 24px;
-  font-weight: 400;
-  letter-spacing: -0.01em;
+/* Hero visual */
+.dawn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  margin-top: clamp(48px, 7vw, 96px);
+  padding: clamp(56px, 8vw, 112px) 20px 0;
+  border-radius: clamp(20px, 2.4vw, 32px);
+  overflow: hidden;
+  background: linear-gradient(
+    180deg,
+    #151233 0%,
+    #3a2257 30%,
+    #a3395a 58%,
+    #f0743a 80%,
+    #ffc078 100%
+  );
+  isolation: isolate;
+}
+.sun {
+  position: absolute;
+  left: 50%;
+  bottom: -38%;
+  width: min(90%, 900px);
+  aspect-ratio: 1;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    #fff3d6 0%,
+    #ffcf7a 22%,
+    #ff8a3d55 48%,
+    transparent 70%
+  );
+  z-index: -1;
+}
+.dawn picture {
+  display: block;
+  justify-self: center;
+  width: min(440px, 100%);
+}
+.dawn img {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-bottom: -18%;
+  border-radius: 26px 26px 0 0;
+  box-shadow:
+    0 40px 80px #1a0b2a99,
+    0 0 0 1px #ffffff40;
 }
 
-.rb-support h2 {
-  font-size: 26px;
-  font-weight: 400;
+/* The app's screenshots sit on its own warm paper. */
+.rb-media figure {
+  padding: 0;
+  overflow: hidden;
+  background: #fcf6ef;
+  box-shadow: inset 0 0 0 1px #00000008;
+}
+.works-with {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 18px 36px;
+  margin-top: 36px;
+  font-size: 15px;
+  color: var(--muted);
+}
+.works-with img {
+  display: block;
+  width: auto;
+  height: 22px;
+}
+.reminders {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+.reminders img {
+  height: 24px;
+  border-radius: 22%;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-auto-dark] .works-with img[src$=".svg"] {
+    filter: invert(1);
+  }
 }
 
-[data-copied] .rb-check {
-  color: var(--color-ember);
+/* Privacy */
+.toggles {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.toggles li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 18px 0;
+  border-top: 1px solid var(--line);
+  font-size: 17px;
+}
+.toggles li:last-child {
+  border-bottom: 1px solid var(--line);
+}
+.toggle {
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--line);
+}
+.toggle::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px #0003;
+}
+.toggle.on {
+  background: var(--accent);
+}
+.toggle.on::after {
+  left: 21px;
+}
+.privacy-link {
+  margin: 28px 0 0;
+}
+
+/* Install */
+.brew {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 12px 18px;
+  margin-top: 20px;
+  font-size: 15px;
+  color: var(--muted);
+}
+.codebox {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  padding: 6px 6px 6px 14px;
+  border-radius: 12px;
+  background: var(--surface);
+}
+.codebox code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--fg);
+}
+.codebox button {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.codebox button:hover {
+  background: var(--bg);
+  color: var(--fg);
+}
+.codebox svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.codebox .check,
+.codebox [data-copied] .copy {
+  display: none;
+}
+.codebox [data-copied] .check {
+  display: block;
+}
+
+/* Changelog */
+.release-group h3 {
+  margin: 24px 0 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.release-group p {
+  margin: 8px 0 0;
+}
+.release-group strong {
+  font-weight: 500;
+  color: var(--fg);
+}
+.latest {
+  margin-left: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--accent);
+}
+.rb-faq code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
 }

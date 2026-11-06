@@ -2,16 +2,11 @@
 import Site from "../layouts/Site.astro";
 ---
 
-<Site title="Page not found — Dayline" support={false}>
-  <main id="main" class="py-28 text-center sm:py-36">
-    <p class="eyebrow">404</p>
-    <h1 class="mt-4 font-display text-5xl tracking-tight sm:text-6xl">
-      This page took the day off
-    </h1>
-    <p class="mt-5 text-lg text-mute">
-      <a href="/" class="text-ember underline-offset-4 hover:underline">
-        Back to Dayline
-      </a>
+<Site title="Page not found · Dayline" support={false} noindex>
+  <main id="main" class="rb-prose rb-shell">
+    <h1>This page took the day off.</h1>
+    <p class="rb-lede">
+      <a href="/">Back to Dayline</a>
     </p>
   </main>
 </Site>

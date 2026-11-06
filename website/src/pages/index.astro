@@ -1,20 +1,184 @@
 ---
-import Cta from "../components/Cta.astro";
-import FeatureRows from "../components/FeatureRows.astro";
-import Hero from "../components/Hero.astro";
+import Closing from "@robin-build/landing-kit/components/Closing.astro";
+import Faq from "@robin-build/landing-kit/components/Faq.astro";
+import FeatureList from "@robin-build/landing-kit/components/FeatureList.astro";
+import Hero from "@robin-build/landing-kit/components/Hero.astro";
+import MediaRows from "@robin-build/landing-kit/components/MediaRows.astro";
+import Section from "@robin-build/landing-kit/components/Section.astro";
+import { changelog } from "../changelog";
+import CodeBox from "../components/CodeBox.astro";
+import Dawn from "../components/Dawn.astro";
 import Privacy from "../components/Privacy.astro";
-import ProductShowcase from "../components/ProductShowcase.astro";
-import WorkGrid from "../components/WorkGrid.astro";
 import Site from "../layouts/Site.astro";
+import { site } from "../site";
+
+const version = changelog.releases[0]?.version;
+
+const tour = [
+  {
+    title: "Start your day knowing what’s next",
+    text: "Connect several Google accounts, pick the calendars you care about and see them as one agenda. Today stays close; tomorrow is one click away.",
+    image: "/images/calendar-agenda.avif",
+    alt: "Dayline showing upcoming events for today and tomorrow",
+    width: 1071,
+    height: 589,
+  },
+  {
+    title: "Your issues, minus the tabs",
+    text: "Linear and GitHub issues from the teams and repositories you choose. Read them, create them, and change status, labels and assignees without opening a browser.",
+    image: "/images/linear-status-picker.avif",
+    alt: "Dayline showing Linear issues with the status picker open",
+    width: 1552,
+    height: 697,
+  },
+  {
+    title: "Notes that never leave your Mac",
+    text: "Write a quick note from anywhere with a global shortcut. The first line becomes its title, and everything is stored only on this Mac.",
+    image: "/images/local-notes-list.avif",
+    alt: "Dayline showing a list of local notes",
+    width: 1093,
+    height: 639,
+  },
+  {
+    title: "Create the issue while it’s fresh",
+    text: "File a Linear or GitHub issue from anywhere. Choose the team or repository, assignee and labels without a browser tab.",
+    image: "/images/linear-issue-editor.avif",
+    alt: "Dayline’s new Linear issue window",
+    width: 1203,
+    height: 1170,
+  },
+];
+
+const features = [
+  {
+    title: "Menu bar first",
+    text: "Your day lives behind one click. Editors and settings open as focused windows, then Dayline leaves the Dock when you close them.",
+  },
+  {
+    title: "Never miss the meeting",
+    text: "The current or next event sits beside the clock. Optional full-screen alerts count down and join the call in one click.",
+  },
+  {
+    title: "Keyboard first",
+    text: "Hover an issue and press a key to copy its link or change status, labels, assignee, priority or due date.",
+  },
+  {
+    title: "Apple Reminders too",
+    text: "Show incomplete reminders alongside, or instead of, Linear and GitHub issues.",
+  },
+  {
+    title: "Quietly fresh",
+    text: "Calendars and issues refresh in the background on a schedule you choose. New versions can install themselves.",
+  },
+  {
+    title: "Your menu, your rules",
+    text: "Hide whole sections, pick teams and repositories, filter to your own work and sort the rest your way.",
+  },
+  {
+    title: "Light enough to forget",
+    text: "Native SwiftUI, using next to no memory or battery while it waits in the menu bar.",
+  },
+  {
+    title: "Launch at login",
+    text: "Flip one switch and Dayline is there every morning.",
+  },
+];
+
+const faq = [
+  {
+    q: "What is Dayline?",
+    a: "A free Mac menu bar app that shows your upcoming Google Calendar events, Linear and GitHub issues, Apple Reminders and quick local notes in one small menu.",
+  },
+  {
+    q: "Which Macs does it run on?",
+    a: "Macs running macOS 26 or later.",
+  },
+  {
+    q: "Which calendars does it support?",
+    a: "Google Calendar, including several accounts at once. You can also create Apple Calendar events from Dayline.",
+  },
+  {
+    q: "Does Dayline see my calendar or issues?",
+    a: "No. Your Mac talks straight to Google, Linear and GitHub. There’s no Dayline server, account or analytics, and sign-in tokens stay in your Keychain.",
+  },
+  {
+    q: "Where are my notes stored?",
+    a: "Only on your Mac. They’re never synced or uploaded.",
+  },
+  {
+    q: "Is Dayline free?",
+    a: `Yes. It’s free and open source, <a href="${site.githubUrl}">on GitHub</a>.`,
+  },
+  {
+    q: "Can I install it with Homebrew?",
+    a: `Yes: <code>${site.brewCommand}</code>`,
+  },
+  {
+    q: "How do updates work?",
+    a: 'Dayline checks for signed updates and can install them for you. Every release is listed in the <a href="/changelog">changelog</a>.',
+  },
+];
 ---
 
 <Site>
   <main id="main">
-    <Hero />
-    <FeatureRows />
-    <WorkGrid />
-    <ProductShowcase />
-    <Privacy />
-    <Cta />
+    <Hero
+      lines={["Your whole day,", "one glance away."]}
+      lede="Your calendar, Linear and GitHub issues, reminders and notes in one quiet menu on your Mac."
+      cta={{ label: "Download for Mac", href: site.downloadUrl }}
+      link={{ label: "See what it does", href: "#features" }}
+      notes={[
+        "Free and open source",
+        "macOS 26 or later",
+        ...(version ? [`Version ${version}`] : []),
+      ]}
+    >
+      <Dawn />
+    </Hero>
+
+    <Section
+      id="features"
+      title="Reads between the lines."
+      intro="The things you check twenty times a day, without opening five apps."
+      layout="stack"
+    >
+      <MediaRows items={tour} />
+    </Section>
+
+    <Section title="Built for how you actually work.">
+      <FeatureList items={features} />
+    </Section>
+
+    <Section
+      id="privacy"
+      title="Local first, with you in control."
+      intro="No account, analytics or syncing backend. Feedback is only sent when you submit it, and attached diagnostics are fully gone within 60 days."
+    >
+      <Privacy />
+      <p class="privacy-link">
+        <a class="rb-quiet" href="/privacy">
+          Read the privacy policy
+        </a>
+      </p>
+    </Section>
+
+    <Section id="questions" title="Questions.">
+      <Faq items={faq} />
+    </Section>
+
+    <Closing
+      lines={["Ready for", "a better day?"]}
+      href={site.downloadUrl}
+      label="Download Dayline"
+      details={[
+        ...(version ? [`Version ${version}`] : []),
+        "macOS 26 or later",
+      ]}
+    >
+      <div class="brew">
+        <span>Or with Homebrew</span>
+        <CodeBox command={site.brewCommand} />
+      </div>
+    </Closing>
   </main>
 </Site>
