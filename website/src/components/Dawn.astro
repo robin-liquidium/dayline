@@ -17,12 +17,18 @@
 </div>
 <div class="works-with">
   <span>Works with</span>
-  <img
-    src="/images/google-calendar-wordmark.webp"
-    alt="Google Calendar"
-    width="3113"
-    height="403"
-  />
+  <picture>
+    <source
+      srcset="/images/google-calendar-wordmark-dark.webp"
+      media="(prefers-color-scheme: dark)"
+    />
+    <img
+      src="/images/google-calendar-wordmark.webp"
+      alt="Google Calendar"
+      width="3113"
+      height="403"
+    />
+  </picture>
   <img
     src="/images/linear-wordmark.svg"
     alt="Linear"
@@ -30,5 +36,13 @@
     height="100"
   />
   <img src="/images/github-wordmark.svg" alt="GitHub" width="416" height="95" />
-  <span>and Apple Reminders</span>
+  <span class="reminders">
+    <img
+      src="/images/apple-reminders-icon.webp"
+      alt=""
+      width="96"
+      height="96"
+    />
+    Apple Reminders
+  </span>
 </div>

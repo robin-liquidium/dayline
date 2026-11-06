@@ -94,8 +94,22 @@
   color: var(--muted);
 }
 .works-with img {
+  display: block;
   width: auto;
   height: 22px;
+}
+.reminders {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+.reminders img {
+  height: 24px;
+  border-radius: 22%;
 }
 @media (prefers-color-scheme: dark) {
   :root[data-auto-dark] .works-with img[src$=".svg"] {
