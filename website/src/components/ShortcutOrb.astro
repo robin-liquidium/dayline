@@ -1,0 +1,114 @@
+---
+interface Props {
+  shortcut: string;
+  label: string;
+  kind: "priority" | "status";
+  class: string;
+}
+const { shortcut, label, kind, class: className } = Astro.props;
+---
+
+<svg viewBox="0 0 240 240" aria-hidden="true" class={`text-line ${className}`}>
+  <circle
+    cx="120"
+    cy="120"
+    r="88"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1"
+    opacity="0.6"
+  />
+  <circle
+    cx="120"
+    cy="120"
+    r="62"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1"
+    stroke-dasharray="3 8"
+    opacity="0.72"
+  />
+
+  <g>
+    <rect
+      x="86"
+      y="86"
+      width="68"
+      height="68"
+      rx="17"
+      fill="var(--color-card)"
+      stroke="currentColor"
+      stroke-width="1.2"
+    />
+    <rect
+      x="94"
+      y="94"
+      width="52"
+      height="52"
+      rx="11"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1"
+      opacity="0.65"
+    />
+    <text
+      x="120"
+      y="133"
+      fill="var(--color-mute)"
+      font-family="ui-sans-serif, system-ui, sans-serif"
+      font-size="30"
+      font-weight="500"
+      text-anchor="middle"
+    >
+      {shortcut}
+    </text>
+    <text
+      x="120"
+      y="173"
+      fill="var(--color-mute)"
+      font-family="ui-sans-serif, system-ui, sans-serif"
+      font-size="11"
+      text-anchor="middle"
+      opacity="0.65"
+    >
+      {label}
+    </text>
+  </g>
+
+  <g
+    fill="var(--color-cream)"
+    stroke="var(--color-ember)"
+    stroke-width="1.4"
+    opacity="0.42"
+  >
+    {kind === "priority" ? (
+      <rect x="170" y="49" width="22" height="22" rx="6" />
+    ) : (
+      <circle cx="181" cy="60" r="11" />
+    )}
+    <circle cx="194" cy="159" r="11" />
+    <circle cx="52" cy="174" r="11" />
+  </g>
+  <g
+    fill="none"
+    stroke="var(--color-ember)"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="1.7"
+    opacity="0.5"
+  >
+    {kind === "priority" ? (
+      <>
+        <path d="M181 55v6M181 65v.5" />
+        <path d="m194 164 4-4m-4 4-4-4M194 164v-10" />
+        <path d="m52 169 4 4m-4-4-4 4M52 169v10" />
+      </>
+    ) : (
+      <>
+        <circle cx="181" cy="60" r="3.5" />
+        <path d="m188 159 4 4 7-8" />
+        <path d="m48 170 8 8m0-8-8 8" />
+      </>
+    )}
+  </g>
+</svg>

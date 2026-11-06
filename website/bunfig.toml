@@ -1,10 +1,10 @@
 [fmt]
-ignorePatterns = ["src/routeTree.gen.ts", "dist", ".wrangler", ".tanstack"]
+ignorePatterns = ["dist", ".wrangler", ".astro"]
 
 [lint]
 typeAware = true
 maxWarnings = 0
-ignorePatterns = ["src/routeTree.gen.ts", "dist", ".wrangler", ".tanstack"]
+ignorePatterns = ["dist", ".wrangler", ".astro"]
 
 [lint.rules]
 "jsx-a11y/alt-text" = "error"

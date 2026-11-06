@@ -1,0 +1,46 @@
+---
+import Icon from "./Icon.astro";
+
+interface Props {
+  command: string;
+}
+const { command } = Astro.props;
+---
+
+<div class="inline-flex items-center gap-3 rounded-xl border border-line bg-sand px-4 py-2.5">
+  <code class="font-mono text-sm text-ink">
+    <span class="mr-2 select-none text-mute">$</span>
+    {command}
+  </code>
+  <button
+    type="button"
+    data-copy-command={command}
+    aria-label="Copy install command"
+    class="group text-mute transition-colors hover:text-ink"
+  >
+    <Icon name="copy" class="h-4 w-4 group-data-copied:hidden" />
+    <Icon
+      name="check"
+      class="hidden h-4 w-4 text-ember group-data-copied:block"
+    />
+  </button>
+</div>
+
+<script>
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    "[data-copy-command]",
+  )) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.copyCommand ?? "");
+      } catch {
+        // Clipboard access can be unavailable outside a secure context.
+        return;
+      }
+      button.dataset.copied = "";
+      clearTimeout(timer);
+      timer = setTimeout(() => delete button.dataset.copied, 1600);
+    });
+  }
+</script>

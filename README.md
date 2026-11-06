@@ -419,7 +419,7 @@ Sources/Dayline/Stores/     App state and refresh loop
 Sources/Dayline/Support/    Formatters, mock data, and window helpers
 Sources/Dayline/Views/      SwiftUI views
 script/                     Build, release, smoke, and menu test helpers
-website/                    TanStack Start landing page for Cloudflare Workers
+website/                    Astro landing page (landing-kit) and feedback Worker
 ```
 
 ## Release Process

@@ -1,7 +1,18 @@
 # Dayline website
 
 The website and anonymous feedback relay run on the `dayline-website`
-Cloudflare Worker.
+Cloudflare Worker. The pages are static [Astro](https://astro.build) built on
+the shared [landing kit](https://github.com/robin-liquidium/landing-kit), which
+provides the header, footer and donation addresses. `src/worker.ts` handles
+`/api/feedback` and serves everything else from `dist/`.
+
+```bash
+bun install
+bun run dev        # pages only
+bun run preview    # pages and the feedback Worker
+```
+
+To pick up a new kit release: `bun add github:robin-liquidium/landing-kit#vX.Y.Z`.
 
 ## Rotating the feedback bot key
 

@@ -1,0 +1,35 @@
+---
+import Site from "./Site.astro";
+
+interface Props {
+  title: string;
+  summary: string;
+  updated: string;
+  eyebrow?: string;
+  description: string;
+}
+const {
+  title,
+  summary,
+  updated,
+  eyebrow = "Dayline legal",
+  description,
+} = Astro.props;
+---
+
+<Site title={`${title} — Dayline`} description={description} support={false}>
+  <main id="main" class="mx-auto w-full max-w-3xl pb-24 pt-14 sm:pt-20">
+    <header class="border-b border-line pb-10">
+      <p class="eyebrow">{eyebrow}</p>
+      <h1 class="mt-4 font-display text-5xl tracking-tight sm:text-6xl">
+        {title}
+      </h1>
+      <p class="mt-5 max-w-2xl text-lg leading-relaxed text-mute">{summary}</p>
+      <p class="mt-5 text-sm text-mute">Last updated {updated}</p>
+    </header>
+
+    <div class="mt-12 space-y-12 text-[15px] leading-7 text-mute">
+      <slot />
+    </div>
+  </main>
+</Site>

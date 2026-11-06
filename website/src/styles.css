@@ -33,3 +33,38 @@ body {
 ::selection {
   background-color: #fde68a;
 }
+
+/* Landing kit: header, footer and donations in Dayline's colours and type. */
+:root {
+  --bg: var(--color-cream);
+  --ink: var(--color-ink);
+  --muted: var(--color-mute);
+  --line: var(--color-line);
+  --accent: var(--color-ink);
+  --accent-hover: #000;
+  --on-accent: var(--color-cream);
+  --code: var(--color-sand);
+  /* The kit's defaults would replace Tailwind's theme fonts, so restate them. */
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  --shell: 1056px;
+}
+
+.rb-brand {
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+.rb-support h2 {
+  font-size: 26px;
+  font-weight: 400;
+}
+
+[data-copied] .rb-check {
+  color: var(--color-ember);
+}
