@@ -5,3 +5,4 @@ dist
 .playwright-cli
 .dev.vars*
 worker-configuration.d.ts
+.astro

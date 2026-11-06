@@ -1,0 +1,48 @@
+---
+import Page from "@robin-build/landing-kit/Page.astro";
+import type { Site } from "@robin-build/landing-kit/projects";
+import { site as dayline } from "../site";
+import "../styles.css";
+
+interface Props {
+  title?: string;
+  description?: string;
+  /** Show the donation addresses. Off on legal and changelog pages. */
+  support?: boolean;
+}
+const {
+  title = `Dayline — ${dayline.tagline}`,
+  description = dayline.description,
+  support = true,
+} = Astro.props;
+const site: Site = {
+  id: "dayline",
+  name: "Dayline",
+  icon: "/images/icon-256.webp",
+  themeColor: { light: "#faf6ee" },
+  ogImage: "https://dayline.robin.build/images/og.png?v=2",
+  nav: [{ label: "GitHub", href: dayline.githubUrl }],
+  cta: { label: "Download", href: dayline.downloadUrl },
+  footerLinks: [
+    { label: "Privacy", href: "/privacy" },
+    { label: "Terms", href: "/terms" },
+    { label: "Changelog", href: "/changelog" },
+    { label: "Releases", href: dayline.releasesUrl },
+  ],
+  support,
+  dark: false,
+  satoma: false,
+};
+---
+
+<Page site={site} title={title} description={description}>
+  <Fragment slot="head">
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap"
+    />
+  </Fragment>
+  <slot />
+</Page>

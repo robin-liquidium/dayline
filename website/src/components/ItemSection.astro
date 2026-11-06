@@ -1,0 +1,21 @@
+---
+import type { ChangelogItem } from "../changelog";
+
+interface Props {
+  title: string;
+  items: ChangelogItem[];
+}
+const { title, items } = Astro.props;
+---
+
+<section>
+  <h3 class="eyebrow">{title}</h3>
+  <div class="mt-2.5 space-y-3 text-[15px] leading-7 text-mute">
+    {items.map((item) => (
+      <p>
+        {item.title ? <span class="text-ink">{item.title} — </span> : null}
+        {item.text}
+      </p>
+    ))}
+  </div>
+</section>
