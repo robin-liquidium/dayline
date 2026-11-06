@@ -5,30 +5,17 @@ import Site from "../layouts/Site.astro";
 ---
 
 <Site
-  title="Changelog — Dayline"
-  description="Every new feature, improvement, and fix in Dayline."
+  title="Changelog: what’s new in Dayline"
+  description="Every new feature, improvement and fix in Dayline, release by release."
   support={false}
 >
-  <main id="main" class="mx-auto w-full max-w-3xl pb-24 pt-14 sm:pt-20">
-    <header class="border-b border-line pb-10">
-      <p class="eyebrow">Dayline changelog</p>
-      <h1 class="mt-4 font-display text-5xl tracking-tight sm:text-6xl">
-        What&apos;s new
-      </h1>
-      <p class="mt-5 max-w-2xl text-lg leading-relaxed text-mute">
-        Every feature, improvement, and fix — Dayline keeps getting a little
-        better, one quiet release at a time.
-      </p>
-    </header>
-
-    <ol class="mt-12 space-y-12">
-      {changelog.releases.map((release, index) => (
-        <ReleaseEntry
-          release={release}
-          isLatest={index === 0}
-          isFirst={index === 0}
-        />
-      ))}
-    </ol>
+  <main id="main" class="rb-prose rb-shell">
+    <h1>Changelog</h1>
+    <p class="rb-lede">
+      Every feature, improvement and fix, one quiet release at a time.
+    </p>
+    {changelog.releases.map((release, index) => (
+      <ReleaseEntry release={release} isLatest={index === 0} />
+    ))}
   </main>
 </Site>

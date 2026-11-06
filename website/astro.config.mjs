@@ -1,11 +1,10 @@
-import tailwindcss from "@tailwindcss/vite";
+import sitemap from "@astrojs/sitemap";
 import { defineConfig } from "astro/config";
 
 export default defineConfig({
   site: "https://dayline.robin.build",
   output: "static",
   build: { format: "file" },
-  vite: {
-    plugins: [tailwindcss()],
-  },
+  trailingSlash: "never",
+  integrations: [sitemap()],
 });

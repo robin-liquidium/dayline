@@ -1,35 +1,35 @@
 ---
 import type { ChangelogRelease } from "../changelog";
 import { formatChangelogDate } from "../changelog";
-import ItemSection from "./ItemSection.astro";
 
 interface Props {
   release: ChangelogRelease;
   isLatest: boolean;
-  isFirst: boolean;
 }
-const { release, isLatest, isFirst } = Astro.props;
+const { release, isLatest } = Astro.props;
+const groups = [
+  { title: "New", items: release.new },
+  { title: "Improvements and fixes", items: release.fixed },
+].filter((group) => group.items?.length);
 ---
 
-<li class={isFirst ? "" : "border-t border-line pt-12"}>
-  <div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-    <h2 class="font-display text-3xl tracking-tight text-ink">
-      {release.version}
+<section class="rb-release">
+  <div class="rb-release-head">
+    <h2>
+      Version {release.version}
+      {isLatest && <span class="latest">Latest</span>}
     </h2>
-    {isLatest ? (
-      <span class="font-display text-lg italic text-ember">Latest</span>
-    ) : null}
-    <time class="text-sm text-mute" datetime={release.date}>
-      {formatChangelogDate(release.date)}
-    </time>
+    <time datetime={release.date}>{formatChangelogDate(release.date)}</time>
   </div>
-
-  <div class="mt-5 space-y-6">
-    {release.new?.length ? (
-      <ItemSection title="New features" items={release.new} />
-    ) : null}
-    {release.fixed?.length ? (
-      <ItemSection title="Improvements & bug fixes" items={release.fixed} />
-    ) : null}
-  </div>
-</li>
+  {groups.map((group) => (
+    <div class="release-group">
+      <h3>{group.title}</h3>
+      {group.items?.map((item) => (
+        <p>
+          {item.title && <strong>{item.title}. </strong>}
+          {item.text}
+        </p>
+      ))}
+    </div>
+  ))}
+</section>

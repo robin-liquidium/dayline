@@ -1,6 +1,8 @@
 ---
 import Page from "@robin-build/landing-kit/Page.astro";
 import type { Site } from "@robin-build/landing-kit/projects";
+import "@robin-build/landing-kit/design.css";
+import { changelog } from "../changelog";
 import { site as dayline } from "../site";
 import "../styles.css";
 
@@ -9,40 +11,46 @@ interface Props {
   description?: string;
   /** Show the donation addresses. Off on legal and changelog pages. */
   support?: boolean;
+  noindex?: boolean;
 }
 const {
-  title = `Dayline — ${dayline.tagline}`,
-  description = dayline.description,
+  title = "Dayline: your calendar, issues and notes in the Mac menu bar",
+  description = "Dayline is a free, open-source Mac menu bar app for Google Calendar, Linear and GitHub issues, Apple Reminders and local notes. No account, no tracking.",
   support = true,
+  noindex,
 } = Astro.props;
 const site: Site = {
   id: "dayline",
   name: "Dayline",
+  url: "https://dayline.robin.build",
   icon: "/images/icon-256.webp",
-  themeColor: { light: "#faf6ee" },
+  themeColor: { light: "#f3f2f0", dark: "#0b0a0e" },
   ogImage: "https://dayline.robin.build/images/og.png?v=2",
-  nav: [{ label: "GitHub", href: dayline.githubUrl }],
+  ogImageAlt: `Dayline. ${dayline.tagline}`,
+  nav: [
+    { label: "Features", href: "/#features" },
+    { label: "Privacy", href: "/#privacy" },
+    { label: "Questions", href: "/#questions" },
+    { label: "Changelog", href: "/changelog" },
+  ],
   cta: { label: "Download", href: dayline.downloadUrl },
   footerLinks: [
     { label: "Privacy", href: "/privacy" },
     { label: "Terms", href: "/terms" },
     { label: "Changelog", href: "/changelog" },
-    { label: "Releases", href: dayline.releasesUrl },
+    { label: "GitHub", href: dayline.githubUrl },
   ],
   support,
-  dark: false,
-  satoma: false,
+  app: {
+    operatingSystem: "macOS 26 or later",
+    category: "ProductivityApplication",
+    downloadUrl: dayline.downloadUrl,
+    version: changelog.releases[0]?.version,
+    screenshot: "/images/dayline-menu-overview.webp",
+  },
 };
 ---
 
-<Page site={site} title={title} description={description}>
-  <Fragment slot="head">
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap"
-    />
-  </Fragment>
+<Page site={site} title={title} description={description} noindex={noindex}>
   <slot />
 </Page>
