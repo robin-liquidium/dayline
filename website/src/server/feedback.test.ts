@@ -1167,6 +1167,19 @@ describe("Heliarc feedback", () => {
     }
   });
 
+  test("rejects a request claiming to be both apps", async () => {
+    const { mock } = environment();
+    const request = heliarcRequest({
+      category: "bug",
+      message: "Ctrl-Tab stopped working after an update.",
+    });
+    request.headers.set("X-Dayline-Client", "macOS");
+    const response = await handleFeedbackRequest(request, mock, async () => {
+      throw new Error("must not create an issue");
+    });
+    expect(response.status).toBe(403);
+  });
+
   test("rejects unknown download prefixes", async () => {
     const { mock } = environment();
     const response = await handleFeedbackAttachmentRequest(

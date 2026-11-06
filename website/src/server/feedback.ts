@@ -148,10 +148,11 @@ export async function handleFeedbackRequest(
     });
   }
 
-  const app = (Object.keys(feedbackApps) as FeedbackApp[]).find(
+  const apps = (Object.keys(feedbackApps) as FeedbackApp[]).filter(
     (candidate) =>
       request.headers.get(feedbackApps[candidate].clientHeader) === "macOS",
   );
+  const app = apps.length === 1 ? apps[0] : undefined;
   if (!app) {
     return jsonResponse({ error: "Invalid client." }, 403);
   }
