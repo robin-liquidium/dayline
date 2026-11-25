@@ -690,11 +690,13 @@ final class StatusStore {
   @ObservationIgnored private var linearEditSequence = 0
   @ObservationIgnored private var linearEditSequenceByIssue: [LinearIssueItem.ID: Int] = [:]
   /// Per-issue queue of status, priority, and due-date requests, sent one at a time.
-  @ObservationIgnored private var linearRequestTails: [LinearIssueItem.ID: Task<Void, Never>] = [:]
-  @ObservationIgnored private var pendingLinearRequestCounts: [LinearIssueItem.ID: Int] = [:]
+  /// Keyed by connection revision too, so a reconnected workspace never shares
+  /// a queue or snapshot with requests from the previous connection.
+  @ObservationIgnored private var linearRequestTails: [LinearEditQueueKey: Task<Void, Never>] = [:]
+  @ObservationIgnored private var pendingLinearRequestCounts: [LinearEditQueueKey: Int] = [:]
   /// Last issue state Linear confirmed while requests for it are queued; shown
   /// again if the final queued request fails.
-  @ObservationIgnored private var confirmedLinearIssues: [LinearIssueItem.ID: LinearIssueItem] = [:]
+  @ObservationIgnored private var confirmedLinearIssues: [LinearEditQueueKey: LinearIssueItem] = [:]
   @ObservationIgnored private var lastCalendarRefreshAt: Date?
   @ObservationIgnored private var refreshRequested = false
   @ObservationIgnored private var isRefreshingAppleReminders = false
@@ -2763,12 +2765,13 @@ final class StatusStore {
       return
     }
 
-    if confirmedLinearIssues[issueID] == nil {
-      confirmedLinearIssues[issueID] = previous
-    }
     let linearRevision = connectionRevisions[.linear, default: 0]
-    let earlierRequest = linearRequestTails[issueID]
-    pendingLinearRequestCounts[issueID, default: 0] += 1
+    let key = LinearEditQueueKey(revision: linearRevision, issueID: issueID)
+    if confirmedLinearIssues[key] == nil {
+      confirmedLinearIssues[key] = previous
+    }
+    let earlierRequest = linearRequestTails[key]
+    pendingLinearRequestCounts[key, default: 0] += 1
     let request = Task { @MainActor [weak self] in
       await earlierRequest?.value
       guard let self else { return }
@@ -2783,42 +2786,51 @@ final class StatusStore {
           result = .failure(error)
         }
       }
-      self.finishLinearChange(issueID: issueID, result: result, linearRevision: linearRevision, diagnostic: diagnostic)
+      self.finishLinearChange(key: key, result: result, diagnostic: diagnostic)
     }
-    linearRequestTails[issueID] = request
+    linearRequestTails[key] = request
     await request.value
-    if linearRequestTails[issueID] == request {
-      linearRequestTails[issueID] = nil
+    if linearRequestTails[key] == request {
+      linearRequestTails[key] = nil
     }
   }
 
   /// Reconciles one finished Linear request with the local issue.
   private func finishLinearChange(
-    issueID: LinearIssueItem.ID,
+    key: LinearEditQueueKey,
     result: Result<LinearIssueItem, Error>,
-    linearRevision: Int,
     diagnostic: String
   ) {
-    let remainingRequests = pendingLinearRequestCounts[issueID, default: 1] - 1
-    pendingLinearRequestCounts[issueID] = remainingRequests > 0 ? remainingRequests : nil
+    let remainingRequests = pendingLinearRequestCounts[key, default: 1] - 1
+    pendingLinearRequestCounts[key] = remainingRequests > 0 ? remainingRequests : nil
+    let isLastRequest = remainingRequests == 0
+    let confirmed = isLastRequest ? confirmedLinearIssues.removeValue(forKey: key) : confirmedLinearIssues[key]
     // Linear was disconnected meanwhile; do not resurrect its issues.
-    guard connectionRevisions[.linear, default: 0] == linearRevision else {
-      if remainingRequests == 0 { confirmedLinearIssues[issueID] = nil }
-      return
-    }
+    guard connectionRevisions[.linear, default: 0] == key.revision else { return }
+
     switch result {
     case .success(let updatedIssue):
-      confirmedLinearIssues[issueID] = updatedIssue
       linearError = nil
       DaylineDiagnostics.record(diagnostic, category: .interaction)
+      // Earlier responses would briefly undo queued optimistic edits, so the
+      // issue settles only once its last queued request is done.
+      if isLastRequest {
+        replaceFetchedIssue(updatedIssue)
+      } else {
+        confirmedLinearIssues[key] = updatedIssue
+      }
     case .failure(let error):
       linearError = error.localizedDescription
-    }
-    // Earlier responses would briefly undo queued optimistic edits, so the
-    // issue settles only once its last queued request is done.
-    guard remainingRequests == 0 else { return }
-    if let confirmed = confirmedLinearIssues.removeValue(forKey: issueID) {
-      replaceFetchedIssue(confirmed)
+      guard isLastRequest, let confirmed else { return }
+      // Restore only the fields this queue edits, keeping newer labels or assignees.
+      let current = allIssues.first { $0.id == key.issueID } ?? confirmed
+      let confirmedState = confirmed.workflowStates.first { $0.id == confirmed.stateID }
+        ?? LinearWorkflowState(id: confirmed.stateID, name: confirmed.stateName, type: confirmed.stateType, position: 0)
+      replaceFetchedIssue(current.replacing(
+        state: confirmedState,
+        priority: LinearPriorityOption(value: confirmed.priority, label: confirmed.priorityLabel),
+        dueDate: .some(confirmed.dueDate)
+      ))
     }
   }
 
@@ -3866,7 +3878,9 @@ final class StatusStore {
   ) -> [LinearIssueItem] {
     linearEditSequenceByIssue = linearEditSequenceByIssue.filter { $0.value > mark }
     // Requests still in flight may be answered after this fetch read old values.
-    let editedIDs = Set(linearEditSequenceByIssue.keys).union(pendingLinearRequestCounts.keys)
+    let currentRevision = connectionRevisions[.linear, default: 0]
+    let pendingIDs = pendingLinearRequestCounts.keys.filter { $0.revision == currentRevision }.map(\.issueID)
+    let editedIDs = Set(linearEditSequenceByIssue.keys).union(pendingIDs)
     guard !editedIDs.isEmpty else { return fetchedIssues }
     return fetchedIssues.filter { !editedIDs.contains($0.id) }
       + allIssues.filter { editedIDs.contains($0.id) }
@@ -4438,6 +4452,12 @@ private struct GoogleCalendarFetchOutcome: Sendable {
   let batch: CalendarEventBatch
   let error: String?
   let needsReauthentication: Bool
+}
+
+/// One Linear issue's edit queue within a single connection.
+private struct LinearEditQueueKey: Hashable {
+  let revision: Int
+  let issueID: LinearIssueItem.ID
 }
 
 /// Calendar provider owning one independent source result.
