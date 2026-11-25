@@ -692,9 +692,9 @@ final class StatusStore {
   /// Per-issue queue of status, priority, and due-date requests, sent one at a time.
   @ObservationIgnored private var linearRequestTails: [LinearIssueItem.ID: Task<Void, Never>] = [:]
   @ObservationIgnored private var pendingLinearRequestCounts: [LinearIssueItem.ID: Int] = [:]
-  /// Latest local copy of issues hidden because an edit completed or canceled them,
-  /// so a failed edit can restore them with every other field current.
-  @ObservationIgnored private var hiddenLinearIssues: [LinearIssueItem.ID: LinearIssueItem] = [:]
+  /// Last issue state Linear confirmed while requests for it are queued; shown
+  /// again if the final queued request fails.
+  @ObservationIgnored private var confirmedLinearIssues: [LinearIssueItem.ID: LinearIssueItem] = [:]
   @ObservationIgnored private var lastCalendarRefreshAt: Date?
   @ObservationIgnored private var refreshRequested = false
   @ObservationIgnored private var isRefreshingAppleReminders = false
@@ -2710,12 +2710,6 @@ final class StatusStore {
       issueID: issueID,
       diagnostic: "Linear issue status changed",
       optimistic: { $0.replacing(state: state) },
-      rollback: { current, previous in
-        guard let previousState = previous.workflowStates.first(where: { $0.id == previous.stateID }) else {
-          return current
-        }
-        return current.replacing(state: previousState)
-      },
       remote: { [linearService] in try await linearService.updateIssueStatus(issueID: issueID, stateID: state.id) }
     )
   }
@@ -2730,9 +2724,6 @@ final class StatusStore {
       issueID: issueID,
       diagnostic: "Linear issue priority changed",
       optimistic: { $0.replacing(priority: priority) },
-      rollback: { current, previous in
-        current.replacing(priority: LinearPriorityOption(value: previous.priority, label: previous.priorityLabel))
-      },
       remote: { [linearService] in
         try await linearService.updateIssuePriority(issueID: issueID, priority: priority.value)
       }
@@ -2750,7 +2741,6 @@ final class StatusStore {
       issueID: issueID,
       diagnostic: "Linear issue due date changed",
       optimistic: { $0.replacing(dueDate: .some(formattedDueDate)) },
-      rollback: { current, previous in current.replacing(dueDate: .some(previous.dueDate)) },
       remote: { [linearService] in
         try await linearService.updateIssueDueDate(issueID: issueID, dueDate: formattedDueDate)
       }
@@ -2758,12 +2748,12 @@ final class StatusStore {
   }
 
   /// Applies a Linear edit locally right away, then sends it after any earlier
-  /// request for the same issue. A failure undoes only the edited field.
+  /// request for the same issue. When the last queued request finishes, the
+  /// issue shows Linear's answer, or the last confirmed state if it failed.
   private func applyOptimisticLinearChange(
     issueID: LinearIssueItem.ID,
     diagnostic: String,
     optimistic: (LinearIssueItem) -> LinearIssueItem,
-    rollback: @escaping (_ current: LinearIssueItem, _ previous: LinearIssueItem) -> LinearIssueItem,
     remote: @escaping () async throws -> LinearIssueItem
   ) async {
     guard let previous = allIssues.first(where: { $0.id == issueID }) else { return }
@@ -2773,25 +2763,27 @@ final class StatusStore {
       return
     }
 
+    if confirmedLinearIssues[issueID] == nil {
+      confirmedLinearIssues[issueID] = previous
+    }
     let linearRevision = connectionRevisions[.linear, default: 0]
     let earlierRequest = linearRequestTails[issueID]
     pendingLinearRequestCounts[issueID, default: 0] += 1
     let request = Task { @MainActor [weak self] in
       await earlierRequest?.value
+      guard let self else { return }
       let result: Result<LinearIssueItem, Error>
-      do {
-        result = .success(try await remote())
-      } catch {
-        result = .failure(error)
+      if self.connectionRevisions[.linear, default: 0] != linearRevision {
+        // The workspace changed while this edit waited; never send it to another one.
+        result = .failure(CancellationError())
+      } else {
+        do {
+          result = .success(try await remote())
+        } catch {
+          result = .failure(error)
+        }
       }
-      self?.finishLinearChange(
-        issueID: issueID,
-        result: result,
-        previous: previous,
-        linearRevision: linearRevision,
-        diagnostic: diagnostic,
-        rollback: rollback
-      )
+      self.finishLinearChange(issueID: issueID, result: result, linearRevision: linearRevision, diagnostic: diagnostic)
     }
     linearRequestTails[issueID] = request
     await request.value
@@ -2804,29 +2796,29 @@ final class StatusStore {
   private func finishLinearChange(
     issueID: LinearIssueItem.ID,
     result: Result<LinearIssueItem, Error>,
-    previous: LinearIssueItem,
     linearRevision: Int,
-    diagnostic: String,
-    rollback: (_ current: LinearIssueItem, _ previous: LinearIssueItem) -> LinearIssueItem
+    diagnostic: String
   ) {
     let remainingRequests = pendingLinearRequestCounts[issueID, default: 1] - 1
     pendingLinearRequestCounts[issueID] = remainingRequests > 0 ? remainingRequests : nil
     // Linear was disconnected meanwhile; do not resurrect its issues.
-    guard connectionRevisions[.linear, default: 0] == linearRevision else { return }
+    guard connectionRevisions[.linear, default: 0] == linearRevision else {
+      if remainingRequests == 0 { confirmedLinearIssues[issueID] = nil }
+      return
+    }
     switch result {
     case .success(let updatedIssue):
-      // A queued edit's response will carry this change too; applying this one
-      // now would briefly undo that edit's optimistic value.
-      if remainingRequests == 0 {
-        replaceFetchedIssue(updatedIssue)
-      }
+      confirmedLinearIssues[issueID] = updatedIssue
       linearError = nil
       DaylineDiagnostics.record(diagnostic, category: .interaction)
     case .failure(let error):
-      if let current = allIssues.first(where: { $0.id == issueID }) ?? hiddenLinearIssues[issueID] {
-        replaceFetchedIssue(rollback(current, previous))
-      }
       linearError = error.localizedDescription
+    }
+    // Earlier responses would briefly undo queued optimistic edits, so the
+    // issue settles only once its last queued request is done.
+    guard remainingRequests == 0 else { return }
+    if let confirmed = confirmedLinearIssues.removeValue(forKey: issueID) {
+      replaceFetchedIssue(confirmed)
     }
   }
 
@@ -3861,9 +3853,6 @@ final class StatusStore {
 
     if updatedIssue.stateType != "completed" && updatedIssue.stateType != "canceled" {
       allIssues.append(updatedIssue)
-      hiddenLinearIssues[updatedIssue.id] = nil
-    } else {
-      hiddenLinearIssues[updatedIssue.id] = updatedIssue
     }
 
     applyLinearIssueOrder()
@@ -3876,7 +3865,6 @@ final class StatusStore {
     since mark: Int
   ) -> [LinearIssueItem] {
     linearEditSequenceByIssue = linearEditSequenceByIssue.filter { $0.value > mark }
-    hiddenLinearIssues = hiddenLinearIssues.filter { pendingLinearRequestCounts[$0.key] != nil }
     // Requests still in flight may be answered after this fetch read old values.
     let editedIDs = Set(linearEditSequenceByIssue.keys).union(pendingLinearRequestCounts.keys)
     guard !editedIDs.isEmpty else { return fetchedIssues }
