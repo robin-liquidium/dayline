@@ -1,6 +1,29 @@
 {
   "releases": [
     {
+      "version": "0.2.10",
+      "date": "2026-11-25",
+      "new": [
+        {
+          "title": "Notes tab",
+          "text": "Notes now sit in a tab next to Linear, GitHub, and Reminders. Use the + button in the tab bar to create a note. Turn the tab off in Settings → Notes → Show Notes tab in menu.",
+          "pr": 97
+        },
+        {
+          "title": "Up Next and Tomorrow tabs",
+          "text": "Switch between today's and tomorrow's events with the tabs at the top of the calendar section, which replace the Show tomorrow button.",
+          "pr": 97
+        }
+      ],
+      "fixed": [
+        {
+          "title": "Scroll instead of Show more",
+          "text": "Every tab now shows all of its issues, reminders, or notes. Scroll through the menu to see them; the tabs stay pinned at the top and rows fade softly under them. The Notes shown setting is gone because nothing is paged anymore.",
+          "pr": 97
+        }
+      ]
+    },
+    {
       "version": "0.2.9",
       "date": "2026-11-25",
       "new": [],
