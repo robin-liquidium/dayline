@@ -43,3 +43,41 @@ enum IssueSource: String, CaseIterable, Identifiable, Sendable {
     }
   }
 }
+
+/// One tab in the menu's work section.
+enum MenuTab: Hashable, Identifiable, Sendable {
+  /// Items from one issue provider.
+  case issues(IssueSource)
+
+  /// Local notes on this Mac.
+  case notes
+
+  var id: String {
+    switch self {
+    case .issues(let source): source.id
+    case .notes: "notes"
+    }
+  }
+
+  var label: String {
+    switch self {
+    case .issues(let source): source.label
+    case .notes: "Notes"
+    }
+  }
+}
+
+/// Day shown in the menu's calendar section.
+enum CalendarDay: String, CaseIterable, Identifiable, Sendable {
+  case today
+  case tomorrow
+
+  var id: String { rawValue }
+
+  var label: String {
+    switch self {
+    case .today: "Up Next"
+    case .tomorrow: "Tomorrow"
+    }
+  }
+}

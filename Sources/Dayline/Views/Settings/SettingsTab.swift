@@ -73,7 +73,7 @@ enum SettingsSearchCatalog {
     SettingsSearchItem(id: "showsCalendarSection", title: "Show calendar in menu", section: "Menu", tab: .calendar, keywords: ["calendar section", "events in menu"]),
     SettingsSearchItem(id: "showsAllDayEvents", title: "Show all-day events", section: "Menu", tab: .calendar, keywords: ["calendar all day", "birthdays", "holidays"]),
     SettingsSearchItem(id: "showsLinearSection", title: "Show issues in menu", section: "Menu", tab: .issues, keywords: ["issues section", "linear section", "tickets in menu"]),
-    SettingsSearchItem(id: "showsNotesSection", title: "Show notes in menu", section: "Menu", tab: .notes, keywords: ["notes section"]),
+    SettingsSearchItem(id: "showsNotesSection", title: "Show Notes tab in menu", section: "Menu", tab: .notes, keywords: ["notes section", "notes tab"]),
 
     SettingsSearchItem(id: "showsCalendarSourceNames", title: "Show calendar names", section: "Menu", tab: .calendar, keywords: ["source names", "account names"]),
     SettingsSearchItem(id: "meetingAlertEnabled", title: "Full-screen meeting alerts", section: "Meeting alerts", tab: .calendar, keywords: ["alert", "reminder", "notification"]),
@@ -102,7 +102,6 @@ enum SettingsSearchCatalog {
     SettingsSearchItem(id: "issueRowFieldUpdated", title: "Last updated", section: "Issue details", tab: .issues, keywords: ["row fields", "metadata", "show", "hide", "updated timestamp"]),
     SettingsSearchItem(id: "issueRowFieldDueDate", title: "Due date", section: "Issue details", tab: .issues, keywords: ["row fields", "metadata", "show", "hide", "deadline"]),
 
-    SettingsSearchItem(id: "defaultNoteCount", title: "Notes shown", section: "Menu", tab: .notes, keywords: ["note count", "number of notes"]),
     SettingsSearchItem(id: "localNoteSortOrder", title: "Sort notes by", section: "Menu", tab: .notes, keywords: ["note order", "sort notes"]),
 
     SettingsSearchItem(id: "notesKeepOnTop", title: "Keep note windows on top", section: "Window", tab: .notes, keywords: ["float", "floating", "always on top"]),

@@ -15,7 +15,7 @@ cd "$ROOT_DIR"
 
 for identifier in \
   "dayline.refresh" \
-  "calendar.tomorrow.toggle" \
+  "calendar.day.tomorrow" \
   "dayline.settings" \
   "dayline.quit"
 do

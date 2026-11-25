@@ -74,7 +74,7 @@ final class DaylineUITests: XCTestCase {
       assertExists("calendar.event.mock-standup")
       assertExists("linear.issue.DAY-104")
       assertExists("issues.source.reminders")
-      assertExists("notes.note.mock-note-1")
+      assertExists("issues.source.notes")
       assertNoVisibleHorizontalScrollBars()
       element("dayline.refresh").click()
       assertExists("dayline.refresh")
@@ -82,24 +82,35 @@ final class DaylineUITests: XCTestCase {
         "core-menu",
         identifiers: [
           "dayline.refresh", "dayline.settings", "dayline.quit", "dayline.update",
-          "calendar.event.mock-standup", "linear.issue.DAY-104", "notes.note.mock-note-1",
+          "calendar.event.mock-standup", "linear.issue.DAY-104", "issues.source.notes",
         ]
       )
     }
 
-    XCTContext.runActivity(named: "Expand and collapse tomorrow events") { _ in
-      element("calendar.tomorrow.toggle").click()
+    XCTContext.runActivity(named: "Show notes as a tab next to issues") { _ in
+      showNotesTab()
+      assertExists("notes.note.mock-note-1")
+      assertExists("notes.new")
+      XCTAssertFalse(element("linear.issue.DAY-104").exists)
+      element("issues.source.linear").click()
+      assertExists("linear.issue.DAY-104")
+    }
+
+    XCTContext.runActivity(named: "Switch between Up Next and Tomorrow tabs") { _ in
+      element("calendar.day.tomorrow").click()
       assertExists("calendar.event.mock-planning")
+      XCTAssertFalse(element("calendar.event.mock-standup").exists)
       attachCheckpoint(
-        "tomorrow-expanded",
-        identifiers: ["calendar.tomorrow.toggle", "calendar.event.mock-planning"]
+        "tomorrow-tab",
+        identifiers: ["calendar.day.tomorrow", "calendar.event.mock-planning"]
       )
 
-      element("calendar.tomorrow.toggle").click()
+      element("calendar.day.today").click()
       waitForRemoval(element("calendar.event.mock-planning"))
+      assertExists("calendar.event.mock-standup")
       attachCheckpoint(
-        "tomorrow-collapsed",
-        identifiers: ["calendar.tomorrow.toggle", "calendar.event.mock-planning"]
+        "up-next-tab",
+        identifiers: ["calendar.day.today", "calendar.event.mock-standup"]
       )
     }
   }
@@ -187,8 +198,6 @@ final class DaylineUITests: XCTestCase {
 
       element("issues.source.linear").click()
       assertExists("linear.issue.DAY-104")
-      assertExists("linear.showMore")
-      XCTAssertFalse(element("linear.issue.DAY-121").exists)
 
       element("issues.source.reminders").click()
       assertExists("reminders.issue.mock-reminder-1")
@@ -199,17 +208,9 @@ final class DaylineUITests: XCTestCase {
       assertExists("linear.issue.DAY-104")
     }
 
-    XCTContext.runActivity(named: "Expand Linear issue pagination") { _ in
-      element("linear.showMore").click()
-      assertExists("linear.issue.DAY-121")
-      assertExists("linear.showLess")
-      attachCheckpoint(
-        "linear-expanded",
-        identifiers: ["issues.source.linear", "linear.issue.DAY-104", "linear.issue.DAY-121", "linear.showLess"]
-      )
-
-      element("linear.showLess").click()
-      waitForRemoval(element("linear.issue.DAY-121"))
+    XCTContext.runActivity(named: "Show every Linear issue without paging") { _ in
+      XCTAssertFalse(element("linear.showMore").exists)
+      XCTAssertTrue(element("linear.issue.DAY-121").waitForExistenceIfNeeded(timeout: 5))
     }
 
     XCTContext.runActivity(named: "Change Linear priority") { _ in
@@ -269,7 +270,7 @@ final class DaylineUITests: XCTestCase {
 
       attachCheckpoint(
         "linear-pickers-updated",
-        identifiers: ["linear.showMore"],
+        identifiers: ["issues.source.linear"],
         facts: [
           "bug_label_option_selected=\(bugLabelSelected)",
           "completed_issue_removed_from_open_list=\(completedIssueRemovedFromOpenList)",
@@ -324,9 +325,6 @@ final class DaylineUITests: XCTestCase {
     app.typeKey("d", modifierFlags: [])
     assertDoesNotAppear("reminders.dueDate.calendar.mock-reminder-2")
 
-    if element("reminders.showMore").exists {
-      element("reminders.showMore").click()
-    }
     let readOnly = element("reminders.issue.mock-reminder-6")
     scrollIntoView(readOnly)
     readOnly.hover()
@@ -337,6 +335,7 @@ final class DaylineUITests: XCTestCase {
     app.typeKey("d", modifierFlags: [])
     assertDoesNotAppear("reminders.dueDate.calendar.mock-reminder-6")
 
+    scrollToTop()
     scrollIntoView(reminder)
     openReminderHoverAction(on: reminder, expected: "reminders.status.completed") {
       app.typeKey("s", modifierFlags: [])
@@ -351,9 +350,39 @@ final class DaylineUITests: XCTestCase {
     )
   }
 
+  func testLongListsScrollUnderPinnedTabs() throws {
+    app.terminate()
+    app.launchArguments.append("--mock-long-lists")
+    app.launch()
+    try openMenu()
+
+    let menuScrollView = app.scrollViews.firstMatch
+    let tabs = element("issues.source.linear")
+    let farIssue = element("linear.issue.DAY-259")
+    scrollUntilHittable(farIssue)
+    XCTAssertTrue(tabs.isHittable)
+    XCTAssertLessThan(
+      abs(tabs.frame.minY - menuScrollView.frame.minY),
+      20,
+      "The tab bar should be pinned to the top of the scrolling area"
+    )
+    attachCheckpoint("long-list-pinned", identifiers: ["issues.source.linear", "linear.issue.DAY-259"])
+
+    showNotesTab()
+    let firstNote = element("notes.note.mock-note-1")
+    XCTAssertTrue(firstNote.waitForExistenceIfNeeded(timeout: 3))
+    let shownAtTop = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: firstNote)
+    XCTAssertEqual(
+      XCTWaiter().wait(for: [shownAtTop], timeout: 3),
+      .completed,
+      "A newly selected tab should start at its first row"
+    )
+  }
+
   func testRemindersOnlyUsesSingleProviderHeading() throws {
     app.terminate()
     app.launchArguments.append("--mock-issue-providers=reminders")
+    app.launchArguments += ["-showsNotesSection", "NO"]
     app.launch()
     try openMenu()
 
@@ -432,6 +461,7 @@ final class DaylineUITests: XCTestCase {
     }
 
     XCTContext.runActivity(named: "Cancel then confirm note deletion") { _ in
+      showNotesTab()
       let note = element("notes.note.mock-note-2")
       scrollIntoView(note)
       note.rightClick()
@@ -474,6 +504,7 @@ final class DaylineUITests: XCTestCase {
     assertExists("linear.cancelContext.DAY-112")
     app.typeKey(.escape, modifierFlags: [])
 
+    showNotesTab()
     let note = element("notes.note.mock-note-2")
     scrollIntoView(note)
     note.rightClick()
@@ -484,6 +515,7 @@ final class DaylineUITests: XCTestCase {
 
   func testEditsExistingNote() throws {
     try openMenu()
+    showNotesTab()
     let note = element("notes.note.mock-note-1")
     scrollIntoView(note)
     note.click()
@@ -545,8 +577,8 @@ final class DaylineUITests: XCTestCase {
     let createdCalendarEvent = app.descendants(matching: .any)
       .matching(NSPredicate(format: "label BEGINSWITH %@", "Automated Apple Calendar event"))
       .firstMatch
-    if !createdCalendarEvent.exists, element("calendar.tomorrow.toggle").exists {
-      element("calendar.tomorrow.toggle").click()
+    if !createdCalendarEvent.exists, element("calendar.day.tomorrow").exists {
+      element("calendar.day.tomorrow").click()
     }
     XCTAssertTrue(createdCalendarEvent.waitForExistenceIfNeeded(timeout: 5))
 
@@ -559,12 +591,12 @@ final class DaylineUITests: XCTestCase {
     element("linearEditor.create").click()
 
     try openMenu()
-    element("linear.showMore").click()
-    XCTAssertTrue(
+    scrollUntilHittable(
       app.descendants(matching: .any)
         .matching(NSPredicate(format: "label BEGINSWITH %@", "Automated Linear issue"))
-        .firstMatch.waitForExistenceIfNeeded(timeout: 5)
+        .firstMatch
     )
+    scrollToTop()
 
     element("issues.source.github").click()
     assertExists("github.issue.mock-gh-1")
@@ -647,6 +679,7 @@ final class DaylineUITests: XCTestCase {
   func testCreatesComplexMarkdownNote() throws {
     try openMenu()
     try XCTContext.runActivity(named: "Create and save a complex Markdown note") { _ in
+      showNotesTab()
       element("notes.new").click()
 
       let editor = noteEditor()
@@ -680,6 +713,7 @@ final class DaylineUITests: XCTestCase {
 
   func testSquareBracketDoesNotAutoClose() throws {
     try openMenu()
+    showNotesTab()
     element("notes.new").click()
 
     let editor = noteEditor()
@@ -703,6 +737,7 @@ final class DaylineUITests: XCTestCase {
 
   func testKeyboardFormattingShortcuts() throws {
     try openMenu()
+    showNotesTab()
     element("notes.new").click()
 
     let editor = noteEditor()
@@ -817,7 +852,7 @@ final class DaylineUITests: XCTestCase {
     }
 
     for (tab, toggleID, dependentIDs, independentID) in [
-      ("Notes", "showsNotesSection", ["defaultNoteCount", "localNoteSortOrder"], "notesKeepOnTop"),
+      ("Notes", "showsNotesSection", ["localNoteSortOrder"], "notesKeepOnTop"),
       ("Calendar", "showsCalendarSection", ["showsCalendarSourceNames", "showsAllDayEvents"], "menuBarEventLeadTime"),
       ("Issues", "showsLinearSection", ["linearIssueOrder", "linearIssueFilter", "issueRowFieldAssignee"], "linearCreateDefaultTeam")
     ] {
@@ -945,6 +980,32 @@ final class DaylineUITests: XCTestCase {
     )
   }
 
+  /// Selects the Notes tab in the menu's work section.
+  private func showNotesTab() {
+    let tab = element("issues.source.notes")
+    XCTAssertTrue(tab.waitForExistenceIfNeeded(timeout: 3))
+    tab.click()
+    XCTAssertTrue(element("notes.new").waitForExistenceIfNeeded(timeout: 3))
+  }
+
+  /// Scrolls down until a lazily created row exists and can be clicked.
+  private func scrollUntilHittable(_ target: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+    let menuScrollView = app.scrollViews.firstMatch
+    XCTAssertTrue(menuScrollView.waitForExistenceIfNeeded(timeout: 3), file: file, line: line)
+    let deadline = Date().addingTimeInterval(10)
+    while !(target.exists && target.isHittable), Date() < deadline {
+      menuScrollView.scroll(byDeltaX: 0, deltaY: -200)
+    }
+    XCTAssertTrue(target.exists && target.isHittable, "Expected scrolling to reveal \(target)", file: file, line: line)
+  }
+
+  /// Scrolls the menu back to its first row.
+  private func scrollToTop() {
+    let menuScrollView = app.scrollViews.firstMatch
+    XCTAssertTrue(menuScrollView.waitForExistenceIfNeeded(timeout: 3))
+    menuScrollView.scroll(byDeltaX: 0, deltaY: 4000)
+  }
+
   private func scrollIntoView(_ target: XCUIElement) {
     let menuScrollView = app.scrollViews.firstMatch
     XCTAssertTrue(menuScrollView.waitForExistenceIfNeeded(timeout: 3))
@@ -955,7 +1016,7 @@ final class DaylineUITests: XCTestCase {
     }
     if isSafelyVisible() { return }
 
-    let deadline = Date().addingTimeInterval(3)
+    let deadline = Date().addingTimeInterval(8)
     repeat {
       menuScrollView.scroll(byDeltaX: 0, deltaY: -160)
       if isSafelyVisible() { return }
