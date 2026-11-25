@@ -26,17 +26,24 @@ struct StatusMenuView: View {
 
   private static let scrollTopID = "dayline.menu.top"
 
+  /// Measured height of the pinned tab bar, so rows know where to fade out.
+  @State private var tabBarHeight: CGFloat = 40
+
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       headerBar
       ScrollViewReader { scrollProxy in
         ScrollView {
-          VStack(alignment: .leading, spacing: 18) {
+          // Lazy so long lists only build the rows on screen. The tab bar stays
+          // pinned while its list scrolls, and rows fade out as they slide under it.
+          LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
             if store.hasConnectionSetupItems {
               ConnectionSetupSection(
                 statuses: store.connectionSetupItems,
                 googleAccounts: store.googleAccountsNeedingAttention
               )
+              .fadesAtScrollEdges()
+              .padding(.bottom, 18)
             }
 
             if store.isCalendarSectionVisible {
@@ -46,32 +53,32 @@ struct StatusMenuView: View {
                 allDayEvents: store.visibleAllDayEvents,
                 tomorrowAllDayEvents: store.visibleTomorrowAllDayEvents,
                 warnings: store.calendarWarnings,
-                isTomorrowExpanded: store.isTomorrowExpanded
+                day: store.calendarDay
               )
-            }
-            if store.isIssuesSectionVisible, let activeSource = store.activeIssueSource {
-              IssuesSection(
-                activeSource: activeSource,
-                openNewIssue: { openLinearIssueCreator() },
-                openNewGitHubIssue: { openGitHubIssueCreator() },
-                openNewAppleReminder: { openAppleReminderCreator() }
-              )
+              .fadesAtScrollEdges()
+              .padding(.bottom, 18)
             }
 
-            if store.showsNotesSection {
-              NotesSection(
-                notes: store.notes,
-                error: store.notesError,
-                openNewNote: {
-                  openNoteEditor(.new)
-                },
-                openNote: { note in
+            if let activeTab = store.activeMenuTab {
+              Section {
+                MenuTabContent(activeTab: activeTab) { note in
                   openNoteEditor(.existing(note.id))
                 }
-              )
+                .environment(\.pinnedTabBarHeight, tabBarHeight)
+              } header: {
+                MenuTabHeader(
+                  activeTab: activeTab,
+                  openNewIssue: { openLinearIssueCreator() },
+                  openNewGitHubIssue: { openGitHubIssueCreator() },
+                  openNewAppleReminder: { openAppleReminderCreator() },
+                  openNewNote: { openNoteEditor(.new) }
+                )
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { tabBarHeight = $0 }
+              }
             }
           }
-          .padding(.vertical, 12)
+          .padding(.top, 12)
+          .padding(.bottom, 18)
           .padding(.horizontal, 10)
           .frame(maxWidth: .infinity, alignment: .leading)
           .configureHiddenScrollIndicators()
@@ -238,39 +245,37 @@ struct StatusMenuView: View {
       .frame(maxWidth: .infinity, alignment: .leading)
   }
 
-  /// Estimated scroll viewport height, capped so expanded issues scroll.
+  /// Scroll viewport height: the content's estimate, capped so long lists scroll.
   private var scrollContentHeight: CGFloat {
-    min(max(estimatedContentHeight, 220), 620)
+    min(max(estimatedContentHeight, 220), 640)
   }
 
-  /// Lightweight estimate that keeps the initial menu compact before expansion.
+  /// Lightweight estimate that keeps the menu compact for short content.
   private var estimatedContentHeight: CGFloat {
     let setupItemCount = store.connectionSetupItems.count + store.googleAccountsNeedingAttention.count
     let setupRows = store.hasConnectionSetupItems ? CGFloat(max(setupItemCount, 1)) * 64 + 44 : 0
-    let eventRowEstimate: CGFloat = store.showsCalendarSourceNames ? 48 : compactEventRowHeight
-    let todayCalendarRowCount = store.events.count + store.visibleAllDayEvents.count
-    let eventRows = store.isCalendarSectionVisible ? CGFloat(max(todayCalendarRowCount, 1)) * eventRowEstimate : 0
-    let tomorrowCalendarRowCount = store.tomorrowEvents.count + store.visibleTomorrowAllDayEvents.count
-    let tomorrowRows = store.isCalendarSectionVisible && store.isTomorrowExpanded
-      ? CGFloat(max(tomorrowCalendarRowCount, 1)) * eventRowEstimate + 34 : 0
-    let issueCounts: [IssueSource: Int] = [
-      .linear: store.issues.count,
-      .github: store.githubIssues.count,
-      .reminders: store.appleReminders.count
-    ]
-    let visibleIssueCount = store.availableIssueSources.count > 1
-      ? store.availableIssueSources.map { issueCounts[$0, default: 0] }.max() ?? 0
-      : store.activeIssueSource.map { issueCounts[$0, default: 0] } ?? 0
-    let issueRows = store.isIssuesSectionVisible ? CGFloat(max(visibleIssueCount, 1)) * workItemRowHeight : 0
-    let hasIssueMoreRow = switch store.activeIssueSource {
-    case .linear: store.hasMoreIssues || store.hasExpandedIssues
-    case .reminders: store.hasMoreAppleReminders || store.hasExpandedAppleReminders
-    case .github, nil: false
-    }
-    let issueMoreRow: CGFloat = store.isIssuesSectionVisible && hasIssueMoreRow ? 34 : 0
-    let noteRows = store.showsNotesSection ? CGFloat(max(store.notes.count, 1)) * workItemRowHeight : 0
-    let noteMoreRow: CGFloat = store.showsNotesSection && (store.hasMoreNotes || store.hasExpandedNotes) ? 34 : 0
-    return 108 + setupRows + eventRows + tomorrowRows + issueRows + issueMoreRow + noteRows + noteMoreRow
+    let eventRowEstimate: CGFloat = store.showsCalendarSourceNames ? eventRowHeight : compactEventRowHeight
+    // Day tabs share one area; size it for the longer day so switching doesn't resize.
+    let calendarRowCount = max(
+      store.events.count + store.visibleAllDayEvents.count,
+      store.tomorrowEvents.count + store.visibleTomorrowAllDayEvents.count,
+      1
+    )
+    let calendar = store.isCalendarSectionVisible ? CGFloat(calendarRowCount) * eventRowEstimate + 56 : 0
+    let tabRows = store.activeMenuTab == nil ? 0 : CGFloat(max(longestTabRowCount, 1)) * workItemRowHeight + 52
+    return 24 + setupRows + calendar + tabRows
+  }
+
+  /// Longest list among the tabs, so switching tabs doesn't resize the menu.
+  private var longestTabRowCount: Int {
+    store.availableMenuTabs.map { tab in
+      switch tab {
+      case .issues(.linear): store.issues.count
+      case .issues(.github): store.githubIssues.count
+      case .issues(.reminders): store.appleReminders.count
+      case .notes: store.notes.count
+      }
+    }.max() ?? 0
   }
 
   /// Handles menu-level keyboard shortcuts.
@@ -644,89 +649,55 @@ private struct DismissProviderButton: View {
   }
 }
 
-/// Work-item section with a tab switcher when multiple providers are connected.
-private struct IssuesSection: View {
+/// Header of the work section: tab switcher and the active tab's create button.
+private struct MenuTabHeader: View {
   @Environment(StatusStore.self) private var store
 
-  /// Issue source currently displayed.
-  let activeSource: IssueSource
-
-  /// Action run when the user creates a new Linear issue.
+  let activeTab: MenuTab
   let openNewIssue: () -> Void
-
-  /// Action run when the user creates a new GitHub issue.
   let openNewGitHubIssue: () -> Void
-
-  /// Action run when the user creates a new Apple Reminder.
   let openNewAppleReminder: () -> Void
+  let openNewNote: () -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack(spacing: 10) {
-        if store.availableIssueSources.count > 1 {
-          IssueSourceTabSwitcher(activeSource: activeSource)
-        } else {
-          SectionTitle(title: activeSource.label)
-        }
-
-        Spacer(minLength: 0)
-
-        switch activeSource {
-        case .linear:
-          newIssueButton(
-            action: openNewIssue,
-            controlID: .newLinearIssue,
-            help: "New Linear issue",
-            identifier: "linear.new"
-          )
-        case .github:
-          newIssueButton(
-            action: openNewGitHubIssue,
-            controlID: .newGitHubIssue,
-            help: "New GitHub issue",
-            identifier: "github.new"
-          )
-        case .reminders:
-          newIssueButton(
-            action: openNewAppleReminder,
-            controlID: .newAppleReminder,
-            help: store.canCreateAppleReminder
-              ? "New Apple Reminder"
-              : "Enable a writable Reminders list in Settings",
-            identifier: "reminders.new",
-            isEnabled: store.canCreateAppleReminder
-          )
-        }
+    HStack(spacing: 10) {
+      if store.availableMenuTabs.count > 1 {
+        SegmentedSwitcher(
+          items: store.availableMenuTabs,
+          active: activeTab,
+          label: \.label,
+          accessibilityLabel: { $0 == .notes ? "Show notes" : "Show \($0.label) issues" },
+          identifier: { "issues.source.\($0.id)" },
+          select: { store.selectMenuTab($0) }
+        )
+      } else {
+        SectionTitle(title: activeTab.label)
       }
 
-      ZStack(alignment: .topLeading) {
-        switch activeSource {
-        case .github:
-          GitHubSection(
-            issues: store.githubIssues,
-            error: store.githubError,
-          )
-          .transition(.opacity)
-        case .linear:
-          LinearSection(
-            issues: store.issues,
-            error: store.linearError,
-          )
-          .transition(.opacity)
-        case .reminders:
-          AppleRemindersSection(
-            reminders: store.appleReminders,
-            error: store.appleRemindersError
-          )
-          .transition(.opacity)
-        }
+      Spacer(minLength: 0)
+
+      switch activeTab {
+      case .issues(.linear):
+        createButton(action: openNewIssue, controlID: .newLinearIssue, help: "New Linear issue", identifier: "linear.new")
+      case .issues(.github):
+        createButton(action: openNewGitHubIssue, controlID: .newGitHubIssue, help: "New GitHub issue", identifier: "github.new")
+      case .issues(.reminders):
+        createButton(
+          action: openNewAppleReminder,
+          controlID: .newAppleReminder,
+          help: store.canCreateAppleReminder ? "New Apple Reminder" : "Enable a writable Reminders list in Settings",
+          identifier: "reminders.new",
+          isEnabled: store.canCreateAppleReminder
+        )
+      case .notes:
+        createButton(action: openNewNote, controlID: .newNote, help: "New note", identifier: "notes.new")
       }
     }
-    .animation(.smooth(duration: 0.2), value: activeSource)
+    .padding(.bottom, 6)
   }
 
-  /// Plus button that opens the issue creator for the active source.
-  private func newIssueButton(
+  /// Plus button that opens the creator for the active tab.
+  private func createButton(
     action: @escaping () -> Void,
     controlID: MenuControlID,
     help: String,
@@ -748,6 +719,35 @@ private struct IssuesSection: View {
     .onHover { isHovered in
       store.setHoveredControl(isHovered ? controlID : nil)
     }
+  }
+}
+
+/// Rows of the active work tab.
+private struct MenuTabContent: View {
+  @Environment(StatusStore.self) private var store
+
+  let activeTab: MenuTab
+  let openNote: (LocalNoteItem) -> Void
+
+  var body: some View {
+    ZStack(alignment: .topLeading) {
+      switch activeTab {
+      case .issues(.github):
+        GitHubSection(issues: store.githubIssues, error: store.githubError)
+          .transition(.opacity)
+      case .issues(.linear):
+        LinearSection(issues: store.issues, error: store.linearError)
+          .transition(.opacity)
+      case .issues(.reminders):
+        AppleRemindersSection(reminders: store.appleReminders, error: store.appleRemindersError)
+          .transition(.opacity)
+      case .notes:
+        NotesSection(notes: store.notes, error: store.notesError, openNote: openNote)
+          .transition(.opacity)
+      }
+    }
+    .padding(.top, 4)
+    .animation(.smooth(duration: 0.2), value: activeTab)
   }
 }
 
@@ -773,21 +773,27 @@ private struct LoadingIssuesRow: View {
   }
 }
 
-private struct IssueSourceTabSwitcher: View {
-  @Environment(StatusStore.self) private var store
+/// Capsule tab switcher with a sliding glass selection, shared by the calendar
+/// day tabs and the work tabs.
+private struct SegmentedSwitcher<Item: Identifiable & Hashable>: View {
   @Namespace private var selectionGlass
-  let activeSource: IssueSource
+  let items: [Item]
+  let active: Item
+  let label: (Item) -> String
+  let accessibilityLabel: (Item) -> String
+  let identifier: (Item) -> String
+  let select: (Item) -> Void
 
   var body: some View {
     ZStack {
       // Keep glass separate from the buttons so it cannot obscure the selected label.
       GlassEffectContainer(spacing: 2) {
         HStack(spacing: 2) {
-          ForEach(store.availableIssueSources) { source in
-            segmentLabel(for: source)
+          ForEach(items) { item in
+            segmentLabel(for: item)
               .hidden()
               .background {
-                if source == activeSource {
+                if item == active {
                   Color.clear
                     .glassEffect(.regular.interactive(), in: .capsule)
                     .matchedGeometryEffect(id: "selection", in: selectionGlass)
@@ -800,20 +806,20 @@ private struct IssueSourceTabSwitcher: View {
       .allowsHitTesting(false)
 
       HStack(spacing: 2) {
-        ForEach(store.availableIssueSources) { source in
+        ForEach(items) { item in
           Button {
             withAnimation(.smooth(duration: 0.25)) {
-              store.setIssueSource(source)
+              select(item)
             }
           } label: {
-            segmentLabel(for: source)
-              .foregroundStyle(source == activeSource ? .primary : .secondary)
+            segmentLabel(for: item)
+              .foregroundStyle(item == active ? .primary : .secondary)
               .contentShape(Capsule())
           }
           .buttonStyle(.plain)
-          .accessibilityLabel("Show \(source.label) issues")
-          .accessibilityAddTraits(source == activeSource ? [.isSelected] : [])
-          .accessibilityIdentifier("issues.source.\(source.id)")
+          .accessibilityLabel(accessibilityLabel(item))
+          .accessibilityAddTraits(item == active ? [.isSelected] : [])
+          .accessibilityIdentifier(identifier(item))
         }
       }
     }
@@ -824,8 +830,8 @@ private struct IssueSourceTabSwitcher: View {
     }
   }
 
-  private func segmentLabel(for source: IssueSource) -> some View {
-    Text(source.label)
+  private func segmentLabel(for item: Item) -> some View {
+    Text(label(item))
       .font(.caption.weight(.medium))
       .padding(.horizontal, 12)
       .padding(.vertical, 4)
@@ -1451,8 +1457,8 @@ private struct CalendarSection: View {
   /// Identifier for the event currently under the pointer.
   private var hoveredEventID: CalendarEventItem.ID? { store.hoveredEventID }
 
-  /// Whether tomorrow's events should be displayed.
-  let isTomorrowExpanded: Bool
+  /// Day whose events are shown.
+  let day: CalendarDay
 
   /// Current clock tick used to identify meetings happening now.
   private var now: Date { store.calendarHighlightDate }
@@ -1460,7 +1466,14 @@ private struct CalendarSection: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack {
-        SectionTitle(title: "Up Next")
+        SegmentedSwitcher(
+          items: CalendarDay.allCases,
+          active: day,
+          label: \.label,
+          accessibilityLabel: { "Show \($0.label) events" },
+          identifier: { "calendar.day.\($0.rawValue)" },
+          select: { store.selectCalendarDay($0) }
+        )
 
         Spacer(minLength: 0)
 
@@ -1472,49 +1485,25 @@ private struct CalendarSection: View {
       }
 
       VStack(alignment: .leading, spacing: 0) {
-          if events.isEmpty && allDayEvents.isEmpty {
-            MessageRow(title: "No more events today", detail: nil)
-              .padding(.horizontal, 16)
-              .padding(.vertical, 5)
-          } else {
-            ForEach(allDayEvents) { event in
-              calendarEventRow(event)
-            }
-
-            ForEach(events) { event in
-              calendarEventRow(event)
-            }
+        let (dayEvents, dayAllDayEvents) = day == .today
+          ? (events, allDayEvents)
+          : (tomorrowEvents, tomorrowAllDayEvents)
+        if dayEvents.isEmpty && dayAllDayEvents.isEmpty {
+          MessageRow(title: day == .today ? "No more events today" : "No events tomorrow", detail: nil)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 5)
+        } else {
+          ForEach(dayAllDayEvents) { event in
+            calendarEventRow(event)
           }
 
-          TomorrowEventsButton(isExpanded: isTomorrowExpanded) {
-            store.toggleTomorrowEvents()
+          ForEach(dayEvents) { event in
+            calendarEventRow(event)
           }
-
-          if isTomorrowExpanded {
-            VStack(alignment: .leading, spacing: 8) {
-              SectionTitle(title: "Tomorrow")
-
-              if tomorrowEvents.isEmpty && tomorrowAllDayEvents.isEmpty {
-                MessageRow(title: "No events tomorrow", detail: nil)
-                  .padding(.horizontal, 16)
-                  .padding(.vertical, 5)
-              } else {
-                VStack(alignment: .leading, spacing: 0) {
-                  ForEach(tomorrowAllDayEvents) { event in
-                    calendarEventRow(event)
-                  }
-
-                  ForEach(tomorrowEvents) { event in
-                    calendarEventRow(event)
-                  }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-              }
-            }
-            .padding(.top, 4)
-          }
+        }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
+      .animation(.smooth(duration: 0.2), value: day)
     }
   }
 
@@ -1605,44 +1594,6 @@ private struct CalendarSection: View {
   }
 }
 
-/// Full-width row button that expands or collapses tomorrow's events.
-private struct TomorrowEventsButton: View {
-  @Environment(StatusStore.self) private var store
-
-  /// Whether tomorrow's events are currently visible.
-  let isExpanded: Bool
-
-  /// Action run when the user toggles tomorrow's events.
-  let action: () -> Void
-
-  var body: some View {
-    HStack {
-      Button(action: action) {
-        HStack(spacing: 6) {
-          Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-          Text(isExpanded ? "Hide tomorrow" : "Show tomorrow")
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-        .controlHoverHighlight(.tomorrowEvents)
-      }
-      .buttonStyle(.plain)
-      .onHover { isHovered in
-        store.setHoveredControl(isHovered ? .tomorrowEvents : nil)
-      }
-      .accessibilityLabel(isExpanded ? "Hide tomorrow" : "Show tomorrow")
-      .accessibilityHint("Expand or collapse tomorrow's calendar events")
-      .accessibilityIdentifier("calendar.tomorrow.toggle")
-
-      Spacer(minLength: 0)
-    }
-    .padding(.horizontal, 10)
-    .padding(.vertical, 4)
-  }
-}
 
 /// Linear section listing assigned issues by priority.
 private struct LinearSection: View {
@@ -1683,7 +1634,7 @@ private struct LinearSection: View {
             .transition(.opacity)
         }
       } else {
-        VStack(alignment: .leading, spacing: 0) {
+        LazyVStack(alignment: .leading, spacing: 0) {
           ForEach(issues) { issue in
             IssueRow(
               issue: issue,
@@ -1702,6 +1653,7 @@ private struct LinearSection: View {
                 Task { await store.cancelLinearIssue(issueID: issue.id) }
               }
             )
+            .fadesAtScrollEdges(underTabBar: true)
             .onHover { isHovered in
               store.setHoveredIssue(isHovered ? .linear(issue.id) : nil)
             }
@@ -1727,18 +1679,6 @@ private struct LinearSection: View {
             }
             .popover(isPresented: previewBinding(for: .linear(issue.id)), arrowEdge: .trailing) {
               LinearIssuePreviewPopover(issue: issue)
-            }
-          }
-
-          if store.hasMoreIssues || store.hasExpandedIssues {
-            MoreIssuesControls(
-              canShowMore: store.hasMoreIssues,
-              canShowLess: store.hasExpandedIssues,
-              showMoreTitle: store.showMoreIssuesLabel
-            ) {
-              store.showMoreIssues()
-            } showLess: {
-              store.showFewerIssues()
             }
           }
         }
@@ -1836,13 +1776,14 @@ private struct GitHubSection: View {
             .transition(.opacity)
         }
       } else {
-        VStack(alignment: .leading, spacing: 0) {
+        LazyVStack(alignment: .leading, spacing: 0) {
           ForEach(issues) { issue in
             GitHubIssueRow(
               issue: issue,
               isHovered: hoveredIssueTarget == .github(issue.id),
               isCopied: copiedIssueTarget == .github(issue.id)
             )
+            .fadesAtScrollEdges(underTabBar: true)
             .onHover { isHovered in
               store.setHoveredIssue(isHovered ? .github(issue.id) : nil)
             }
@@ -1919,9 +1860,10 @@ private struct AppleRemindersSection: View {
             .transition(.opacity)
         }
       } else {
-        VStack(alignment: .leading, spacing: 0) {
+        LazyVStack(alignment: .leading, spacing: 0) {
           ForEach(reminders) { reminder in
             AppleReminderRow(reminder: reminder)
+              .fadesAtScrollEdges(underTabBar: true)
               .onHover { isHovered in
                 store.setHoveredIssue(isHovered ? .reminder(reminder.id) : nil)
               }
@@ -1940,20 +1882,6 @@ private struct AppleRemindersSection: View {
               .popover(isPresented: previewBinding(for: reminder.id), arrowEdge: .trailing) {
                 AppleReminderPreviewPopover(reminder: reminder)
               }
-          }
-
-          if store.hasMoreAppleReminders || store.hasExpandedAppleReminders {
-            MoreIssuesControls(
-              canShowMore: store.hasMoreAppleReminders,
-              canShowLess: store.hasExpandedAppleReminders,
-              showMoreTitle: store.showMoreAppleRemindersLabel,
-              providerName: "Apple Reminders",
-              identifierPrefix: "reminders"
-            ) {
-              store.showMoreAppleReminders()
-            } showLess: {
-              store.showFewerAppleReminders()
-            }
           }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2441,41 +2369,17 @@ private struct NotesSection: View {
   /// Identifier for the note currently under the pointer.
   private var hoveredNoteID: LocalNoteItem.ID? { store.hoveredNoteID }
 
-  /// Action run when the user creates a new note.
-  let openNewNote: () -> Void
-
   /// Action run when the user opens an existing note.
   let openNote: (LocalNoteItem) -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
-      HStack {
-        SectionTitle(title: "Notes")
-
-        Spacer(minLength: 0)
-
-        Button(action: openNewNote) {
-          Image(systemName: "plus")
-            .padding(5)
-            .contentShape(Rectangle())
-            .controlHoverHighlight(.newNote)
-        }
-        .buttonStyle(.plain)
-        .help("New note")
-        .accessibilityLabel("New note")
-        .accessibilityHint("Create a local note")
-        .accessibilityIdentifier("notes.new")
-        .onHover { isHovered in
-          store.setHoveredControl(isHovered ? .newNote : nil)
-        }
-      }
-
       if let error {
         MessageRow(title: "Notes unavailable", detail: error)
       } else if notes.isEmpty {
         MessageRow(title: "No notes", detail: nil)
       } else {
-        VStack(alignment: .leading, spacing: 0) {
+        LazyVStack(alignment: .leading, spacing: 0) {
           ForEach(notes) { note in
             NoteRow(
               note: note,
@@ -2487,20 +2391,9 @@ private struct NotesSection: View {
                 store.deleteLocalNote(id: note.id)
               }
             )
+            .fadesAtScrollEdges(underTabBar: true)
             .onHover { isHovered in
               store.setHoveredNote(isHovered ? note.id : nil)
-            }
-          }
-
-          if store.hasMoreNotes || store.hasExpandedNotes {
-            MoreNotesControls(
-              canShowMore: store.hasMoreNotes,
-              canShowLess: store.hasExpandedNotes,
-              showMoreTitle: store.showMoreNotesLabel
-            ) {
-              store.showMoreNotes()
-            } showLess: {
-              store.showFewerNotes()
             }
           }
         }
@@ -2510,155 +2403,7 @@ private struct NotesSection: View {
   }
 }
 
-/// Compact controls that reveal or collapse fetched local notes.
-private struct MoreNotesControls: View {
-  @Environment(StatusStore.self) private var store
 
-  /// Whether another page can be revealed.
-  let canShowMore: Bool
-
-  /// Whether expanded notes can be collapsed.
-  let canShowLess: Bool
-
-  /// Reveal-more button title.
-  let showMoreTitle: String
-
-  /// Action run when the user asks for more notes.
-  let showMore: () -> Void
-
-  /// Action run when the user asks for fewer notes.
-  let showLess: () -> Void
-
-  var body: some View {
-    HStack {
-      if canShowMore {
-        Button(action: showMore) {
-          HStack(spacing: 6) {
-            Image(systemName: "chevron.down")
-            Text(showMoreTitle)
-          }
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .padding(.horizontal, 6)
-          .padding(.vertical, 4)
-          .contentShape(Rectangle())
-          .controlHoverHighlight(.moreNotes)
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered in
-          store.setHoveredControl(isHovered ? .moreNotes : nil)
-        }
-        .accessibilityLabel(showMoreTitle)
-        .accessibilityHint("Show more local notes")
-        .accessibilityIdentifier("notes.showMore")
-      }
-
-      Spacer(minLength: 0)
-
-      if canShowLess {
-        Button(action: showLess) {
-          HStack(spacing: 6) {
-            Image(systemName: "chevron.up")
-            Text("Show less")
-          }
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .padding(.horizontal, 6)
-          .padding(.vertical, 4)
-          .contentShape(Rectangle())
-          .controlHoverHighlight(.fewerNotes)
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered in
-          store.setHoveredControl(isHovered ? .fewerNotes : nil)
-        }
-        .accessibilityLabel("Show less")
-        .accessibilityHint("Collapse extra local notes")
-        .accessibilityIdentifier("notes.showLess")
-      }
-    }
-    .padding(.horizontal, 10)
-    .padding(.vertical, 4)
-  }
-}
-
-/// Compact controls that reveal or collapse fetched Linear issues.
-private struct MoreIssuesControls: View {
-  @Environment(StatusStore.self) private var store
-
-  /// Whether another page can be revealed.
-  let canShowMore: Bool
-
-  /// Whether expanded issues can be collapsed.
-  let canShowLess: Bool
-
-  /// Reveal-more button title.
-  let showMoreTitle: String
-
-  /// Provider name used by assistive technologies.
-  var providerName = "Linear"
-
-  /// Stable provider-specific accessibility identifier prefix.
-  var identifierPrefix = "linear"
-
-  /// Action run when the user asks for more issues.
-  let showMore: () -> Void
-
-  /// Action run when the user asks for fewer issues.
-  let showLess: () -> Void
-
-  var body: some View {
-    HStack {
-      if canShowMore {
-        Button(action: showMore) {
-          HStack(spacing: 6) {
-            Image(systemName: "chevron.down")
-            Text(showMoreTitle)
-          }
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .padding(.horizontal, 6)
-          .padding(.vertical, 4)
-          .contentShape(Rectangle())
-          .controlHoverHighlight(.moreIssues)
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered in
-          store.setHoveredControl(isHovered ? .moreIssues : nil)
-        }
-        .accessibilityLabel(showMoreTitle)
-        .accessibilityHint("Show more \(providerName) items")
-        .accessibilityIdentifier("\(identifierPrefix).showMore")
-      }
-
-      Spacer(minLength: 0)
-
-      if canShowLess {
-        Button(action: showLess) {
-          HStack(spacing: 6) {
-            Image(systemName: "chevron.up")
-            Text("Show less")
-          }
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .padding(.horizontal, 6)
-          .padding(.vertical, 4)
-          .contentShape(Rectangle())
-          .controlHoverHighlight(.fewerIssues)
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered in
-          store.setHoveredControl(isHovered ? .fewerIssues : nil)
-        }
-        .accessibilityLabel("Show less")
-        .accessibilityHint("Collapse extra \(providerName) items")
-        .accessibilityIdentifier("\(identifierPrefix).showLess")
-      }
-    }
-    .padding(.horizontal, 10)
-    .padding(.vertical, 4)
-  }
-}
 
 /// Muted section title.
 private struct SectionTitle: View {
@@ -3211,7 +2956,61 @@ private struct ControlHoverHighlightModifier: ViewModifier {
   }
 }
 
+private extension EnvironmentValues {
+  /// Height of the pinned tab bar that list rows scroll under.
+  @Entry var pinnedTabBarHeight: CGFloat = 40
+}
+
+/// Fades content out as it scrolls past the top or bottom of the menu, so neither
+/// edge shows a hard cut. List rows fade below the pinned tab bar instead of the
+/// very top, so the bar needs no background of its own.
+private struct ScrollEdgeFade: ViewModifier {
+  @Environment(\.pinnedTabBarHeight) private var tabBarHeight
+
+  /// Whether this content scrolls under the pinned tab bar.
+  let isUnderTabBar: Bool
+
+  /// Distance over which content dissolves at either edge.
+  private static let fadeDistance: CGFloat = 18
+
+  func body(content: Content) -> some View {
+    content.mask {
+      GeometryReader { proxy in
+        LinearGradient(
+          stops: Self.stops(
+            frame: proxy.frame(in: .scrollView),
+            viewportHeight: proxy.bounds(of: .scrollView)?.height ?? .greatestFiniteMagnitude,
+            topInset: isUnderTabBar ? tabBarHeight : 0
+          ),
+          startPoint: .top,
+          endPoint: .bottom
+        )
+      }
+    }
+  }
+
+  /// Gradient stops in the content's own coordinates; content clear of both edges stays opaque.
+  private static func stops(frame: CGRect, viewportHeight: CGFloat, topInset: CGFloat) -> [Gradient.Stop] {
+    let height = max(frame.height, 1)
+    func location(_ y: CGFloat) -> CGFloat { min(max(y / height, 0), 1) }
+    let topEdge = topInset - frame.minY
+    let bottomEdge = viewportHeight - frame.minY
+    return [
+      .init(color: .clear, location: location(topEdge)),
+      .init(color: .black, location: location(topEdge + fadeDistance)),
+      .init(color: .black, location: location(bottomEdge - fadeDistance)),
+      .init(color: .clear, location: location(bottomEdge))
+    ]
+  }
+}
+
 private extension View {
+  /// Fades this view out where it scrolls past the menu's edges, or under the
+  /// pinned tab bar for list rows.
+  func fadesAtScrollEdges(underTabBar: Bool = false) -> some View {
+    modifier(ScrollEdgeFade(isUnderTabBar: underTabBar))
+  }
+
   /// Applies the standard hover background to one menu chrome control.
   func controlHoverHighlight(_ controlID: MenuControlID, isEnabled: Bool = true) -> some View {
     modifier(ControlHoverHighlightModifier(controlID: controlID, isEnabled: isEnabled))

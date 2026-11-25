@@ -133,7 +133,7 @@ final class StatusStore {
   private(set) var hoveredControlID: MenuControlID?
 
   /// Whether tomorrow's calendar events are visible.
-  private(set) var isTomorrowExpanded = false
+  private(set) var calendarDay: CalendarDay = .today
 
   /// Identifier for the Linear issue whose URL was most recently copied.
   private(set) var copiedIssueTarget: IssueActionTarget?
@@ -168,14 +168,10 @@ final class StatusStore {
   /// Provider-qualified item whose due date is currently being updated.
   private(set) var updatingDueDateTarget: IssueActionTarget?
 
-  /// Number of sorted Linear issues currently shown in the menu.
-  private(set) var visibleIssueCount = initialVisibleIssueCount
-
-  /// Number of sorted Apple Reminders currently shown in the menu.
-  private(set) var visibleAppleReminderCount = initialVisibleIssueCount
-
-  /// Number of sorted local notes currently shown in the menu.
-  private(set) var visibleNoteCount: Int
+  /// Whether the Notes tab is selected instead of an issue source.
+  private(set) var isNotesTabSelected: Bool {
+    didSet { UserDefaults.standard.set(isNotesTabSelected, forKey: Self.notesTabSelectedKey) }
+  }
 
   /// Keyboard character used to copy the hovered Linear issue link.
   private(set) var copyIssueHotkey: String {
@@ -465,20 +461,6 @@ final class StatusStore {
     }
   }
 
-  /// User-selected number of notes shown before expansion.
-  var defaultVisibleNoteCount: Int {
-    didSet {
-      let clampedCount = Self.clampedDefaultVisibleNoteCount(defaultVisibleNoteCount)
-      guard defaultVisibleNoteCount == clampedCount else {
-        defaultVisibleNoteCount = clampedCount
-        return
-      }
-      UserDefaults.standard.set(defaultVisibleNoteCount, forKey: Self.defaultVisibleNoteCountKey)
-      visibleNoteCount = defaultVisibleNoteCount
-      applyLocalNoteSortOrder()
-    }
-  }
-
   /// Refresh cadence in minutes, persisted in user defaults.
   var refreshIntervalMinutes: Int {
     didSet {
@@ -591,8 +573,6 @@ final class StatusStore {
     menuBarClockDate
   }
 
-  private static let initialVisibleIssueCount = 6
-  private static let issuePageSize = 10
   private static let refreshIntervalKey = "refreshIntervalMinutes"
   private static let copyIssueHotkeyKey = "copyIssueHotkey"
   private static let statusPickerHotkeyKey = "statusPickerHotkey"
@@ -633,7 +613,7 @@ final class StatusStore {
   private static let linearIssueCreateDefaultProjectIDKey = "linearIssueCreateDefaultProjectID"
   private static let linearIssueCreateDefaultLabelIDKey = "linearIssueCreateDefaultLabelID"
   private static let localNoteSortOrderKey = "localNoteSortOrder"
-  private static let defaultVisibleNoteCountKey = "defaultVisibleNoteCount"
+  private static let notesTabSelectedKey = "notesTabSelected"
   private static let menuBarEventLeadTimeKey = "menuBarEventLeadTimeMinutes"
   private static let launchAtLoginDefaultConfiguredKey = "launchAtLoginDefaultConfigured"
   private static let launchAtLoginDefaultPendingKey = "launchAtLoginDefaultPending"
@@ -644,7 +624,6 @@ final class StatusStore {
   private static let newAppleReminderShortcutKey = "newAppleReminderGlobalShortcut"
   private static let defaultMenuBarEventLeadTimeMinutes = 30
   static let defaultMeetingAlertSnoozeMinutes = 5
-  private static let fallbackDefaultVisibleNoteCount = 3
   private static let menuBarClockRefreshSeconds: TimeInterval = 15
   /// Calendar-only reload cadence, independent of the slower full refresh.
   private static let calendarRefreshSeconds: TimeInterval = 2 * 60
@@ -879,12 +858,7 @@ final class StatusStore {
     self.linearIssueCreateDefaultProjectID = defaults.string(forKey: Self.linearIssueCreateDefaultProjectIDKey) ?? ""
     self.linearIssueCreateDefaultLabelID = defaults.string(forKey: Self.linearIssueCreateDefaultLabelIDKey) ?? ""
     self.localNoteSortOrder = LocalNoteSortOrder(rawValue: UserDefaults.standard.string(forKey: Self.localNoteSortOrderKey) ?? "") ?? .updatedAt
-    let storedVisibleNoteCount = Self.clampedDefaultVisibleNoteCount(Self.storedInteger(
-      forKey: Self.defaultVisibleNoteCountKey,
-      defaultValue: Self.fallbackDefaultVisibleNoteCount
-    ))
-    self.defaultVisibleNoteCount = storedVisibleNoteCount
-    self.visibleNoteCount = storedVisibleNoteCount
+    self.isNotesTabSelected = defaults.bool(forKey: Self.notesTabSelectedKey)
     self.launchAtLoginEnabled = mockData == nil ? launchAtLoginService.isEnabled : true
     self.menuBarEventLeadTimeMinutes = Self.storedInteger(
       forKey: Self.menuBarEventLeadTimeKey,
@@ -1334,6 +1308,42 @@ final class StatusStore {
     return sources.first
   }
 
+  /// Tabs in the menu's work section: connected issue sources, then Notes.
+  var availableMenuTabs: [MenuTab] {
+    (showsLinearSection ? availableIssueSources.map(MenuTab.issues) : [])
+      + (showsNotesSection ? [.notes] : [])
+  }
+
+  /// Tab currently shown, repaired when its source is hidden or disconnected.
+  var activeMenuTab: MenuTab? {
+    if isNotesTabSelected, showsNotesSection {
+      return .notes
+    }
+    if showsLinearSection, let activeIssueSource {
+      return .issues(activeIssueSource)
+    }
+    return showsNotesSection ? .notes : nil
+  }
+
+  /// Switches the work section to another tab.
+  func selectMenuTab(_ tab: MenuTab) {
+    switch tab {
+    case .notes:
+      guard !isNotesTabSelected else { return }
+      isNotesTabSelected = true
+      clearIssueInteractionState()
+      DaylineDiagnostics.record("Menu tab selected notes", category: .interaction)
+    case .issues(let source):
+      let wasNotes = isNotesTabSelected
+      isNotesTabSelected = false
+      if issueSource != source {
+        setIssueSource(source)
+      } else if wasNotes {
+        DaylineDiagnostics.record("Issue source selected \(source.rawValue)", category: .interaction)
+      }
+    }
+  }
+
   /// Whether the calendar section should appear in the menu bar popover.
   var isCalendarSectionVisible: Bool {
     showsCalendarSection && (appleCalendarConnected || !dismissedProviders.contains(.google))
@@ -1352,11 +1362,6 @@ final class StatusStore {
   /// Tomorrow's all-day events currently allowed by the user's menu preference.
   var visibleTomorrowAllDayEvents: [CalendarEventItem] {
     showsAllDayEvents ? tomorrowAllDayEvents : []
-  }
-
-  /// Whether the issues section should appear in the menu bar popover.
-  var isIssuesSectionVisible: Bool {
-    showsLinearSection && activeIssueSource != nil
   }
 
   /// Dismisses one provider's setup prompt and hides its menu content until it connects.
@@ -1828,6 +1833,12 @@ final class StatusStore {
   func setIssueSource(_ source: IssueSource) {
     guard issueSource != source else { return }
     issueSource = source
+    clearIssueInteractionState()
+    DaylineDiagnostics.record("Issue source selected \(source.rawValue)", category: .interaction)
+  }
+
+  /// Closes hover state, pickers, and previews that belong to the previous tab.
+  private func clearIssueInteractionState() {
     hoveredIssueTarget = nil
     statusPickerTarget = nil
     priorityPickerTarget = nil
@@ -1835,7 +1846,6 @@ final class StatusStore {
     labelPickerTarget = nil
     assigneePickerTarget = nil
     previewTarget = nil
-    DaylineDiagnostics.record("Issue source selected \(source.rawValue)", category: .interaction)
   }
 
   /// Persists whether the notes section appears in the menu bar popover.
@@ -2298,11 +2308,6 @@ final class StatusStore {
     localNoteSortOrder = order
   }
 
-  /// Persists how many local notes are shown before expansion.
-  func setDefaultVisibleNoteCount(_ count: Int) {
-    defaultVisibleNoteCount = count
-  }
-
   /// Refreshes launch-at-login state from macOS.
   func refreshLaunchAtLoginStatus() {
     guard mockData == nil else {
@@ -2328,114 +2333,13 @@ final class StatusStore {
     refreshLaunchAtLoginStatus()
   }
 
-  /// Whether additional fetched Linear issues can be shown without another refresh.
-  var hasMoreIssues: Bool {
-    visibleIssueCount < allIssues.count
+  /// Switches the calendar section between today's and tomorrow's events.
+  func selectCalendarDay(_ day: CalendarDay) {
+    guard calendarDay != day else { return }
+    calendarDay = day
+    DaylineDiagnostics.record("Calendar day selected \(day.rawValue)", category: .interaction)
   }
 
-  /// Whether the issue list is showing rows beyond the initial page.
-  var hasExpandedIssues: Bool {
-    visibleIssueCount > Self.initialVisibleIssueCount
-  }
-
-  /// Label for the button that reveals more Linear issues.
-  var showMoreIssuesLabel: String {
-    let additionalCount = min(Self.issuePageSize, max(allIssues.count - visibleIssueCount, 0))
-    return "Show \(additionalCount) more"
-  }
-
-  /// Reveals another page of already-fetched Linear issues.
-  func showMoreIssues() {
-    visibleIssueCount = min(visibleIssueCount + Self.issuePageSize, allIssues.count)
-    applyLinearIssueOrder()
-    DaylineDiagnostics.record("Linear issues expanded visible \(issues.count)", category: .interaction)
-  }
-
-  /// Collapses Linear issues back to the initial visible page.
-  func showFewerIssues() {
-    visibleIssueCount = Self.initialVisibleIssueCount
-    applyLinearIssueOrder()
-    DaylineDiagnostics.record("Linear issues collapsed visible \(issues.count)", category: .interaction)
-  }
-
-  /// Whether additional fetched reminders can be shown without another refresh.
-  var hasMoreAppleReminders: Bool {
-    visibleAppleReminderCount < allAppleReminders.count
-  }
-
-  /// Whether the reminder list is showing rows beyond the initial page.
-  var hasExpandedAppleReminders: Bool {
-    visibleAppleReminderCount > Self.initialVisibleIssueCount
-  }
-
-  /// Label for revealing the next page of reminders.
-  var showMoreAppleRemindersLabel: String {
-    let additionalCount = min(
-      Self.issuePageSize,
-      max(allAppleReminders.count - visibleAppleReminderCount, 0)
-    )
-    return "Show \(additionalCount) more"
-  }
-
-  /// Reveals another page of already-fetched reminders.
-  func showMoreAppleReminders() {
-    visibleAppleReminderCount = min(
-      visibleAppleReminderCount + Self.issuePageSize,
-      allAppleReminders.count
-    )
-    applyAppleReminderOrder()
-    DaylineDiagnostics.record(
-      "Apple Reminders expanded visible \(appleReminders.count)",
-      category: .interaction
-    )
-  }
-
-  /// Collapses reminders back to the initial visible page.
-  func showFewerAppleReminders() {
-    visibleAppleReminderCount = Self.initialVisibleIssueCount
-    applyAppleReminderOrder()
-    DaylineDiagnostics.record(
-      "Apple Reminders collapsed visible \(appleReminders.count)",
-      category: .interaction
-    )
-  }
-
-  /// Whether additional fetched local notes can be shown without another refresh.
-  var hasMoreNotes: Bool {
-    visibleNoteCount < allNotes.count
-  }
-
-  /// Whether the note list is showing rows beyond the configured default.
-  var hasExpandedNotes: Bool {
-    visibleNoteCount > defaultVisibleNoteCount
-  }
-
-  /// Label for the button that reveals more local notes.
-  var showMoreNotesLabel: String {
-    let additionalCount = min(defaultVisibleNoteCount, max(allNotes.count - visibleNoteCount, 0))
-    return "Show \(additionalCount) more"
-  }
-
-  /// Reveals another page of already-fetched local notes.
-  func showMoreNotes() {
-    visibleNoteCount = min(visibleNoteCount + defaultVisibleNoteCount, allNotes.count)
-    applyLocalNoteSortOrder()
-  }
-
-  /// Collapses local notes back to the configured default.
-  func showFewerNotes() {
-    visibleNoteCount = defaultVisibleNoteCount
-    applyLocalNoteSortOrder()
-  }
-
-  /// Toggles tomorrow's cached calendar events in the menu.
-  func toggleTomorrowEvents() {
-    isTomorrowExpanded.toggle()
-    DaylineDiagnostics.record(
-      "Tomorrow events \(isTomorrowExpanded ? "expanded" : "collapsed") visible \(isTomorrowExpanded ? tomorrowEvents.count : 0)",
-      category: .interaction
-    )
-  }
 
   /// Returns whether a keypress should copy the hovered Linear issue link.
   func matchesCopyIssueHotkey(_ characters: String) -> Bool {
@@ -3348,9 +3252,6 @@ final class StatusStore {
     allAppleReminders.removeAll { $0.id == created.id }
     allAppleReminders.append(created)
     appleRemindersRevision += 1
-    if let createdIndex = sortedAppleReminders(allAppleReminders).firstIndex(where: { $0.id == created.id }) {
-      visibleAppleReminderCount = max(visibleAppleReminderCount, createdIndex + 1)
-    }
     applyAppleReminderOrder()
     appleRemindersError = nil
     lastUpdatedAt = Date()
@@ -3447,7 +3348,6 @@ final class StatusStore {
       if mockData == nil {
         try notesService.saveNotes(allNotes)
       }
-      visibleNoteCount = min(max(defaultVisibleNoteCount, visibleNoteCount), max(defaultVisibleNoteCount, allNotes.count))
       applyLocalNoteSortOrder()
       notesError = nil
       DaylineDiagnostics.record("Local note deleted total \(allNotes.count)", category: .interaction)
@@ -3874,22 +3774,16 @@ final class StatusStore {
   /// Applies the selected Linear ordering to fetched issue candidates.
   private func applyLinearIssueOrder() {
     issues = sortedLinearIssues(allIssues)
-      .prefix(visibleIssueCount)
-      .map { $0 }
   }
 
   /// Applies Dayline's deterministic priority/due-date order to Apple Reminders.
   private func applyAppleReminderOrder() {
     appleReminders = sortedAppleReminders(allAppleReminders)
-      .prefix(visibleAppleReminderCount)
-      .map { $0 }
   }
 
   /// Applies the selected local ordering to fetched note candidates.
   private func applyLocalNoteSortOrder() {
     notes = sortedLocalNotes(allNotes)
-      .prefix(visibleNoteCount)
-      .map { $0 }
   }
 
   /// Replaces or removes an updated issue, matching the active issue filter.
@@ -4055,9 +3949,6 @@ final class StatusStore {
     googleAccounts = mockData.googleAccounts
     appleRemindersConnected = mockData.issueSources.contains(.reminders)
     appleReminderLists = appleRemindersConnected ? mockData.appleReminderLists : []
-    visibleIssueCount = Self.initialVisibleIssueCount
-    visibleAppleReminderCount = Self.initialVisibleIssueCount
-    visibleNoteCount = Self.fallbackDefaultVisibleNoteCount
     calendarWarnings = []
     googleAuthorizationError = nil
     linearError = nil
@@ -4065,10 +3956,10 @@ final class StatusStore {
     githubError = nil
     appleRemindersError = nil
     notesError = nil
-    issues = Array(allIssues.prefix(visibleIssueCount))
+    applyLinearIssueOrder()
     applyAppleReminderOrder()
     repairAppleReminderCreateDefaults()
-    notes = Array(allNotes.prefix(visibleNoteCount))
+    applyLocalNoteSortOrder()
     lastUpdatedAt = Date()
     isRefreshing = false
   }
@@ -4230,11 +4121,6 @@ final class StatusStore {
       max(event.startDate, snoozedUntil ?? event.startDate)
         .addingTimeInterval(Self.meetingAlertPostStartGrace)
     )
-  }
-
-  /// Keeps the default note count in a practical menu range.
-  private static func clampedDefaultVisibleNoteCount(_ count: Int) -> Int {
-    min(max(count, 1), 25)
   }
 
   /// Loads all enabled calendars, preserving successful results when individual sources fail.

@@ -4,22 +4,11 @@ import SwiftUI
 struct NotesSettingsTab: View {
   @Environment(StatusStore.self) private var store
 
-  /// Supported default note counts.
-  private let defaultNoteCountOptions = [3, 5, 10, 15]
-
   var body: some View {
     Form {
       Section {
-        Toggle("Show notes in menu", isOn: showsNotesSectionBinding)
+        Toggle("Show Notes tab in menu", isOn: showsNotesSectionBinding)
           .accessibilityIdentifier("settings.showsNotesSection")
-
-        Picker("Notes shown", selection: defaultNoteCountBinding) {
-          ForEach(defaultNoteCountPickerOptions, id: \.self) { count in
-            Text(count == 1 ? "1 note" : "\(count) notes").tag(count)
-          }
-        }
-        .disabled(!store.showsNotesSection)
-        .accessibilityIdentifier("settings.defaultNoteCount")
 
         Picker("Sort notes by", selection: localNoteSortOrderBinding) {
           ForEach(LocalNoteSortOrder.allCases) { order in
@@ -31,7 +20,7 @@ struct NotesSettingsTab: View {
       } header: {
         Label("Menu", systemImage: "list.bullet")
       } footer: {
-        Text("The menu initially shows this many notes. Expand it to see more.")
+        Text("Notes appear as a tab next to your issues. Scroll the list to see all of them.")
       }
 
       Section {
@@ -59,19 +48,6 @@ struct NotesSettingsTab: View {
       get: { store.notesKeepOnTop },
       set: { store.setNotesKeepOnTop($0) }
     )
-  }
-
-  /// Binding that forwards default note count changes to the store.
-  private var defaultNoteCountBinding: Binding<Int> {
-    Binding(
-      get: { store.defaultVisibleNoteCount },
-      set: { store.setDefaultVisibleNoteCount($0) }
-    )
-  }
-
-  /// Note count choices plus any existing custom stored value.
-  private var defaultNoteCountPickerOptions: [Int] {
-    Array(Set(defaultNoteCountOptions + [store.defaultVisibleNoteCount])).sorted()
   }
 
   /// Binding that forwards local note ordering changes to the store.

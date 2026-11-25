@@ -25,7 +25,8 @@ struct MockData {
 
   static func make(
     now: Date = Date(),
-    issueSources: Set<IssueSource> = Set(IssueSource.allCases)
+    issueSources: Set<IssueSource> = Set(IssueSource.allCases),
+    longLists: Bool = false
   ) -> MockData {
     let calendar = Calendar.current
     let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) ?? now
@@ -137,7 +138,7 @@ struct MockData {
       issue("DAY-115", "Add keyboard shortcut hints", priority: 3, priorityLabel: "Medium", stateID: "mock-todo", stateName: "Todo", stateType: "unstarted"),
       issue("DAY-119", "Write the next release notes", priority: 4, priorityLabel: "Low", stateID: "mock-todo", stateName: "Todo", stateType: "unstarted"),
       issue("DAY-121", "Investigate occasional sync delay", priority: 0, priorityLabel: "No priority", stateID: "mock-backlog", stateName: "Backlog", stateType: "backlog")
-    ]
+    ] + (longLists ? fillerIssues(issue) : [])
 
     let reminderLists = [
       AppleReminderList(
@@ -291,7 +292,9 @@ struct MockData {
         note("mock-note-2", "Weekend plans\nHike, farmers market, do absolutely nothing.", updatedMinutesAgo: 42),
         note("mock-note-3", "Grocery list\nCoffee beans, lemons, pasta, good bread.", updatedMinutesAgo: 95),
         note("mock-note-4", "Books to read next\nThe Creative Act\nTomorrow, and Tomorrow, and Tomorrow", updatedMinutesAgo: 180)
-      ],
+      ] + (longLists ? (1...40).map { index in
+        note("mock-long-note-\(index)", "Scratch note \(index)\nA longer list to try scrolling the Notes tab.", updatedMinutesAgo: 200 + index * 30)
+      } : []),
       connectionStatuses: [
         ConnectionStatus(provider: .google, state: .connected, detail: nil, accountLabel: "2 accounts"),
         ConnectionStatus(
@@ -400,5 +403,29 @@ struct MockData {
         LinearMilestoneOption(id: "mock-milestone-2", name: "1.0")
       ]
     )
+  }
+
+  /// Extra issues for trying long, scrolling lists (`--mock-long-lists`).
+  private static func fillerIssues(
+    _ issue: (String, String, Int, String, String, String, String, Int?, String?) -> LinearIssueItem
+  ) -> [LinearIssueItem] {
+    let topics = [
+      "Tidy settings copy", "Profile menu rendering", "Cache team workflow states", "Audit keyboard shortcuts",
+      "Trim release checklist", "Retry failed calendar sync", "Polish empty states", "Measure menu open time",
+      "Review accessibility labels", "Clean up old feature flags"
+    ]
+    let priorities = [(1, "Urgent"), (2, "High"), (3, "Medium"), (4, "Low"), (0, "No priority")]
+    let states = [
+      ("mock-progress", "In Progress", "started"), ("mock-todo", "Todo", "unstarted"),
+      ("mock-review", "In Review", "started"), ("mock-backlog", "Backlog", "backlog")
+    ]
+    return (1...60).map { index in
+      let priority = priorities[index % priorities.count]
+      let state = states[index % states.count]
+      return issue(
+        "DAY-\(200 + index)", "\(topics[index % topics.count]) #\(index)",
+        priority.0, priority.1, state.0, state.1, state.2, index % 3 == 0 ? index % 14 : nil, nil
+      )
+    }
   }
 }

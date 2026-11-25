@@ -55,7 +55,9 @@ struct DaylineApp: App {
           .compactMap { IssueSource(rawValue: String($0)) } ?? [])
       }
       ?? Set(IssueSource.allCases)
-    let mockData = isMock ? MockData.make(issueSources: mockIssueSources) : nil
+    let mockData = isMock
+      ? MockData.make(issueSources: mockIssueSources, longLists: arguments.contains("--mock-long-lists"))
+      : nil
     _store = State(initialValue: StatusStore(mockData: mockData))
     _updateService = StateObject(wrappedValue: UpdateService(
       isMock: isMock,

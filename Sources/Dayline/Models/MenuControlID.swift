@@ -5,8 +5,6 @@ enum MenuControlID {
   /// Header refresh button.
   case refresh
 
-  /// Calendar tomorrow disclosure row.
-  case tomorrowEvents
 
   /// Opens one of the available calendar event creation paths.
   case newCalendarEvent
