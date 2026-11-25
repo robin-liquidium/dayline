@@ -75,11 +75,8 @@ final class MeetingAlertWindowController {
     DaylineDiagnostics.record("Meeting alert window disappeared", category: .lifecycle)
   }
 
-  /// Screen the user is looking at: the one under the pointer, else the main screen.
+  /// Display with keyboard focus, where the user is working.
   private static var activeScreen: NSScreen? {
-    let mouse = NSEvent.mouseLocation
-    return NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
-      ?? NSScreen.main
-      ?? NSScreen.screens.first
+    NSScreen.main ?? NSScreen.screens.first
   }
 }
