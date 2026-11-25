@@ -358,7 +358,7 @@ final class DaylineUITests: XCTestCase {
 
     let menuScrollView = app.scrollViews.firstMatch
     let tabs = element("issues.source.linear")
-    let farIssue = element("linear.issue.DAY-260")
+    let farIssue = element("linear.issue.DAY-259")
     let deadline = Date().addingTimeInterval(10)
     while !(farIssue.exists && farIssue.isHittable), Date() < deadline {
       menuScrollView.scroll(byDeltaX: 0, deltaY: -200)
@@ -370,7 +370,7 @@ final class DaylineUITests: XCTestCase {
       20,
       "The tab bar should be pinned to the top of the scrolling area"
     )
-    attachCheckpoint("long-list-pinned", identifiers: ["issues.source.linear", "linear.issue.DAY-260"])
+    attachCheckpoint("long-list-pinned", identifiers: ["issues.source.linear", "linear.issue.DAY-259"])
 
     showNotesTab()
     let firstNote = element("notes.note.mock-note-1")
