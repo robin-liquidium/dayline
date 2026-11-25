@@ -685,6 +685,9 @@ final class StatusStore {
   @ObservationIgnored private var calendarLoadSequence = 0
   @ObservationIgnored private var appliedGoogleLoadSequence = 0
   @ObservationIgnored private var appliedAppleLoadSequence = 0
+  /// Declines from the newest Google load that reported them, so an older load that
+  /// finishes later cannot bring a declined meeting back.
+  @ObservationIgnored private var latestGoogleDeclines: (loadID: Int, keysByAccount: [UUID: Set<String>]) = (0, [:])
   /// A calendar change arrived while a load was running; reload once it finishes.
   @ObservationIgnored private var calendarRefreshPending = false
   /// Order of local Linear edits, so a refresh that started earlier cannot undo them.
@@ -1091,17 +1094,25 @@ final class StatusStore {
     var didReplaceCalendarEvents = false
     var didFilterRetainedEvents = false
 
+    if let calendarResult, loadID > latestGoogleDeclines.loadID,
+       connectionRevisions[.google, default: 0] == googleRevision {
+      latestGoogleDeclines = (loadID, calendarResult.declinedKeysByAccount)
+    }
+
     if googleIsCurrent {
       if let calendarResult {
         if calendarResult.shouldReplaceGoogleEvents {
-          googleSourceEvents = calendarResult.googleSourceEvents
+          googleSourceEvents = Self.removingDeclined(
+            calendarResult.googleSourceEvents,
+            declinedKeysByAccount: latestGoogleDeclines.keysByAccount
+          )
           appliedGoogleLoadSequence = loadID
           didReplaceCalendarEvents = true
         } else {
           // Visible calendars failed, but confirmed declines still hide cached copies.
           let retained = Self.removingDeclined(
             googleSourceEvents,
-            declinedKeysByAccount: calendarResult.declinedKeysByAccount
+            declinedKeysByAccount: latestGoogleDeclines.keysByAccount
           )
           if retained.count != googleSourceEvents.count {
             googleSourceEvents = retained
