@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Local note display settings for the menu.
 struct NotesSettingsTab: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
 
   /// Supported default note counts.
   private let defaultNoteCountOptions = [3, 5, 10, 15]

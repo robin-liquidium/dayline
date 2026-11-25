@@ -71,12 +71,22 @@ struct LinearIssueItem: Identifiable, Equatable {
     }
   }
 
-  func replacing(labels: [LinearLabelOption]? = nil, assignee: LinearUserOption?? = nil) -> LinearIssueItem {
+  /// Copy with selected fields replaced; `nil` keeps the current value.
+  func replacing(
+    state: LinearWorkflowState? = nil,
+    priority: LinearPriorityOption? = nil,
+    dueDate: String?? = nil,
+    labels: [LinearLabelOption]? = nil,
+    assignee: LinearUserOption?? = nil
+  ) -> LinearIssueItem {
     LinearIssueItem(
-      id: id, title: title, priority: priority, priorityLabel: priorityLabel,
-      stateName: stateName, stateID: stateID, stateType: stateType, workflowStates: workflowStates,
+      id: id, title: title,
+      priority: priority?.value ?? self.priority, priorityLabel: priority?.label ?? priorityLabel,
+      stateName: state?.name ?? stateName, stateID: state?.id ?? stateID, stateType: state?.type ?? stateType,
+      workflowStates: workflowStates,
       teamID: teamID, labels: labels ?? self.labels, assignee: assignee ?? self.assignee,
-      dueDate: dueDate, updatedAt: updatedAt, projectName: projectName, branchName: branchName, url: url, body: body
+      dueDate: dueDate ?? self.dueDate, updatedAt: updatedAt, projectName: projectName, branchName: branchName,
+      url: url, body: body
     )
   }
 }

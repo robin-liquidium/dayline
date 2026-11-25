@@ -425,6 +425,141 @@ struct CalendarEventItemTests {
     #expect(query["timeMin"] != formatter.string(from: now))
   }
 
+  @Test func googleDeclinedInvitationIsHiddenOnlyOnThePrimaryCalendar() throws {
+    let primary = GoogleCalendarSource(id: "me", name: "Me", isPrimary: true, isEnabled: true)
+    let shared = GoogleCalendarSource(id: "team", name: "Team", isPrimary: false, isEnabled: true)
+    let declined = try decodeGoogleEvent(id: "declined", attendeesJSON: #"[{ "self": true, "responseStatus": "declined" }]"#)
+    let accepted = try decodeGoogleEvent(id: "accepted", attendeesJSON: #"[{ "self": true, "responseStatus": "accepted" }]"#)
+    let otherDeclined = try decodeGoogleEvent(id: "other", attendeesJSON: #"[{ "responseStatus": "declined" }]"#)
+    let accountID = UUID()
+
+    let primaryBatch = CalendarService.partition(
+      [declined, accepted, otherDeclined], accountID: accountID, calendar: primary, now: .distantPast
+    )
+    #expect(primaryBatch.events.map(\.id) == [
+      CalendarEventItem.compositeID(accountID: accountID, calendarID: "me", eventID: "accepted"),
+      CalendarEventItem.compositeID(accountID: accountID, calendarID: "me", eventID: "other")
+    ])
+    let declinedKey = try #require(declined.occurrenceKey)
+    #expect(declinedKey.hasPrefix("declined@google.com|"))
+    #expect(primaryBatch.declinedKeys == [declinedKey])
+
+    // On a shared calendar `self` is that calendar's owner, not the Dayline user.
+    let sharedBatch = CalendarService.partition([declined], accountID: UUID(), calendar: shared, now: .distantPast)
+    #expect(sharedBatch.events.count == 1)
+    #expect(sharedBatch.declinedKeys.isEmpty)
+  }
+
+  @MainActor @Test func declinedOccurrenceIsHiddenOnlyForTheDecliningAccount() throws {
+    let account = UUID()
+    let otherAccount = UUID()
+    let start = Date(timeIntervalSince1970: 1_000)
+    let teamCopy = event(id: "team-copy", startDate: start, endDate: start + 1_800, deduplicationKey: "uid|1000.0")
+    let otherMeeting = event(id: "other", startDate: start, endDate: start + 1_800, deduplicationKey: "uid2|1000.0")
+    let otherAccountCopy = event(
+      id: "other-account-copy", startDate: start, endDate: start + 1_800, deduplicationKey: "uid|1000.0"
+    )
+    let result = StatusStore.assembleCalendarAgenda(
+      sourceBatches: [
+        CalendarAgendaSourceBatch(
+          provider: .google, events: [], warning: nil, declinedKeys: ["uid|1000.0"], accountID: account
+        ),
+        CalendarAgendaSourceBatch(provider: .google, events: [teamCopy, otherMeeting], warning: nil, accountID: account),
+        CalendarAgendaSourceBatch(provider: .google, events: [otherAccountCopy], warning: nil, accountID: otherAccount)
+      ],
+      todayStart: .distantPast,
+      tomorrowStart: Date(timeIntervalSince1970: 50_000),
+      dayAfterTomorrow: Date(timeIntervalSince1970: 100_000)
+    )
+
+    #expect(Set(result.googleSourceEvents.map(\.id)) == ["other", "other-account-copy"])
+  }
+
+  @MainActor @Test func declinesOnlyPrimaryLookupHidesSharedCopiesWithoutCountingAsLoaded() throws {
+    let account = UUID()
+    let start = Date(timeIntervalSince1970: 1_000)
+    let teamCopy = event(id: "team-copy", startDate: start, endDate: start + 1_800, deduplicationKey: "uid|1000.0")
+    let bounds = (
+      todayStart: Date.distantPast,
+      tomorrowStart: Date(timeIntervalSince1970: 50_000),
+      dayAfterTomorrow: Date(timeIntervalSince1970: 100_000)
+    )
+    let primaryLookup = CalendarAgendaSourceBatch(
+      provider: .google, events: [], warning: nil, declinedKeys: ["uid|1000.0"], accountID: account, declinesOnly: true
+    )
+
+    let hidden = StatusStore.assembleCalendarAgenda(
+      sourceBatches: [
+        primaryLookup,
+        CalendarAgendaSourceBatch(provider: .google, events: [teamCopy], warning: nil, accountID: account)
+      ],
+      todayStart: bounds.todayStart, tomorrowStart: bounds.tomorrowStart, dayAfterTomorrow: bounds.dayAfterTomorrow
+    )
+    #expect(hidden.googleSourceEvents.isEmpty)
+    #expect(hidden.shouldReplaceGoogleEvents)
+
+    // When every visible calendar failed, the RSVP lookup alone must not wipe cached events.
+    let failed = StatusStore.assembleCalendarAgenda(
+      sourceBatches: [
+        primaryLookup,
+        CalendarAgendaSourceBatch(provider: .google, events: [], warning: "Team: Offline", accountID: account)
+      ],
+      todayStart: bounds.todayStart, tomorrowStart: bounds.tomorrowStart, dayAfterTomorrow: bounds.dayAfterTomorrow
+    )
+    #expect(!failed.shouldReplaceGoogleEvents)
+  }
+
+  @MainActor @Test func retainedEventsDropOnlyTheDecliningAccountsCopies() {
+    let account = UUID()
+    let otherAccount = UUID()
+    let start = Date(timeIntervalSince1970: 1_000)
+    let declinedCopy = event(
+      id: "declined", startDate: start, endDate: start + 1_800, deduplicationKey: "uid|1000.0",
+      sourceIDs: [CalendarEventItem.sourceID(accountID: account, calendarID: "team")]
+    )
+    let otherAccountCopy = event(
+      id: "kept", startDate: start, endDate: start + 1_800, deduplicationKey: "uid|1000.0",
+      sourceIDs: [CalendarEventItem.sourceID(accountID: otherAccount, calendarID: "primary")]
+    )
+
+    let retained = StatusStore.removingDeclined(
+      [declinedCopy, otherAccountCopy],
+      declinedKeysByAccount: [account: ["uid|1000.0"]]
+    )
+    #expect(retained.map(\.id) == ["kept"])
+  }
+
+  @MainActor @Test func onlyLoadedPrimaryCalendarsMakeDeclinesAuthoritative() {
+    let loaded = UUID()
+    let failed = UUID()
+    let result = StatusStore.assembleCalendarAgenda(
+      sourceBatches: [
+        CalendarAgendaSourceBatch(provider: .google, events: [], warning: nil, accountID: loaded, isPrimaryLookup: true),
+        CalendarAgendaSourceBatch(provider: .google, events: [], warning: "Primary: Offline", accountID: failed),
+        CalendarAgendaSourceBatch(provider: .google, events: [], warning: nil, accountID: failed)
+      ],
+      todayStart: .distantPast,
+      tomorrowStart: Date(timeIntervalSince1970: 50_000),
+      dayAfterTomorrow: Date(timeIntervalSince1970: 100_000)
+    )
+
+    // A failed primary lookup must not replace the account's earlier confirmed declines.
+    #expect(result.declineLookupAccountIDs == [loaded])
+  }
+
+  @Test func googleEventsRequestAsksOnlyForTheSignedInAttendee() throws {
+    let url = try #require(CalendarService.eventsRequestURL(
+      calendarID: "work@example.com",
+      from: Date(timeIntervalSince1970: 0),
+      to: Date(timeIntervalSince1970: 86_400)
+    ))
+    let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+    let query = Dictionary(uniqueKeysWithValues: items.compactMap { item in item.value.map { (item.name, $0) } })
+
+    #expect(query["maxAttendees"] == "1")
+    #expect(query["fields"]?.contains("attendees(self,responseStatus)") == true)
+  }
+
   @Test func googleConferenceMoreEntryIsNotAJoinLink() throws {
     let event = try decodeGoogleEvent(conferenceEntryType: "more")
     let item = try #require(event.displayItem(
@@ -540,6 +675,22 @@ struct CalendarEventItemTests {
       sourceCalendarNames: source.map { [$0] } ?? [],
       sourceIDs: sourceIDs,
       deduplicationKey: deduplicationKey
+    )
+  }
+
+  private func decodeGoogleEvent(id: String = "invite", attendeesJSON: String) throws -> GoogleCalendarEvent {
+    try JSONDecoder().decode(
+      GoogleCalendarEvent.self,
+      from: Data("""
+      {
+        "id": "\(id)",
+        "iCalUID": "\(id)@google.com",
+        "summary": "Invite",
+        "start": { "dateTime": "2026-08-10T10:00:00Z" },
+        "end": { "dateTime": "2026-08-10T11:00:00Z" },
+        "attendees": \(attendeesJSON)
+      }
+      """.utf8)
     )
   }
 

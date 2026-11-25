@@ -74,7 +74,7 @@ final class GlobalHotkeyService {
   /// Registers one hotkey and preserves the previous working registration on failure.
   @discardableResult
   func update(shortcut: GlobalShortcut, for hotkey: Hotkey) -> OSStatus {
-    if registrations[hotkey]?.shortcut == shortcut {
+    if let existing = registrations[hotkey], existing.shortcut == shortcut {
       return noErr
     }
 

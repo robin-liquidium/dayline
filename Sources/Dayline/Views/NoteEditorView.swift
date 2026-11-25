@@ -9,7 +9,7 @@ enum NoteEditorAppearance {
 
 /// Stock SwiftUI window for creating notes and editing note text locally.
 struct NoteEditorView: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
   @Environment(\.dismiss) private var dismiss
 
   /// Window request that seeds the editor.

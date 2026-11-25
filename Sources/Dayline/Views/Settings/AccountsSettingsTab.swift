@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Connected Google, Linear, and GitHub accounts.
 struct AccountsSettingsTab: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
 
   var body: some View {
     Form {
@@ -201,7 +201,7 @@ struct AccountsSettingsTab: View {
 
 /// One linked Google account with an inline calendar picker.
 private struct GoogleAccountSettingsRow: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
   @State private var isExpanded = false
 
   let status: GoogleAccountStatus
@@ -316,7 +316,7 @@ private struct GoogleAccountSettingsRow: View {
 
 /// Connected Linear workspace with inline team selection.
 private struct LinearAccountSettingsRow: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
   @State private var isExpanded = false
   let status: ConnectionStatus
 
@@ -402,7 +402,7 @@ private struct LinearAccountSettingsRow: View {
 
 /// Connected GitHub account with inline repository selection.
 private struct GitHubAccountSettingsRow: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
   @State private var isExpanded = false
   let status: ConnectionStatus
 

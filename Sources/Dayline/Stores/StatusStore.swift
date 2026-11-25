@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Observation
 
 /// Connection state that one asynchronous Reminders load was launched against.
 private struct AppleRemindersLoadContext {
@@ -9,29 +10,31 @@ private struct AppleRemindersLoadContext {
 
 /// Main actor store that owns refreshed calendar and Linear state for the UI.
 @MainActor
-final class StatusStore: ObservableObject {
+@Observable
+final class StatusStore {
   /// Upcoming timed calendar events for today.
-  @Published private(set) var events: [CalendarEventItem] = [] {
-    didSet { updateMeetingAlert() }
+  private(set) var events: [CalendarEventItem] = [] {
+    // Re-evaluates the countdown, highlight, and meeting alert against fresh events.
+    didSet { advanceClock() }
   }
 
   /// Timed calendar events for tomorrow.
-  @Published private(set) var tomorrowEvents: [CalendarEventItem] = []
+  private(set) var tomorrowEvents: [CalendarEventItem] = []
 
   /// All-day calendar events overlapping today.
-  @Published private(set) var allDayEvents: [CalendarEventItem] = []
+  private(set) var allDayEvents: [CalendarEventItem] = []
 
   /// All-day calendar events overlapping tomorrow.
-  @Published private(set) var tomorrowAllDayEvents: [CalendarEventItem] = []
+  private(set) var tomorrowAllDayEvents: [CalendarEventItem] = []
 
   /// Highest priority active Linear issues assigned to the user.
-  @Published private(set) var issues: [LinearIssueItem] = []
+  private(set) var issues: [LinearIssueItem] = []
 
   /// Local notes persisted on this Mac.
-  @Published private(set) var notes: [LocalNoteItem] = []
+  private(set) var notes: [LocalNoteItem] = []
 
   /// Account- or calendar-scoped warnings that do not hide successful events.
-  @Published private(set) var calendarWarnings: [String] = []
+  private(set) var calendarWarnings: [String] = []
 
   /// Last successful raw per-calendar events used for immediate local recomputation.
   private var googleSourceEvents: [CalendarEventItem] = []
@@ -40,137 +43,142 @@ final class StatusStore: ObservableObject {
   private var appleSourceEvents: [CalendarEventItem] = []
 
   /// Linear loading error shown as a compact status row.
-  @Published private(set) var linearError: String?
+  private(set) var linearError: String?
 
   /// Linear workspace identity and locally selected teams.
-  @Published private(set) var linearAccount = LinearAccount(workspaceName: "", userLabel: "", teams: [])
+  private(set) var linearAccount = LinearAccount(workspaceName: "", userLabel: "", teams: [])
 
   /// Team discovery error shown in the expandable Linear account row.
-  @Published private(set) var linearTeamError: String?
+  private(set) var linearTeamError: String?
 
   /// Local notes persistence error shown as a compact status row.
-  @Published private(set) var notesError: String?
+  private(set) var notesError: String?
 
   /// Open GitHub issues assigned to the user when GitHub is the issue source.
-  @Published private(set) var githubIssues: [GitHubIssueItem] = []
+  private(set) var githubIssues: [GitHubIssueItem] = []
 
   /// GitHub loading error shown as a compact status row.
-  @Published private(set) var githubError: String?
+  private(set) var githubError: String?
 
   /// Incomplete reminders from the selected Apple Reminders lists.
-  @Published private(set) var appleReminders: [AppleReminderItem] = []
+  private(set) var appleReminders: [AppleReminderItem] = []
 
   /// Apple Reminders loading or mutation error.
-  @Published private(set) var appleRemindersError: String?
+  private(set) var appleRemindersError: String?
 
   /// Repository discovery error shown in the expandable GitHub account row.
-  @Published private(set) var githubRepositoryError: String?
+  private(set) var githubRepositoryError: String?
 
   /// Accessible GitHub repositories and their local issue-list selections.
-  @Published private(set) var githubAccount = GitHubAccount(repositories: [])
+  private(set) var githubAccount = GitHubAccount(repositories: [])
 
   /// Issues tab currently selected in the menu.
-  @Published var issueSource: IssueSource {
+  var issueSource: IssueSource {
     didSet {
       UserDefaults.standard.set(issueSource.rawValue, forKey: Self.issueSourceKey)
     }
   }
 
   /// Providers the user dismissed from the menu's setup section.
-  @Published private(set) var dismissedProviders: Set<AuthProvider> {
+  private(set) var dismissedProviders: Set<AuthProvider> {
     didSet {
       UserDefaults.standard.set(dismissedProviders.map(\.rawValue).sorted(), forKey: Self.dismissedProvidersKey)
     }
   }
 
   /// Connection state for Google and Linear accounts.
-  @Published private(set) var connectionStatuses = ConnectionStatus.checkingAll
+  private(set) var connectionStatuses = ConnectionStatus.checkingAll
 
   /// Confirmation code shown while GitHub device authorization is pending.
-  @Published private(set) var githubDeviceUserCode: String?
+  private(set) var githubDeviceUserCode: String?
 
   /// Persisted Google accounts with their current runtime connection state.
-  @Published private(set) var googleAccounts: [GoogleAccountStatus] = []
+  private(set) var googleAccounts: [GoogleAccountStatus] = []
 
   /// Whether a Google browser authorization is currently in progress.
-  @Published private(set) var isGoogleAuthorizationInProgress = false
+  private(set) var isGoogleAuthorizationInProgress = false
 
   /// Compact error from the most recent add/reconnect attempt.
-  @Published private(set) var googleAuthorizationError: String?
+  private(set) var googleAuthorizationError: String?
 
   /// Whether a refresh is currently running.
-  @Published private(set) var isRefreshing = false
+  private(set) var isRefreshing = false
 
   /// Changes whenever a provider disconnects so in-flight results can be discarded.
-  private var connectionRevisions: [AuthProvider: Int] = [:]
+  @ObservationIgnored private var connectionRevisions: [AuthProvider: Int] = [:]
 
   /// Time when the last refresh completed successfully or partially.
-  @Published private(set) var lastUpdatedAt: Date?
+  private(set) var lastUpdatedAt: Date?
 
-  /// Current clock tick used for menu bar countdown text.
-  @Published private var menuBarClockDate = Date() {
+  /// Clock tick published to views. It only advances when clock-derived UI
+  /// (menu bar countdown or the "happening now" highlight) would change, so the
+  /// 15-second timer does not re-render the menu or label on every tick.
+  private var menuBarClockDate = Date()
+
+  /// Latest clock tick, used for non-visual decisions such as the meeting alert.
+  @ObservationIgnored private var currentClockDate = Date() {
     didSet { updateMeetingAlert() }
   }
 
   /// Identifier for the Linear issue currently under the pointer.
-  @Published private(set) var hoveredIssueTarget: IssueActionTarget?
+  private(set) var hoveredIssueTarget: IssueActionTarget?
 
   /// Identifier for the local note currently under the pointer.
-  @Published private(set) var hoveredNoteID: LocalNoteItem.ID?
+  private(set) var hoveredNoteID: LocalNoteItem.ID?
 
   /// Identifier for the calendar event currently under the pointer.
-  @Published private(set) var hoveredEventID: CalendarEventItem.ID?
+  private(set) var hoveredEventID: CalendarEventItem.ID?
 
   /// Identifier for the menu chrome control currently under the pointer.
-  @Published private(set) var hoveredControlID: MenuControlID?
+  private(set) var hoveredControlID: MenuControlID?
 
   /// Whether tomorrow's calendar events are visible.
-  @Published private(set) var isTomorrowExpanded = false
+  private(set) var isTomorrowExpanded = false
 
   /// Identifier for the Linear issue whose URL was most recently copied.
-  @Published private(set) var copiedIssueTarget: IssueActionTarget?
+  private(set) var copiedIssueTarget: IssueActionTarget?
 
   /// Identifier for the calendar event whose link was most recently copied.
-  @Published private(set) var copiedEventID: CalendarEventItem.ID?
+  private(set) var copiedEventID: CalendarEventItem.ID?
 
   /// Identifier for the Linear issue whose status picker is open.
-  @Published private(set) var statusPickerTarget: IssueActionTarget?
+  private(set) var statusPickerTarget: IssueActionTarget?
 
   /// Issue whose label picker is open.
-  @Published private(set) var labelPickerTarget: IssueActionTarget?
+  private(set) var labelPickerTarget: IssueActionTarget?
 
   /// Issue whose assignee picker is open.
-  @Published private(set) var assigneePickerTarget: IssueActionTarget?
+  private(set) var assigneePickerTarget: IssueActionTarget?
 
   /// Provider-qualified item whose priority picker is open.
-  @Published private(set) var priorityPickerTarget: IssueActionTarget?
+  private(set) var priorityPickerTarget: IssueActionTarget?
 
   /// Provider-qualified item whose due date picker is open.
-  @Published private(set) var dueDatePickerTarget: IssueActionTarget?
+  private(set) var dueDatePickerTarget: IssueActionTarget?
 
   /// Event or issue currently shown in a detail preview, if any.
-  @Published private(set) var previewTarget: PreviewTarget?
+  private(set) var previewTarget: PreviewTarget?
 
   /// Identifier for the Linear issue currently being updated.
-  @Published private(set) var updatingIssueTarget: IssueActionTarget?
+  private(set) var updatingIssueTarget: IssueActionTarget?
 
   /// Provider-qualified item whose priority is currently being updated.
-  @Published private(set) var updatingPriorityTarget: IssueActionTarget?
+  private(set) var updatingPriorityTarget: IssueActionTarget?
 
   /// Provider-qualified item whose due date is currently being updated.
-  @Published private(set) var updatingDueDateTarget: IssueActionTarget?
+  private(set) var updatingDueDateTarget: IssueActionTarget?
 
   /// Number of sorted Linear issues currently shown in the menu.
-  @Published private(set) var visibleIssueCount = initialVisibleIssueCount
+  private(set) var visibleIssueCount = initialVisibleIssueCount
 
   /// Number of sorted Apple Reminders currently shown in the menu.
-  @Published private(set) var visibleAppleReminderCount = initialVisibleIssueCount
+  private(set) var visibleAppleReminderCount = initialVisibleIssueCount
 
   /// Number of sorted local notes currently shown in the menu.
-  @Published private(set) var visibleNoteCount: Int
+  private(set) var visibleNoteCount: Int
 
   /// Keyboard character used to copy the hovered Linear issue link.
-  @Published private(set) var copyIssueHotkey: String {
+  private(set) var copyIssueHotkey: String {
     didSet {
       let normalizedHotkey = Self.normalizedHotkey(copyIssueHotkey, defaultValue: "c")
       guard copyIssueHotkey == normalizedHotkey else {
@@ -182,7 +190,7 @@ final class StatusStore: ObservableObject {
   }
 
   /// Keyboard character used to open the hovered Linear issue status picker.
-  @Published private(set) var statusPickerHotkey: String {
+  private(set) var statusPickerHotkey: String {
     didSet {
       let normalizedHotkey = Self.normalizedHotkey(statusPickerHotkey, defaultValue: "s")
       guard statusPickerHotkey == normalizedHotkey else {
@@ -194,7 +202,7 @@ final class StatusStore: ObservableObject {
   }
 
   /// Keyboard character used to open the hovered Linear issue priority picker.
-  @Published private(set) var priorityPickerHotkey: String {
+  private(set) var priorityPickerHotkey: String {
     didSet {
       let normalizedHotkey = Self.normalizedHotkey(priorityPickerHotkey, defaultValue: "p")
       guard priorityPickerHotkey == normalizedHotkey else {
@@ -206,7 +214,7 @@ final class StatusStore: ObservableObject {
   }
 
   /// Keyboard character used to open the hovered Linear issue due date picker.
-  @Published private(set) var dueDatePickerHotkey: String {
+  private(set) var dueDatePickerHotkey: String {
     didSet {
       let normalizedHotkey = Self.normalizedHotkey(dueDatePickerHotkey, defaultValue: "d")
       guard dueDatePickerHotkey == normalizedHotkey else {
@@ -218,7 +226,7 @@ final class StatusStore: ObservableObject {
   }
 
   /// Keyboard character used to open the hovered issue label picker.
-  @Published private(set) var labelPickerHotkey: String {
+  private(set) var labelPickerHotkey: String {
     didSet {
       let normalized = Self.normalizedHotkey(labelPickerHotkey, defaultValue: "l")
       guard labelPickerHotkey == normalized else { labelPickerHotkey = normalized; return }
@@ -227,7 +235,7 @@ final class StatusStore: ObservableObject {
   }
 
   /// Keyboard character used to open the hovered issue assignee picker.
-  @Published private(set) var assigneePickerHotkey: String {
+  private(set) var assigneePickerHotkey: String {
     didSet {
       let normalized = Self.normalizedHotkey(assigneePickerHotkey, defaultValue: "a")
       guard assigneePickerHotkey == normalized else { assigneePickerHotkey = normalized; return }
@@ -236,14 +244,14 @@ final class StatusStore: ObservableObject {
   }
 
   /// Whether calendar event rows show their source calendar names.
-  @Published var showsCalendarSourceNames: Bool {
+  var showsCalendarSourceNames: Bool {
     didSet {
       UserDefaults.standard.set(showsCalendarSourceNames, forKey: Self.showsCalendarSourceNamesKey)
     }
   }
 
   /// Whether the calendar section appears in the menu bar popover.
-  @Published var showsCalendarSection: Bool {
+  var showsCalendarSection: Bool {
     didSet {
       UserDefaults.standard.set(showsCalendarSection, forKey: Self.showsCalendarSectionKey)
       updateMeetingAlert()
@@ -251,75 +259,75 @@ final class StatusStore: ObservableObject {
   }
 
   /// Whether all-day calendar events appear in the menu agenda.
-  @Published var showsAllDayEvents: Bool {
+  var showsAllDayEvents: Bool {
     didSet {
       UserDefaults.standard.set(showsAllDayEvents, forKey: Self.showsAllDayEventsKey)
     }
   }
 
   /// Whether the Linear section appears in the menu bar popover.
-  @Published var showsLinearSection: Bool {
+  var showsLinearSection: Bool {
     didSet {
       UserDefaults.standard.set(showsLinearSection, forKey: Self.showsLinearSectionKey)
     }
   }
 
   /// Whether the notes section appears in the menu bar popover.
-  @Published var showsNotesSection: Bool {
+  var showsNotesSection: Bool {
     didSet {
       UserDefaults.standard.set(showsNotesSection, forKey: Self.showsNotesSectionKey)
     }
   }
 
   /// Whether note editor windows float above other windows.
-  @Published var notesKeepOnTop: Bool {
+  var notesKeepOnTop: Bool {
     didSet {
       UserDefaults.standard.set(notesKeepOnTop, forKey: Self.notesKeepOnTopKey)
     }
   }
 
   /// Whether issue creators stay open and reset after a successful create.
-  @Published var issueCreateMoreEnabled: Bool {
+  var issueCreateMoreEnabled: Bool {
     didSet {
       UserDefaults.standard.set(issueCreateMoreEnabled, forKey: Self.issueCreateMoreEnabledKey)
     }
   }
 
   /// Device calendars discovered through EventKit with their selections.
-  @Published private(set) var appleCalendars: [AppleCalendarSource] = []
+  private(set) var appleCalendars: [AppleCalendarSource] = []
 
   /// Whether Dayline holds calendar access and includes device calendars.
-  @Published private(set) var appleCalendarConnected = false
+  private(set) var appleCalendarConnected = false
 
   /// Device calendar error shown in Settings, if any.
-  @Published private(set) var appleCalendarError: String?
+  private(set) var appleCalendarError: String?
 
   /// Apple Reminders lists discovered through EventKit with their menu selections.
-  @Published private(set) var appleReminderLists: [AppleReminderList] = []
+  private(set) var appleReminderLists: [AppleReminderList] = []
 
   /// Whether Dayline is opted in and currently authorized to access Reminders.
-  @Published private(set) var appleRemindersConnected = false
+  private(set) var appleRemindersConnected = false
 
   /// Whether a Reminders authorization request is currently awaiting the system response.
-  @Published private(set) var isAppleRemindersAuthorizationInProgress = false
+  private(set) var isAppleRemindersAuthorizationInProgress = false
 
-  @Published var issueClickAction: IssueClickAction {
+  var issueClickAction: IssueClickAction {
     didSet { UserDefaults.standard.set(issueClickAction.rawValue, forKey: Self.issueClickActionKey) }
   }
 
-  @Published var issueClickModifier: IssueClickModifier {
+  var issueClickModifier: IssueClickModifier {
     didSet { UserDefaults.standard.set(issueClickModifier.rawValue, forKey: Self.issueClickModifierKey) }
   }
 
   /// Optional metadata fields shown on issue rows in the menu.
-  @Published var issueRowFields: IssueRowFields {
+  var issueRowFields: IssueRowFields {
     didSet {
       UserDefaults.standard.set(issueRowFields.rawValue, forKey: Self.issueRowFieldsKey)
     }
   }
 
   /// Whether a full-screen alert appears when a meeting starts.
-  @Published var meetingAlertEnabled: Bool {
+  var meetingAlertEnabled: Bool {
     didSet {
       UserDefaults.standard.set(meetingAlertEnabled, forKey: Self.meetingAlertEnabledKey)
       updateMeetingAlert()
@@ -327,7 +335,7 @@ final class StatusStore: ObservableObject {
   }
 
   /// Whether full-screen alerts are limited to events with a real meeting link.
-  @Published var meetingAlertRequiresMeetingLink: Bool {
+  var meetingAlertRequiresMeetingLink: Bool {
     didSet {
       UserDefaults.standard.set(
         meetingAlertRequiresMeetingLink,
@@ -338,7 +346,7 @@ final class StatusStore: ObservableObject {
   }
 
   /// Minutes before a meeting starts when the full-screen alert may appear.
-  @Published var meetingAlertLeadMinutes: Int {
+  var meetingAlertLeadMinutes: Int {
     didSet {
       UserDefaults.standard.set(meetingAlertLeadMinutes, forKey: Self.meetingAlertLeadMinutesKey)
       updateMeetingAlert()
@@ -346,7 +354,7 @@ final class StatusStore: ObservableObject {
   }
 
   /// Default number of minutes used by the full-screen alert's Snooze action.
-  @Published var meetingAlertSnoozeMinutes: Int {
+  var meetingAlertSnoozeMinutes: Int {
     didSet {
       let clampedValue = Self.clampedMeetingAlertSnoozeMinutes(meetingAlertSnoozeMinutes)
       guard meetingAlertSnoozeMinutes == clampedValue else {
@@ -358,23 +366,23 @@ final class StatusStore: ObservableObject {
   }
 
   /// Event currently presented by the full-screen meeting alert, if any.
-  @Published private(set) var meetingAlertEvent: CalendarEventItem?
+  private(set) var meetingAlertEvent: CalendarEventItem?
 
   /// Session-only set of events whose full-screen alert was dismissed.
-  private var dismissedMeetingAlertEventIDs = Set<String>()
+  @ObservationIgnored private var dismissedMeetingAlertEventIDs = Set<String>()
 
   /// Session-only snooze deadline for each alerted meeting occurrence.
-  private var snoozedMeetingAlertUntilByEventID: [String: Date] = [:]
+  @ObservationIgnored private var snoozedMeetingAlertUntilByEventID: [String: Date] = [:]
 
   /// What the copy shortcut places on the clipboard.
-  @Published var linearCopyStyle: LinearCopyStyle {
+  var linearCopyStyle: LinearCopyStyle {
     didSet {
       UserDefaults.standard.set(linearCopyStyle.rawValue, forKey: Self.linearCopyStyleKey)
     }
   }
 
   /// User-selected ordering for Linear issues.
-  @Published var linearIssueOrder: LinearIssueOrder {
+  var linearIssueOrder: LinearIssueOrder {
     didSet {
       UserDefaults.standard.set(linearIssueOrder.rawValue, forKey: Self.linearIssueOrderKey)
       applyLinearIssueOrder()
@@ -382,20 +390,20 @@ final class StatusStore: ObservableObject {
   }
 
   /// Which Linear issues appear in the menu.
-  @Published private(set) var linearIssueFilter: IssueAssigneeFilter
+  private(set) var linearIssueFilter: IssueAssigneeFilter
 
   /// Which GitHub issues appear in the menu.
-  @Published private(set) var githubIssueFilter: IssueAssigneeFilter
+  private(set) var githubIssueFilter: IssueAssigneeFilter
 
   /// Repository preselected when opening the GitHub issue creator.
-  @Published var githubIssueCreateDefaultRepo: String {
+  var githubIssueCreateDefaultRepo: String {
     didSet {
       UserDefaults.standard.set(githubIssueCreateDefaultRepo, forKey: Self.githubIssueCreateDefaultRepoKey)
     }
   }
 
   /// Reminders list preselected when opening the Apple Reminder creator.
-  @Published var appleReminderCreateDefaultListID: String {
+  var appleReminderCreateDefaultListID: String {
     didSet {
       UserDefaults.standard.set(
         appleReminderCreateDefaultListID,
@@ -405,7 +413,7 @@ final class StatusStore: ObservableObject {
   }
 
   /// Priority preselected when opening the Apple Reminder creator.
-  @Published var appleReminderCreateDefaultPriority: AppleReminderPriority {
+  var appleReminderCreateDefaultPriority: AppleReminderPriority {
     didSet {
       UserDefaults.standard.set(
         appleReminderCreateDefaultPriority.rawValue,
@@ -415,42 +423,42 @@ final class StatusStore: ObservableObject {
   }
 
   /// Team preselected when opening the Linear issue creator.
-  @Published var linearIssueCreateDefaultTeamID: String {
+  var linearIssueCreateDefaultTeamID: String {
     didSet {
       UserDefaults.standard.set(linearIssueCreateDefaultTeamID, forKey: Self.linearIssueCreateDefaultTeamIDKey)
     }
   }
 
   /// Workflow state preselected when opening the Linear issue creator.
-  @Published var linearIssueCreateDefaultStateID: String {
+  var linearIssueCreateDefaultStateID: String {
     didSet {
       UserDefaults.standard.set(linearIssueCreateDefaultStateID, forKey: Self.linearIssueCreateDefaultStateIDKey)
     }
   }
 
   /// Priority preselected when opening the Linear issue creator.
-  @Published var linearIssueCreateDefaultPriority: Int {
+  var linearIssueCreateDefaultPriority: Int {
     didSet {
       UserDefaults.standard.set(linearIssueCreateDefaultPriority, forKey: Self.linearIssueCreateDefaultPriorityKey)
     }
   }
 
   /// Project preselected when opening the Linear issue creator.
-  @Published var linearIssueCreateDefaultProjectID: String {
+  var linearIssueCreateDefaultProjectID: String {
     didSet {
       UserDefaults.standard.set(linearIssueCreateDefaultProjectID, forKey: Self.linearIssueCreateDefaultProjectIDKey)
     }
   }
 
   /// Label preselected when opening the Linear issue creator.
-  @Published var linearIssueCreateDefaultLabelID: String {
+  var linearIssueCreateDefaultLabelID: String {
     didSet {
       UserDefaults.standard.set(linearIssueCreateDefaultLabelID, forKey: Self.linearIssueCreateDefaultLabelIDKey)
     }
   }
 
   /// User-selected ordering for local notes.
-  @Published var localNoteSortOrder: LocalNoteSortOrder {
+  var localNoteSortOrder: LocalNoteSortOrder {
     didSet {
       UserDefaults.standard.set(localNoteSortOrder.rawValue, forKey: Self.localNoteSortOrderKey)
       applyLocalNoteSortOrder()
@@ -458,7 +466,7 @@ final class StatusStore: ObservableObject {
   }
 
   /// User-selected number of notes shown before expansion.
-  @Published var defaultVisibleNoteCount: Int {
+  var defaultVisibleNoteCount: Int {
     didSet {
       let clampedCount = Self.clampedDefaultVisibleNoteCount(defaultVisibleNoteCount)
       guard defaultVisibleNoteCount == clampedCount else {
@@ -472,7 +480,7 @@ final class StatusStore: ObservableObject {
   }
 
   /// Refresh cadence in minutes, persisted in user defaults.
-  @Published var refreshIntervalMinutes: Int {
+  var refreshIntervalMinutes: Int {
     didSet {
       guard refreshIntervalMinutes >= 1 else {
         refreshIntervalMinutes = 1
@@ -484,7 +492,7 @@ final class StatusStore: ObservableObject {
   }
 
   /// Minutes before a meeting starts when the menu bar switches from icon to title.
-  @Published var menuBarEventLeadTimeMinutes: Int {
+  var menuBarEventLeadTimeMinutes: Int {
     didSet {
       let clampedValue = Self.clampedMenuBarLeadTime(menuBarEventLeadTimeMinutes)
       guard menuBarEventLeadTimeMinutes == clampedValue else {
@@ -496,46 +504,46 @@ final class StatusStore: ObservableObject {
   }
 
   /// Whether macOS launches Dayline when the user logs in.
-  @Published private(set) var launchAtLoginEnabled: Bool
+  private(set) var launchAtLoginEnabled: Bool
 
   /// Compact error text from the last launch-at-login update attempt.
-  @Published private(set) var launchAtLoginError: String?
+  private(set) var launchAtLoginError: String?
 
   /// Registration error for the most recently rejected global shortcut.
-  @Published private(set) var globalShortcutError: String?
+  private(set) var globalShortcutError: String?
 
   /// Changes when an app-level flow needs to present the Settings window.
-  @Published private(set) var settingsPresentationRequestID = UUID()
+  private(set) var settingsPresentationRequestID = UUID()
 
   /// Global shortcut that creates a new note from anywhere.
-  @Published private(set) var newNoteShortcut: GlobalShortcut
+  private(set) var newNoteShortcut: GlobalShortcut
 
   /// Global shortcut that opens the Linear issue creator from anywhere.
-  @Published private(set) var newLinearIssueShortcut: GlobalShortcut
+  private(set) var newLinearIssueShortcut: GlobalShortcut
 
   /// Global shortcut that opens Google Calendar from anywhere.
-  @Published private(set) var openGoogleCalendarShortcut: GlobalShortcut
+  private(set) var openGoogleCalendarShortcut: GlobalShortcut
 
   /// Global shortcut that opens the GitHub issue creator from anywhere.
-  @Published private(set) var newGitHubIssueShortcut: GlobalShortcut
+  private(set) var newGitHubIssueShortcut: GlobalShortcut
 
   /// Global shortcut that opens the Apple Reminder creator from anywhere.
-  @Published private(set) var newAppleReminderShortcut: GlobalShortcut
+  private(set) var newAppleReminderShortcut: GlobalShortcut
 
   /// Changes when a global hotkey needs to present a new note editor.
-  @Published private(set) var noteCreationRequestID = UUID()
+  private(set) var noteCreationRequestID = UUID()
 
   /// Changes when a global hotkey needs to present the Linear issue creator.
-  @Published private(set) var linearIssueCreationRequestID = UUID()
+  private(set) var linearIssueCreationRequestID = UUID()
 
   /// Changes when a global hotkey needs to present the GitHub issue creator.
-  @Published private(set) var githubIssueCreationRequestID = UUID()
+  private(set) var githubIssueCreationRequestID = UUID()
 
   /// Changes when the Apple Calendar event creator should be presented.
-  @Published private(set) var appleCalendarEventCreationRequestID = UUID()
+  private(set) var appleCalendarEventCreationRequestID = UUID()
 
   /// Changes when a global hotkey needs to present the Apple Reminder creator.
-  @Published private(set) var appleReminderCreationRequestID = UUID()
+  private(set) var appleReminderCreationRequestID = UUID()
 
   /// Stable system image for the menu bar item.
   var menuBarSystemImage: String {
@@ -544,12 +552,33 @@ final class StatusStore: ObservableObject {
 
   /// Optional text that replaces the menu bar icon near a meeting start.
   var menuBarEventText: String? {
-    guard isCalendarSectionVisible, let event = menuBarEvent(at: menuBarClockDate) else {
+    menuBarEventText(at: menuBarClockDate)
+  }
+
+  /// Menu bar countdown text for one clock instant.
+  private func menuBarEventText(at now: Date) -> String? {
+    guard isCalendarSectionVisible, let event = menuBarEvent(at: now) else {
       return nil
     }
 
-    let startLabel = DisplayFormatters.menuBarEventStart(event.startDate, now: menuBarClockDate)
+    let startLabel = DisplayFormatters.menuBarEventStart(event.startDate, now: now)
     return "\(event.title.compactLine(limit: 44)) • \(startLabel)"
+  }
+
+  /// Visible timed events in progress at one clock instant.
+  private func happeningEventIDs(at now: Date) -> Set<CalendarEventItem.ID> {
+    Set((events + tomorrowEvents).filter { $0.isHappening(at: now) }.map(\.id))
+  }
+
+  /// Advances the clock, publishing it to views only when visible output changes.
+  private func advanceClock(to now: Date = Date()) {
+    currentClockDate = now
+    let published = menuBarClockDate
+    if menuBarEventText(at: now) != menuBarEventText(at: published)
+      || happeningEventIDs(at: now) != happeningEventIDs(at: published)
+      || !Calendar.current.isDate(now, inSameDayAs: published) {
+      menuBarClockDate = now
+    }
   }
 
   /// VoiceOver label for the current menu bar presentation.
@@ -617,6 +646,10 @@ final class StatusStore: ObservableObject {
   static let defaultMeetingAlertSnoozeMinutes = 5
   private static let fallbackDefaultVisibleNoteCount = 3
   private static let menuBarClockRefreshSeconds: TimeInterval = 15
+  /// Calendar-only reload cadence, independent of the slower full refresh.
+  private static let calendarRefreshSeconds: TimeInterval = 2 * 60
+  /// Calendar age after which opening the menu triggers a calendar reload.
+  private static let calendarStaleAfterMenuOpen: TimeInterval = 60
   /// Post-start window during which the full-screen meeting alert may still appear.
   private static let meetingAlertPostStartGrace: TimeInterval = 10 * 60
   private static let todayEventLimit = 6
@@ -637,19 +670,48 @@ final class StatusStore: ObservableObject {
   private let launchAtLoginService: LaunchAtLoginService
   private let globalHotkeyService = GlobalHotkeyService()
   private let mockData: MockData?
-  private var googleSessions: [UUID: OAuthSession] = [:]
+  @ObservationIgnored private var googleSessions: [UUID: OAuthSession] = [:]
   private var allIssues: [LinearIssueItem] = []
   private var allAppleReminders: [AppleReminderItem] = []
   private var allNotes: [LocalNoteItem] = []
   private var optimisticGitHubIssues: [(issue: GitHubIssueItem, insertedAt: Date)] = []
-  private var refreshTimer: Timer?
-  private var menuBarClockTimer: Timer?
-  private var refreshRequested = false
-  private var isRefreshingAppleReminders = false
-  private var appleRemindersRefreshRequested = false
-  private var appleCalendarRevision = 0
-  private var appleRemindersRevision = 0
-  private var appleRemindersAuthorizationRevision = 0
+  @ObservationIgnored private var refreshTimer: Timer?
+  @ObservationIgnored private var menuBarClockTimer: Timer?
+  @ObservationIgnored private var calendarRefreshTimer: Timer?
+  @ObservationIgnored private var wakeObserver: NSObjectProtocol?
+  @ObservationIgnored private var isRefreshingCalendar = false
+  @ObservationIgnored private var appleCalendarChangeTask: Task<Void, Never>?
+  /// Start order of calendar loads; a load that started earlier never overwrites a newer one.
+  @ObservationIgnored private var calendarLoadSequence = 0
+  @ObservationIgnored private var appliedGoogleLoadSequence = 0
+  @ObservationIgnored private var appliedAppleLoadSequence = 0
+  /// Newest confirmed declines per Google account, with the load that confirmed them, so
+  /// an older load finishing later or a failed primary lookup cannot bring a declined
+  /// meeting back.
+  @ObservationIgnored private var latestGoogleDeclines: [UUID: (loadID: Int, keys: Set<String>)] = [:]
+  /// A calendar change arrived while a load was running; reload once it finishes.
+  @ObservationIgnored private var calendarRefreshPending = false
+  /// Order of local Linear edits, so a refresh that started earlier cannot undo them.
+  @ObservationIgnored private var linearEditSequence = 0
+  @ObservationIgnored private var linearEditSequenceByIssue: [LinearIssueItem.ID: Int] = [:]
+  /// Per-issue queue of status, priority, and due-date requests, sent one at a time.
+  /// Keyed by connection revision too, so a reconnected workspace never shares
+  /// a queue or snapshot with requests from the previous connection.
+  @ObservationIgnored private var linearRequestTails: [LinearEditQueueKey: Task<Void, Never>] = [:]
+  @ObservationIgnored private var pendingLinearRequestCounts: [LinearEditQueueKey: Int] = [:]
+  /// Last issue state Linear confirmed while requests for it are queued; shown
+  /// again if the final queued request fails.
+  @ObservationIgnored private var confirmedLinearIssues: [LinearEditQueueKey: LinearIssueItem] = [:]
+  /// Issues an optimistic edit removed from the list (completed or canceled), which a
+  /// failure may bring back; issues that left the list for other reasons stay gone.
+  @ObservationIgnored private var linearIssuesHiddenByEdit = Set<LinearEditQueueKey>()
+  @ObservationIgnored private var lastCalendarRefreshAt: Date?
+  @ObservationIgnored private var refreshRequested = false
+  @ObservationIgnored private var isRefreshingAppleReminders = false
+  @ObservationIgnored private var appleRemindersRefreshRequested = false
+  @ObservationIgnored private var appleCalendarRevision = 0
+  @ObservationIgnored private var appleRemindersRevision = 0
+  @ObservationIgnored private var appleRemindersAuthorizationRevision = 0
 
   /// Creates a live store and immediately starts the background refresh loop.
   init(
@@ -874,6 +936,20 @@ final class StatusStore: ObservableObject {
       }
       loadPersistedNotes()
       scheduleRefreshTimer()
+      scheduleCalendarRefreshTimer()
+      observeSystemWake()
+      appleCalendarService.setChangeHandler { [weak self] in
+        guard let self, self.appleCalendarConnected else { return }
+        // EventKit posts bursts of change notifications; reload once they settle.
+        self.appleCalendarChangeTask?.cancel()
+        self.appleCalendarChangeTask = Task {
+          try? await Task.sleep(for: .seconds(1))
+          guard !Task.isCancelled else { return }
+          // Detached from the debounce task so a later notification cannot
+          // cancel in-flight requests; overlapping changes queue a follow-up.
+          Task { await self.refreshCalendarOnly() }
+        }
+      }
       Task { await refresh() }
     }
     repairAppleReminderCreateDefaults()
@@ -891,6 +967,10 @@ final class StatusStore: ObservableObject {
   deinit {
     refreshTimer?.invalidate()
     menuBarClockTimer?.invalidate()
+    calendarRefreshTimer?.invalidate()
+    if let wakeObserver {
+      NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+    }
   }
 
   /// Refreshes connection, calendar, and Linear data.
@@ -927,6 +1007,10 @@ final class StatusStore: ObservableObject {
     let shouldLoadReminders = appleRemindersLoadContext.connected
     let shouldLoadCalendar = hasConnectedGoogleAccount || appleCalendarConnected
 
+    calendarLoadSequence += 1
+    let calendarLoadID = calendarLoadSequence
+    let linearEditMark = linearEditSequence
+    isRefreshingCalendar = shouldLoadCalendar
     async let calendarResult: CalendarAgendaLoadResult? =
       shouldLoadCalendar ? loadCalendarAgenda() : nil
     async let linearResult: Result<[LinearIssueItem], Error>? = shouldLoadLinear ? loadLinearIssues() : nil
@@ -935,53 +1019,18 @@ final class StatusStore: ObservableObject {
       ? loadAppleReminders()
       : nil
 
-    let resolvedCalendarResult = await calendarResult
-    if let calendarResult = resolvedCalendarResult {
-      var didReplaceCalendarEvents = false
-      if connectionRevisions[.google, default: 0] == googleRevision {
-        if calendarResult.shouldReplaceGoogleEvents {
-          googleSourceEvents = calendarResult.googleSourceEvents
-          didReplaceCalendarEvents = true
-        }
-        calendarWarnings = calendarResult.warnings
-        for accountID in calendarResult.reauthenticationAccountIDs {
-          updateGoogleAccountStatus(
-            accountID,
-            state: .disconnected,
-            detail: "Reconnect required."
-          )
-        }
-        if !calendarResult.reauthenticationAccountIDs.isEmpty {
-          updateGoogleAggregateStatus()
-        }
-      }
-      if appleCalendarRevision == capturedAppleCalendarRevision,
-         calendarResult.shouldReplaceAppleEvents {
-        appleSourceEvents = calendarResult.appleSourceEvents
-        didReplaceCalendarEvents = true
-      }
-      if didReplaceCalendarEvents {
-        rebuildAgendaFromCachedSources()
-      }
-    } else {
-      var didReplaceCalendarEvents = false
-      if connectionRevisions[.google, default: 0] == googleRevision {
-        googleSourceEvents = []
-        calendarWarnings = []
-        didReplaceCalendarEvents = true
-      }
-      if appleCalendarRevision == capturedAppleCalendarRevision {
-        appleSourceEvents = []
-        didReplaceCalendarEvents = true
-      }
-      if didReplaceCalendarEvents {
-        rebuildAgendaFromCachedSources()
-      }
-    }
+    applyCalendarAgendaResult(
+      await calendarResult,
+      loadID: calendarLoadID,
+      googleRevision: googleRevision,
+      appleCalendarRevision: capturedAppleCalendarRevision
+    )
+    isRefreshingCalendar = false
+    runPendingCalendarRefresh()
 
     switch await linearResult {
     case .success(let fetchedIssues)? where connectionRevisions[.linear, default: 0] == linearRevision && isConnected(.linear):
-      allIssues = fetchedIssues
+      allIssues = mergingLocalLinearEdits(into: fetchedIssues, since: linearEditMark)
       applyLinearIssueOrder()
       linearError = nil
     case .failure(let error)? where connectionRevisions[.linear, default: 0] == linearRevision && isConnected(.linear):
@@ -1028,6 +1077,122 @@ final class StatusStore: ObservableObject {
       refreshRequested = false
       await refresh()
     }
+  }
+
+  /// Applies one calendar load, ignoring sources whose connection changed meanwhile.
+  private func applyCalendarAgendaResult(
+    _ calendarResult: CalendarAgendaLoadResult?,
+    loadID: Int,
+    googleRevision: Int,
+    appleCalendarRevision capturedAppleRevision: Int
+  ) {
+    // Each provider keeps its own order: a slower load that started earlier must not
+    // resurrect cancelled events, and one provider failing must not block the other.
+    let googleIsCurrent = loadID > appliedGoogleLoadSequence
+      && connectionRevisions[.google, default: 0] == googleRevision
+    let appleIsCurrent = loadID > appliedAppleLoadSequence
+      && appleCalendarRevision == capturedAppleRevision
+    var didReplaceCalendarEvents = false
+    var didFilterRetainedEvents = false
+
+    if let calendarResult, connectionRevisions[.google, default: 0] == googleRevision {
+      for accountID in calendarResult.declineLookupAccountIDs
+      where loadID > latestGoogleDeclines[accountID]?.loadID ?? 0 {
+        latestGoogleDeclines[accountID] = (loadID, calendarResult.declinedKeysByAccount[accountID] ?? [])
+      }
+    }
+    let confirmedDeclines = latestGoogleDeclines.mapValues(\.keys)
+
+    if googleIsCurrent {
+      if let calendarResult {
+        if calendarResult.shouldReplaceGoogleEvents {
+          googleSourceEvents = Self.removingDeclined(
+            calendarResult.googleSourceEvents,
+            declinedKeysByAccount: confirmedDeclines
+          )
+          appliedGoogleLoadSequence = loadID
+          didReplaceCalendarEvents = true
+        } else {
+          // Visible calendars failed, but confirmed declines still hide cached copies.
+          let retained = Self.removingDeclined(
+            googleSourceEvents,
+            declinedKeysByAccount: confirmedDeclines
+          )
+          if retained.count != googleSourceEvents.count {
+            googleSourceEvents = retained
+            didFilterRetainedEvents = true
+          }
+        }
+        calendarWarnings = calendarResult.warnings
+        for accountID in calendarResult.reauthenticationAccountIDs {
+          updateGoogleAccountStatus(accountID, state: .disconnected, detail: "Reconnect required.")
+        }
+        if !calendarResult.reauthenticationAccountIDs.isEmpty {
+          updateGoogleAggregateStatus()
+        }
+      } else {
+        googleSourceEvents = []
+        calendarWarnings = []
+        appliedGoogleLoadSequence = loadID
+        didReplaceCalendarEvents = true
+      }
+    }
+
+    if appleIsCurrent, calendarResult?.shouldReplaceAppleEvents ?? true {
+      appleSourceEvents = calendarResult?.appleSourceEvents ?? []
+      appliedAppleLoadSequence = loadID
+      didReplaceCalendarEvents = true
+    }
+
+    if didReplaceCalendarEvents || didFilterRetainedEvents {
+      rebuildAgendaFromCachedSources()
+    }
+    // A failed load that kept the old snapshot must not make the menu skip its stale reload.
+    if didReplaceCalendarEvents {
+      lastCalendarRefreshAt = Date()
+    }
+  }
+
+
+  /// Reloads only calendar events, skipping account discovery and issue providers.
+  /// Runs on a short cadence so cancellations and declines disappear quickly.
+  func refreshCalendarOnly() async {
+    guard mockData == nil, hasConnectedGoogleAccount || appleCalendarConnected else { return }
+    guard !isRefreshingCalendar else {
+      // The running load may have read calendars before this change; reload afterwards.
+      calendarRefreshPending = true
+      return
+    }
+    isRefreshingCalendar = true
+    calendarLoadSequence += 1
+    let loadID = calendarLoadSequence
+    let googleRevision = connectionRevisions[.google, default: 0]
+    let capturedAppleRevision = appleCalendarRevision
+    let result = await loadCalendarAgenda()
+    applyCalendarAgendaResult(
+      result,
+      loadID: loadID,
+      googleRevision: googleRevision,
+      appleCalendarRevision: capturedAppleRevision
+    )
+    isRefreshingCalendar = false
+    DaylineDiagnostics.record("Calendar refresh completed events \(events.count)", category: .refresh)
+    runPendingCalendarRefresh()
+  }
+
+  /// Starts the calendar reload deferred while another load was running.
+  private func runPendingCalendarRefresh() {
+    guard calendarRefreshPending else { return }
+    calendarRefreshPending = false
+    Task { await refreshCalendarOnly() }
+  }
+
+  /// Refreshes calendar events when the menu opens and they are more than a minute old.
+  func menuDidOpen() {
+    guard let lastCalendarRefreshAt, Date().timeIntervalSince(lastCalendarRefreshAt) > Self.calendarStaleAfterMenuOpen else {
+      return
+    }
+    Task { await refreshCalendarOnly() }
   }
 
   /// Rechecks stored credentials and refreshes each Google account's calendar catalog.
@@ -1522,6 +1687,7 @@ final class StatusStore: ObservableObject {
   func setMenuBarEventLeadTime(minutes: Int) {
     menuBarEventLeadTimeMinutes = minutes
     menuBarClockDate = Date()
+    currentClockDate = menuBarClockDate
   }
 
   /// Persists a new copy hotkey selected from Settings.
@@ -2564,153 +2730,143 @@ final class StatusStore: ObservableObject {
     events + tomorrowEvents + visibleAllDayEvents + visibleTomorrowAllDayEvents
   }
 
-  /// Changes a Linear issue status and updates the visible list.
+  /// Changes a Linear issue status, showing the new state before Linear confirms it.
   func changeIssueStatus(issueID: LinearIssueItem.ID, state: LinearWorkflowState) async {
-    let target = IssueActionTarget.linear(issueID)
-    guard updatingIssueTarget == nil else {
-      return
-    }
-
-    updatingIssueTarget = target
+    guard updatingIssueTarget == nil else { return }
     statusPickerTarget = nil
-
-    if mockData != nil {
-      if let issue = allIssues.first(where: { $0.id == issueID }) {
-        replaceFetchedIssue(LinearIssueItem(
-          id: issue.id,
-          title: issue.title,
-          priority: issue.priority,
-          priorityLabel: issue.priorityLabel,
-          stateName: state.name,
-          stateID: state.id,
-          stateType: state.type,
-          workflowStates: issue.workflowStates,
-          teamID: issue.teamID,
-          labels: issue.labels,
-          assignee: issue.assignee,
-          dueDate: issue.dueDate,
-          updatedAt: issue.updatedAt,
-          projectName: issue.projectName,
-          branchName: issue.branchName,
-          url: issue.url,
-          body: issue.body
-        ))
-      }
-      DaylineDiagnostics.record("Linear issue status changed", category: .interaction)
-      updatingIssueTarget = nil
-      return
-    }
-
-    do {
-      let updatedIssue = try await linearService.updateIssueStatus(issueID: issueID, stateID: state.id)
-      replaceFetchedIssue(updatedIssue)
-      linearError = nil
-      DaylineDiagnostics.record("Linear issue status changed", category: .interaction)
-    } catch {
-      linearError = error.localizedDescription
-    }
-
-    updatingIssueTarget = nil
+    updatingIssueTarget = .linear(issueID)
+    defer { updatingIssueTarget = nil }
+    await applyOptimisticLinearChange(
+      issueID: issueID,
+      diagnostic: "Linear issue status changed",
+      optimistic: { $0.replacing(state: state) },
+      remote: { [linearService] in try await linearService.updateIssueStatus(issueID: issueID, stateID: state.id) }
+    )
   }
 
-  /// Changes a Linear issue priority and updates the visible list.
+  /// Changes a Linear issue priority, showing the new value before Linear confirms it.
   func changeIssuePriority(issueID: LinearIssueItem.ID, priority: LinearPriorityOption) async {
-    let target = IssueActionTarget.linear(issueID)
-    guard updatingPriorityTarget == nil else {
-      return
-    }
-
-    updatingPriorityTarget = target
+    guard updatingPriorityTarget == nil else { return }
     priorityPickerTarget = nil
-
-    if mockData != nil {
-      if let issue = allIssues.first(where: { $0.id == issueID }) {
-        replaceFetchedIssue(LinearIssueItem(
-          id: issue.id,
-          title: issue.title,
-          priority: priority.value,
-          priorityLabel: priority.label,
-          stateName: issue.stateName,
-          stateID: issue.stateID,
-          stateType: issue.stateType,
-          workflowStates: issue.workflowStates,
-          teamID: issue.teamID,
-          labels: issue.labels,
-          assignee: issue.assignee,
-          dueDate: issue.dueDate,
-          updatedAt: issue.updatedAt,
-          projectName: issue.projectName,
-          branchName: issue.branchName,
-          url: issue.url,
-          body: issue.body
-        ))
+    updatingPriorityTarget = .linear(issueID)
+    defer { updatingPriorityTarget = nil }
+    await applyOptimisticLinearChange(
+      issueID: issueID,
+      diagnostic: "Linear issue priority changed",
+      optimistic: { $0.replacing(priority: priority) },
+      remote: { [linearService] in
+        try await linearService.updateIssuePriority(issueID: issueID, priority: priority.value)
       }
-      DaylineDiagnostics.record("Linear issue priority changed", category: .interaction)
-      updatingPriorityTarget = nil
-      return
-    }
-
-    do {
-      let updatedIssue = try await linearService.updateIssuePriority(issueID: issueID, priority: priority.value)
-      replaceFetchedIssue(updatedIssue)
-      linearError = nil
-      DaylineDiagnostics.record("Linear issue priority changed", category: .interaction)
-    } catch {
-      linearError = error.localizedDescription
-    }
-
-    updatingPriorityTarget = nil
+    )
   }
 
-  /// Changes or clears a Linear issue due date and updates the visible list.
+  /// Changes or clears a Linear issue due date, showing it before Linear confirms it.
   func changeIssueDueDate(issueID: LinearIssueItem.ID, dueDate: Date?) async {
-    let target = IssueActionTarget.linear(issueID)
-    guard updatingDueDateTarget == nil else {
-      return
-    }
-
-    updatingDueDateTarget = target
+    guard updatingDueDateTarget == nil else { return }
     dueDatePickerTarget = nil
-
-    let formattedDueDate = dueDate.flatMap { date in
-      LinearIssueCreateDraft(dueDate: date).formattedDueDate
-    }
-
-    if mockData != nil {
-      if let issue = allIssues.first(where: { $0.id == issueID }) {
-        replaceFetchedIssue(LinearIssueItem(
-          id: issue.id,
-          title: issue.title,
-          priority: issue.priority,
-          priorityLabel: issue.priorityLabel,
-          stateName: issue.stateName,
-          stateID: issue.stateID,
-          stateType: issue.stateType,
-          workflowStates: issue.workflowStates,
-          teamID: issue.teamID,
-          labels: issue.labels,
-          assignee: issue.assignee,
-          dueDate: formattedDueDate,
-          updatedAt: issue.updatedAt,
-          projectName: issue.projectName,
-          branchName: issue.branchName,
-          url: issue.url,
-          body: issue.body
-        ))
+    updatingDueDateTarget = .linear(issueID)
+    defer { updatingDueDateTarget = nil }
+    let formattedDueDate = dueDate.flatMap { LinearIssueCreateDraft(dueDate: $0).formattedDueDate }
+    await applyOptimisticLinearChange(
+      issueID: issueID,
+      diagnostic: "Linear issue due date changed",
+      optimistic: { $0.replacing(dueDate: .some(formattedDueDate)) },
+      remote: { [linearService] in
+        try await linearService.updateIssueDueDate(issueID: issueID, dueDate: formattedDueDate)
       }
-      updatingDueDateTarget = nil
+    )
+  }
+
+  /// Applies a Linear edit locally right away, then sends it after any earlier
+  /// request for the same issue. When the last queued request finishes, the
+  /// issue shows Linear's answer, or the last confirmed state if it failed.
+  private func applyOptimisticLinearChange(
+    issueID: LinearIssueItem.ID,
+    diagnostic: String,
+    optimistic: (LinearIssueItem) -> LinearIssueItem,
+    remote: @escaping () async throws -> LinearIssueItem
+  ) async {
+    guard let previous = allIssues.first(where: { $0.id == issueID }) else { return }
+    replaceFetchedIssue(optimistic(previous))
+    guard mockData == nil else {
+      DaylineDiagnostics.record(diagnostic, category: .interaction)
       return
     }
 
-    do {
-      let updatedIssue = try await linearService.updateIssueDueDate(issueID: issueID, dueDate: formattedDueDate)
-      replaceFetchedIssue(updatedIssue)
-      linearError = nil
-    } catch {
-      linearError = error.localizedDescription
+    let linearRevision = connectionRevisions[.linear, default: 0]
+    let key = LinearEditQueueKey(revision: linearRevision, issueID: issueID)
+    if confirmedLinearIssues[key] == nil {
+      confirmedLinearIssues[key] = previous
     }
+    if !allIssues.contains(where: { $0.id == issueID }) {
+      linearIssuesHiddenByEdit.insert(key)
+    }
+    let earlierRequest = linearRequestTails[key]
+    pendingLinearRequestCounts[key, default: 0] += 1
+    let request = Task { @MainActor [weak self] in
+      await earlierRequest?.value
+      guard let self else { return }
+      let result: Result<LinearIssueItem, Error>
+      if self.connectionRevisions[.linear, default: 0] != linearRevision {
+        // The workspace changed while this edit waited; never send it to another one.
+        result = .failure(CancellationError())
+      } else {
+        do {
+          result = .success(try await remote())
+        } catch {
+          result = .failure(error)
+        }
+      }
+      self.finishLinearChange(key: key, result: result, diagnostic: diagnostic)
+    }
+    linearRequestTails[key] = request
+    await request.value
+    if linearRequestTails[key] == request {
+      linearRequestTails[key] = nil
+    }
+  }
 
-    updatingDueDateTarget = nil
+  /// Reconciles one finished Linear request with the local issue.
+  private func finishLinearChange(
+    key: LinearEditQueueKey,
+    result: Result<LinearIssueItem, Error>,
+    diagnostic: String
+  ) {
+    let remainingRequests = pendingLinearRequestCounts[key, default: 1] - 1
+    pendingLinearRequestCounts[key] = remainingRequests > 0 ? remainingRequests : nil
+    let isLastRequest = remainingRequests == 0
+    let confirmed = isLastRequest ? confirmedLinearIssues.removeValue(forKey: key) : confirmedLinearIssues[key]
+    let wasHiddenByEdit = isLastRequest
+      ? linearIssuesHiddenByEdit.remove(key) != nil
+      : linearIssuesHiddenByEdit.contains(key)
+    // Linear was disconnected meanwhile; do not resurrect its issues.
+    guard connectionRevisions[.linear, default: 0] == key.revision else { return }
+
+    switch result {
+    case .success(let updatedIssue):
+      linearError = nil
+      DaylineDiagnostics.record(diagnostic, category: .interaction)
+      // Earlier responses would briefly undo queued optimistic edits, so the
+      // issue settles only once its last queued request is done.
+      if isLastRequest {
+        replaceFetchedIssue(updatedIssue)
+      } else {
+        confirmedLinearIssues[key] = updatedIssue
+      }
+    case .failure(let error):
+      linearError = error.localizedDescription
+      guard isLastRequest, let confirmed else { return }
+      // Restore only the fields this queue edits, keeping newer labels or assignees.
+      guard let current = allIssues.first(where: { $0.id == key.issueID })
+        ?? (wasHiddenByEdit ? confirmed : nil) else { return }
+      let confirmedState = confirmed.workflowStates.first { $0.id == confirmed.stateID }
+        ?? LinearWorkflowState(id: confirmed.stateID, name: confirmed.stateName, type: confirmed.stateType, position: 0)
+      replaceFetchedIssue(current.replacing(
+        state: confirmedState,
+        priority: LinearPriorityOption(value: confirmed.priority, label: confirmed.priorityLabel),
+        dueDate: .some(confirmed.dueDate)
+      ))
+    }
   }
 
   /// Moves a Linear issue to its team's canceled workflow state.
@@ -3313,12 +3469,37 @@ final class StatusStore: ObservableObject {
     refreshTimer?.tolerance = min(TimeInterval(refreshIntervalMinutes * 6), 60)
   }
 
+  /// Schedules the short calendar-only reload loop.
+  private func scheduleCalendarRefreshTimer() {
+    calendarRefreshTimer?.invalidate()
+    calendarRefreshTimer = Timer.scheduledTimer(withTimeInterval: Self.calendarRefreshSeconds, repeats: true) { [weak self] _ in
+      Task { @MainActor in
+        await self?.refreshCalendarOnly()
+      }
+    }
+    calendarRefreshTimer?.tolerance = 15
+  }
+
+  /// Refreshes everything after the Mac wakes, since timers did not run while asleep.
+  private func observeSystemWake() {
+    wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+      forName: NSWorkspace.didWakeNotification,
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      Task { @MainActor in
+        self?.advanceClock()
+        await self?.refresh()
+      }
+    }
+  }
+
   /// Schedules a lightweight clock used only for menu bar countdown text.
   private func scheduleMenuBarClockTimer() {
     menuBarClockTimer?.invalidate()
     menuBarClockTimer = Timer.scheduledTimer(withTimeInterval: Self.menuBarClockRefreshSeconds, repeats: true) { [weak self] _ in
       Task { @MainActor in
-        self?.menuBarClockDate = Date()
+        self?.advanceClock()
       }
     }
     menuBarClockTimer?.tolerance = 2
@@ -3667,11 +3848,11 @@ final class StatusStore: ObservableObject {
       return
     }
 
-    let now = menuBarClockDate
+    let now = currentClockDate
     let lead = TimeInterval(meetingAlertLeadMinutes * 60)
     // Evaluate against the uncapped merged source pool so capped menu slices
     // cannot hide meetings still inside the alert lead window.
-    meetingAlertEvent = CalendarEventItem.mergedAgenda(googleSourceEvents + appleSourceEvents)
+    let nextAlertEvent = CalendarEventItem.mergedAgenda(googleSourceEvents + appleSourceEvents)
       .filter { event in
         let eventID = event.deduplicationKey ?? event.id
         let snoozedUntil = snoozedMeetingAlertUntilByEventID[eventID]
@@ -3685,6 +3866,9 @@ final class StatusStore: ObservableObject {
         )
       }
       .min { $0.startDate < $1.startDate }
+    if meetingAlertEvent != nextAlertEvent {
+      meetingAlertEvent = nextAlertEvent
+    }
   }
 
   /// Applies the selected Linear ordering to fetched issue candidates.
@@ -3710,6 +3894,8 @@ final class StatusStore: ObservableObject {
 
   /// Replaces or removes an updated issue, matching the active issue filter.
   private func replaceFetchedIssue(_ updatedIssue: LinearIssueItem) {
+    linearEditSequence += 1
+    linearEditSequenceByIssue[updatedIssue.id] = linearEditSequence
     allIssues.removeAll { $0.id == updatedIssue.id }
 
     if updatedIssue.stateType != "completed" && updatedIssue.stateType != "canceled" {
@@ -3717,6 +3903,22 @@ final class StatusStore: ObservableObject {
     }
 
     applyLinearIssueOrder()
+  }
+
+  /// Keeps the local copy of issues edited after a fetch started or still
+  /// waiting on Linear, since the fetch may predate the edit.
+  private func mergingLocalLinearEdits(
+    into fetchedIssues: [LinearIssueItem],
+    since mark: Int
+  ) -> [LinearIssueItem] {
+    linearEditSequenceByIssue = linearEditSequenceByIssue.filter { $0.value > mark }
+    // Requests still in flight may be answered after this fetch read old values.
+    let currentRevision = connectionRevisions[.linear, default: 0]
+    let pendingIDs = pendingLinearRequestCounts.keys.filter { $0.revision == currentRevision }.map(\.issueID)
+    let editedIDs = Set(linearEditSequenceByIssue.keys).union(pendingIDs)
+    guard !editedIDs.isEmpty else { return fetchedIssues }
+    return fetchedIssues.filter { !editedIDs.contains($0.id) }
+      + allIssues.filter { editedIDs.contains($0.id) }
   }
 
   private func replaceGitHubIssue(_ updatedIssue: GitHubIssueItem) {
@@ -4049,16 +4251,29 @@ final class StatusStore: ObservableObject {
     let contexts = googleAccounts
       .filter(\.isConnected)
       .flatMap { status in
-        status.account.calendars
-          .filter(\.isEnabled)
-          .map { source in
-            GoogleCalendarFetchContext(
-              accountID: status.id,
-              accountLabel: status.account.label,
-              calendar: source,
-              service: CalendarService(authSession: googleSession(for: status.account))
-            )
-          }
+        let service = CalendarService(authSession: googleSession(for: status.account))
+        let enabled = status.account.calendars.filter(\.isEnabled)
+        var contexts = enabled.map { source in
+          GoogleCalendarFetchContext(
+            accountID: status.id,
+            accountLabel: status.account.label,
+            calendar: source,
+            service: service,
+            declinesOnly: false
+          )
+        }
+        // The user's RSVPs live on the primary calendar; read it for declines
+        // even when its events are hidden, so shared copies still disappear.
+        if !enabled.isEmpty, let primary = status.account.calendars.first(where: { $0.isPrimary && !$0.isEnabled }) {
+          contexts.append(GoogleCalendarFetchContext(
+            accountID: status.id,
+            accountLabel: status.account.label,
+            calendar: primary,
+            service: service,
+            declinesOnly: true
+          ))
+        }
+        return contexts
       }
 
     var sourceBatches: [CalendarAgendaSourceBatch] = []
@@ -4081,18 +4296,18 @@ final class StatusStore: ObservableObject {
       for context in contexts {
         group.addTask {
           do {
-            let events = try await context.service.fetchEvents(
+            let batch = try await context.service.fetchEvents(
               accountID: context.accountID,
               calendar: context.calendar,
               from: todayStart,
               to: dayAfterTomorrow,
               cutoff: now
             )
-            return GoogleCalendarFetchOutcome(context: context, events: events, error: nil, needsReauthentication: false)
+            return GoogleCalendarFetchOutcome(context: context, batch: batch, error: nil, needsReauthentication: false)
           } catch {
             return GoogleCalendarFetchOutcome(
               context: context,
-              events: [],
+              batch: CalendarEventBatch(),
               error: error.localizedDescription,
               needsReauthentication: requiresGoogleReauthentication(error)
             )
@@ -4101,12 +4316,30 @@ final class StatusStore: ObservableObject {
       }
 
       for await outcome in group {
+        if outcome.context.declinesOnly {
+          // A failed RSVP lookup is not a visible calendar problem.
+          if outcome.error == nil {
+            sourceBatches.append(CalendarAgendaSourceBatch(
+              provider: .google,
+              events: [],
+              warning: nil,
+              declinedKeys: outcome.batch.declinedKeys,
+              accountID: outcome.context.accountID,
+              declinesOnly: true,
+              isPrimaryLookup: true
+            ))
+          }
+          continue
+        }
         sourceBatches.append(CalendarAgendaSourceBatch(
           provider: .google,
-          events: outcome.events,
+          events: outcome.batch.events,
           warning: outcome.error.map {
             "\(outcome.context.calendar.name) (\(outcome.context.accountLabel)): \($0)"
-          }
+          },
+          declinedKeys: outcome.batch.declinedKeys,
+          accountID: outcome.context.accountID,
+          isPrimaryLookup: outcome.error == nil && outcome.context.calendar.isPrimary
         ))
         if outcome.needsReauthentication {
           reauthenticationAccountIDs.insert(outcome.context.accountID)
@@ -4142,6 +4375,23 @@ final class StatusStore: ObservableObject {
     tomorrowStart: Date,
     dayAfterTomorrow: Date
   ) -> CalendarAgendaLoadResult {
+    // A decline on an account's own calendar also hides that account's copies on
+    // shared or team calendars, which carry another owner's RSVP. Other accounts
+    // keep their copy, since they may have accepted the same meeting.
+    var declinedKeysByAccount: [UUID: Set<String>] = [:]
+    for batch in sourceBatches {
+      if let accountID = batch.accountID, !batch.declinedKeys.isEmpty {
+        declinedKeysByAccount[accountID, default: []].formUnion(batch.declinedKeys)
+      }
+    }
+    let sourceBatches = sourceBatches.map { batch in
+      guard let accountID = batch.accountID, let declinedKeys = declinedKeysByAccount[accountID] else {
+        return batch
+      }
+      var batch = batch
+      batch.events.removeAll { $0.deduplicationKey.map(declinedKeys.contains) == true }
+      return batch
+    }
     let sections = CalendarEventItem.agendaSections(
       from: sourceBatches.flatMap(\.events),
       todayStart: todayStart,
@@ -4153,7 +4403,7 @@ final class StatusStore: ObservableObject {
       tomorrowAllDayLimit: Self.tomorrowAllDayEventLimit
     )
     let warnings = additionalWarnings + sourceBatches.compactMap(\.warning)
-    let googleBatches = sourceBatches.filter { $0.provider == .google }
+    let googleBatches = sourceBatches.filter { $0.provider == .google && !$0.declinesOnly }
     let appleBatches = sourceBatches.filter { $0.provider == .apple }
     return CalendarAgendaLoadResult(
       googleSourceEvents: googleBatches.flatMap(\.events),
@@ -4165,6 +4415,8 @@ final class StatusStore: ObservableObject {
       warnings: Array(Set(warnings)).sorted(),
       reauthenticationAccountIDs: reauthenticationAccountIDs,
       shouldReplaceGoogleEvents: googleBatches.isEmpty || googleBatches.contains { $0.warning == nil },
+      declinedKeysByAccount: declinedKeysByAccount,
+      declineLookupAccountIDs: Set(sourceBatches.filter(\.isPrimaryLookup).compactMap(\.accountID)),
       shouldReplaceAppleEvents: appleBatches.contains { $0.warning == nil }
     )
   }
@@ -4190,10 +4442,28 @@ final class StatusStore: ObservableObject {
       todayAllDayLimit: Self.todayAllDayEventLimit,
       tomorrowAllDayLimit: Self.tomorrowAllDayEventLimit
     )
-    events = sections.today
-    tomorrowEvents = sections.tomorrow
-    allDayEvents = sections.allDayToday
-    tomorrowAllDayEvents = sections.allDayTomorrow
+    if events != sections.today { events = sections.today }
+    if tomorrowEvents != sections.tomorrow { tomorrowEvents = sections.tomorrow }
+    if allDayEvents != sections.allDayToday { allDayEvents = sections.allDayToday }
+    if tomorrowAllDayEvents != sections.allDayTomorrow { tomorrowAllDayEvents = sections.allDayTomorrow }
+    // The alert reads the uncapped source pool, which can change while Today's rows don't.
+    updateMeetingAlert()
+  }
+
+  /// Drops events whose occurrence an account declined, using each event's own account.
+  static func removingDeclined(
+    _ events: [CalendarEventItem],
+    declinedKeysByAccount: [UUID: Set<String>]
+  ) -> [CalendarEventItem] {
+    guard !declinedKeysByAccount.isEmpty else { return events }
+    return events.filter { event in
+      guard let key = event.deduplicationKey else { return true }
+      return !event.sourceIDs.contains { sourceID in
+        let accountPart = sourceID.prefix { $0 != "|" }
+        guard let accountID = UUID(uuidString: String(accountPart)) else { return false }
+        return declinedKeysByAccount[accountID]?.contains(key) == true
+      }
+    }
   }
 
   /// Loads Linear issues and packages thrown errors as `Result`.
@@ -4252,14 +4522,22 @@ private struct GoogleCalendarFetchContext: Sendable {
   let accountLabel: String
   let calendar: GoogleCalendarSource
   let service: CalendarService
+  /// Hidden primary calendar read only for the user's declines.
+  let declinesOnly: Bool
 }
 
 /// Success or failure from one enabled calendar without aborting sibling fetches.
 private struct GoogleCalendarFetchOutcome: Sendable {
   let context: GoogleCalendarFetchContext
-  let events: [CalendarEventItem]
+  let batch: CalendarEventBatch
   let error: String?
   let needsReauthentication: Bool
+}
+
+/// One Linear issue's edit queue within a single connection.
+private struct LinearEditQueueKey: Hashable {
+  let revision: Int
+  let issueID: LinearIssueItem.ID
 }
 
 /// Calendar provider owning one independent source result.
@@ -4271,8 +4549,16 @@ enum CalendarAgendaProvider: Equatable, Sendable {
 /// Successful events and an optional warning produced by one independent source.
 struct CalendarAgendaSourceBatch: Sendable {
   let provider: CalendarAgendaProvider
-  let events: [CalendarEventItem]
+  var events: [CalendarEventItem]
   let warning: String?
+  /// Occurrences the user declined in this source; hidden from every source of the same account.
+  var declinedKeys: Set<String> = []
+  /// Account the source belongs to; declines never hide another account's copy.
+  var accountID: UUID?
+  /// Contributes declines only, so it says nothing about whether events loaded.
+  var declinesOnly = false
+  /// The account's primary calendar loaded, so its declines are complete.
+  var isPrimaryLookup = false
 }
 
 /// Fully merged agenda and recoverable source failures from one refresh.
@@ -4286,6 +4572,10 @@ struct CalendarAgendaLoadResult: Sendable {
   let warnings: [String]
   let reauthenticationAccountIDs: Set<UUID>
   let shouldReplaceGoogleEvents: Bool
+  /// Declines confirmed by this load, per Google account.
+  let declinedKeysByAccount: [UUID: Set<String>]
+  /// Accounts whose primary calendar loaded, so their decline sets are authoritative.
+  let declineLookupAccountIDs: Set<UUID>
   let shouldReplaceAppleEvents: Bool
 }
 

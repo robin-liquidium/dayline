@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Calendar menu, menu bar title, and meeting alert settings.
 struct CalendarSettingsTab: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
 
   /// Supported pre-meeting menu bar title lead choices in minutes.
   private let menuBarLeadTimeOptions = [0, 5, 10, 15, 20, 25, 30, 45, 60, 90, 120]

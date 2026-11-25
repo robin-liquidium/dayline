@@ -6,7 +6,18 @@ final class AppleCalendarService: @unchecked Sendable {
   /// Stable local identifier namespacing Apple-sourced event identities.
   static let accountID = UUID(uuidString: "a9c0ffee-0000-4000-8000-0000000000a9")!
 
+  /// One long-lived store: creating an EKEventStore per refresh is expensive and
+  /// a shared store is what receives EKEventStoreChanged notifications.
   private let eventStore = EKEventStore()
+  private var changeObserver: NSObjectProtocol?
+  /// Serializes background reads with saves and resets, which invalidate EKEvent objects.
+  private let storeLock = NSLock()
+
+  deinit {
+    if let changeObserver {
+      NotificationCenter.default.removeObserver(changeObserver)
+    }
+  }
 
   /// Whether the bundle may ask for calendar access without crashing.
   static var canRequestAccess: Bool {
@@ -20,7 +31,24 @@ final class AppleCalendarService: @unchecked Sendable {
 
   /// Asks the system for full access to calendar events.
   func requestFullAccess() async throws -> Bool {
-    try await eventStore.requestFullAccessToEvents()
+    let granted = try await eventStore.requestFullAccessToEvents()
+    if granted {
+      // Make calendars granted just now visible to the long-lived store.
+      storeLock.withLock { eventStore.reset() }
+    }
+    return granted
+  }
+
+  /// Calls the handler on the main actor whenever calendar data changes outside Dayline.
+  func setChangeHandler(_ handler: @escaping @MainActor () -> Void) {
+    guard changeObserver == nil else { return }
+    changeObserver = NotificationCenter.default.addObserver(
+      forName: .EKEventStoreChanged,
+      object: eventStore,
+      queue: .main
+    ) { _ in
+      MainActor.assumeIsolated { handler() }
+    }
   }
 
   /// Lists device calendars with default-enabled selections.
@@ -47,6 +75,9 @@ final class AppleCalendarService: @unchecked Sendable {
     guard hasFullAccess else { throw AppleCalendarServiceError.accessDenied }
     let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !title.isEmpty else { throw AppleCalendarServiceError.missingTitle }
+    // Held from lookup through save so a concurrent reset cannot invalidate the objects.
+    storeLock.lock()
+    defer { storeLock.unlock() }
     guard let calendar = eventStore.calendar(withIdentifier: draft.calendarID),
           calendar.allowsContentModifications else {
       throw AppleCalendarServiceError.calendarNotWritable
@@ -77,25 +108,42 @@ final class AppleCalendarService: @unchecked Sendable {
     }
   }
 
-  /// Loads timed events from the selected calendars in the given window.
+  /// Loads events from the selected calendars in the given window, skipping
+  /// canceled events and invitations the user declined.
   func events(in calendarIDs: Set<String>, from start: Date, to end: Date) -> [CalendarEventItem] {
-    let eventStore = EKEventStore()
+    storeLock.lock()
+    defer { storeLock.unlock() }
     let calendars = eventStore.calendars(for: .event).filter { calendarIDs.contains($0.calendarIdentifier) }
     guard !calendars.isEmpty else {
       return []
     }
     let predicate = eventStore.predicateForEvents(withStart: start, end: end, calendars: calendars)
-    return eventStore.events(matching: predicate).compactMap { event in
-      guard let eventID = event.eventIdentifier,
+    let matches = eventStore.events(matching: predicate)
+    // A decline hides that meeting's other copies in the same account (e.g. a
+    // shared calendar), but never a copy another account may have accepted.
+    var declinedKeysBySource: [String: Set<String>] = [:]
+    for event in matches where Self.currentUserDeclined(event) {
+      if let key = Self.occurrenceKey(event) {
+        declinedKeysBySource[event.calendar.source.sourceIdentifier, default: []].insert(key)
+      }
+    }
+    return matches.compactMap { event in
+      if Self.currentUserDeclined(event) {
+        return nil
+      }
+      if let key = Self.occurrenceKey(event),
+         declinedKeysBySource[event.calendar.source.sourceIdentifier]?.contains(key) == true {
+        return nil
+      }
+      guard event.status != .canceled,
+            let eventID = event.eventIdentifier,
             let startDate = event.startDate,
             let endDate = event.endDate else {
         return nil
       }
       let occurrenceDate = event.occurrenceDate ?? startDate
       let occurrenceID = "\(eventID)|\(occurrenceDate.timeIntervalSince1970)"
-      let deduplicationKey = event.calendarItemExternalIdentifier.map {
-        "\($0)|\(occurrenceDate.timeIntervalSince1970)"
-      }
+      let deduplicationKey = Self.occurrenceKey(event)
       let eventURL = CalendarEventItem.safeWebURL(event.url)
       return CalendarEventItem(
         id: CalendarEventItem.compositeID(
@@ -116,6 +164,22 @@ final class AppleCalendarService: @unchecked Sendable {
         deduplicationKey: deduplicationKey
       )
     }
+  }
+}
+
+extension AppleCalendarService {
+  /// Key shared with other copies of this occurrence, such as the Google event.
+  static func occurrenceKey(_ event: EKEvent) -> String? {
+    guard let externalID = event.calendarItemExternalIdentifier,
+          let occurrenceDate = event.occurrenceDate ?? event.startDate else {
+      return nil
+    }
+    return "\(externalID)|\(occurrenceDate.timeIntervalSince1970)"
+  }
+
+  /// Whether the signed-in user declined this invitation.
+  static func currentUserDeclined(_ event: EKEvent) -> Bool {
+    event.attendees?.first(where: \.isCurrentUser)?.participantStatus == .declined
   }
 }
 

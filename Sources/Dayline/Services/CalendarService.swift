@@ -73,15 +73,16 @@ struct CalendarService: Sendable {
     return sources
   }
 
-  /// Loads timed events from one enabled calendar in a bounded agenda window.
+  /// Loads timed events from one enabled calendar in a bounded agenda window,
+  /// plus the occurrence keys of invitations the account owner declined.
   func fetchEvents(
     accountID: UUID,
     calendar: GoogleCalendarSource,
     from startDate: Date,
     to endDate: Date,
     cutoff: Date
-  ) async throws -> [CalendarEventItem] {
-    var events: [CalendarEventItem] = []
+  ) async throws -> CalendarEventBatch {
+    var batch = CalendarEventBatch()
     var pageToken: String?
 
     repeat {
@@ -96,13 +97,39 @@ struct CalendarService: Sendable {
 
       let data = try await authSession.authorizedData(for: URLRequest(url: url))
       let response = try JSONDecoder().decode(GoogleCalendarEventsResponse.self, from: data)
-      events.append(contentsOf: (response.items ?? []).compactMap {
-        $0.displayItem(accountID: accountID, calendar: calendar, now: cutoff)
-      })
+      let page = Self.partition(response.items ?? [], accountID: accountID, calendar: calendar, now: cutoff)
+      batch.events += page.events
+      batch.declinedKeys.formUnion(page.declinedKeys)
       pageToken = response.nextPageToken
     } while pageToken != nil
 
-    return events.sorted { $0.startDate < $1.startDate }
+    batch.events.sort { $0.startDate < $1.startDate }
+    return batch
+  }
+
+  /// Splits Google events into display items and the account owner's declined
+  /// invitations. `attendees[].self` means the owner of the calendar being read,
+  /// so declines are only trusted on the account's primary calendar; other copies
+  /// of those events (shared or team calendars) are hidden by key afterwards.
+  static func partition(
+    _ items: [GoogleCalendarEvent],
+    accountID: UUID,
+    calendar: GoogleCalendarSource,
+    now: Date
+  ) -> CalendarEventBatch {
+    var batch = CalendarEventBatch()
+    for item in items {
+      if calendar.isPrimary, item.isDeclinedBySelf {
+        if let key = item.occurrenceKey {
+          batch.declinedKeys.insert(key)
+        }
+        continue
+      }
+      if let event = item.displayItem(accountID: accountID, calendar: calendar, now: now) {
+        batch.events.append(event)
+      }
+    }
+    return batch
   }
 
   /// Builds the bounded Events.list URL used for every result page.
@@ -125,13 +152,20 @@ struct CalendarService: Sendable {
       URLQueryItem(name: "timeMax", value: isoFormatter.string(from: endDate)),
       URLQueryItem(name: "singleEvents", value: "true"),
       URLQueryItem(name: "orderBy", value: "startTime"),
-      URLQueryItem(name: "maxResults", value: "2500")
+      URLQueryItem(name: "maxResults", value: "2500"),
+      // Only the signed-in attendee is needed to detect declined invitations.
+      URLQueryItem(name: "maxAttendees", value: "1"),
+      URLQueryItem(name: "fields", value: Self.eventFields)
     ]
     if let pageToken {
       components.queryItems?.append(URLQueryItem(name: "pageToken", value: pageToken))
     }
     return components.url
   }
+
+  /// Partial response covering exactly the fields `GoogleCalendarEvent` decodes.
+  private static let eventFields = "nextPageToken,items(id,iCalUID,status,summary,start,end,originalStartTime,"
+    + "location,hangoutLink,conferenceData/entryPoints(entryPointType,uri),htmlLink,attendees(self,responseStatus))"
 
   /// Loads the primary calendar identity, whose ID is the stable Google account email.
   private func fetchPrimaryCalendarIdentity() async throws -> GoogleCalendarIdentity {
@@ -146,6 +180,12 @@ struct CalendarService: Sendable {
     allowed.insert(charactersIn: "-._~")
     return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
   }
+}
+
+/// Display events from one source plus occurrence keys the user declined there.
+struct CalendarEventBatch: Sendable {
+  var events: [CalendarEventItem] = []
+  var declinedKeys: Set<String> = []
 }
 
 /// Primary calendar identity used to identify a Google account.
@@ -196,6 +236,20 @@ struct GoogleCalendarEvent: Decodable {
   let hangoutLink: String?
   let conferenceData: GoogleCalendarConferenceData?
   let htmlLink: String?
+  let attendees: [GoogleCalendarAttendee]?
+
+  /// Key shared by every copy of this occurrence, across calendars and EventKit.
+  var occurrenceKey: String? {
+    guard let iCalUID, let occurrenceDate = originalStartTime?.resolvedDate ?? start.resolvedDate else {
+      return nil
+    }
+    return "\(iCalUID)|\(occurrenceDate.timeIntervalSince1970)"
+  }
+
+  /// Whether the owner of the calendar being read declined this invitation.
+  var isDeclinedBySelf: Bool {
+    attendees?.contains { $0.isSelf == true && $0.responseStatus == "declined" } == true
+  }
 
   /// Converts a Google event into one account- and calendar-scoped display item.
   func displayItem(accountID: UUID, calendar: GoogleCalendarSource, now: Date) -> CalendarEventItem? {
@@ -207,8 +261,7 @@ struct GoogleCalendarEvent: Decodable {
       return nil
     }
 
-    let occurrenceDate = originalStartTime?.resolvedDate ?? startDate
-    let deduplicationKey = iCalUID.map { "\($0)|\(occurrenceDate.timeIntervalSince1970)" }
+    let deduplicationKey = occurrenceKey
     let structuredMeetingURL = CalendarEventItem.safeWebURL(conferenceURL)
     let locationURL = location.flatMap(Self.firstURL(in:)).flatMap(CalendarEventItem.safeWebURL)
     let meetingURL = structuredMeetingURL ?? CalendarEventItem.recognizedMeetingURL(locationURL)
@@ -251,6 +304,17 @@ struct GoogleCalendarEvent: Decodable {
     let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
     let range = NSRange(text.startIndex..<text.endIndex, in: text)
     return detector?.firstMatch(in: text, options: [], range: range)?.url
+  }
+}
+
+/// Attendee entry; with `maxAttendees=1` Google returns only the signed-in user.
+struct GoogleCalendarAttendee: Decodable {
+  let isSelf: Bool?
+  let responseStatus: String?
+
+  enum CodingKeys: String, CodingKey {
+    case isSelf = "self"
+    case responseStatus
   }
 }
 

@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Startup, refresh, update, feedback, and about settings.
 struct GeneralSettingsTab: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
   @EnvironmentObject private var updateService: UpdateService
   @Environment(\.openURL) private var openURL
   @State private var isShowingFeedback = false
