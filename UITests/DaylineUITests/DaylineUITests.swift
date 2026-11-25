@@ -359,11 +359,7 @@ final class DaylineUITests: XCTestCase {
     let menuScrollView = app.scrollViews.firstMatch
     let tabs = element("issues.source.linear")
     let farIssue = element("linear.issue.DAY-259")
-    let deadline = Date().addingTimeInterval(10)
-    while !(farIssue.exists && farIssue.isHittable), Date() < deadline {
-      menuScrollView.scroll(byDeltaX: 0, deltaY: -200)
-    }
-    XCTAssertTrue(farIssue.exists && farIssue.isHittable, "Scrolling should bring rows far down the list into view")
+    scrollUntilHittable(farIssue)
     XCTAssertTrue(tabs.isHittable)
     XCTAssertLessThan(
       abs(tabs.frame.minY - menuScrollView.frame.minY),
@@ -595,7 +591,7 @@ final class DaylineUITests: XCTestCase {
     element("linearEditor.create").click()
 
     try openMenu()
-    scrollIntoView(
+    scrollUntilHittable(
       app.descendants(matching: .any)
         .matching(NSPredicate(format: "label BEGINSWITH %@", "Automated Linear issue"))
         .firstMatch
@@ -990,6 +986,17 @@ final class DaylineUITests: XCTestCase {
     XCTAssertTrue(tab.waitForExistenceIfNeeded(timeout: 3))
     tab.click()
     XCTAssertTrue(element("notes.new").waitForExistenceIfNeeded(timeout: 3))
+  }
+
+  /// Scrolls down until a lazily created row exists and can be clicked.
+  private func scrollUntilHittable(_ target: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+    let menuScrollView = app.scrollViews.firstMatch
+    XCTAssertTrue(menuScrollView.waitForExistenceIfNeeded(timeout: 3), file: file, line: line)
+    let deadline = Date().addingTimeInterval(10)
+    while !(target.exists && target.isHittable), Date() < deadline {
+      menuScrollView.scroll(byDeltaX: 0, deltaY: -200)
+    }
+    XCTAssertTrue(target.exists && target.isHittable, "Expected scrolling to reveal \(target)", file: file, line: line)
   }
 
   /// Scrolls the menu back to its first row.

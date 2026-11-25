@@ -785,7 +785,9 @@ final class StatusStore {
     self.showsCalendarSection = defaults.object(forKey: Self.showsCalendarSectionKey) as? Bool ?? true
     self.showsAllDayEvents = defaults.object(forKey: Self.showsAllDayEventsKey) as? Bool ?? false
     self.showsLinearSection = defaults.object(forKey: Self.showsLinearSectionKey) as? Bool ?? true
-    self.showsNotesSection = defaults.object(forKey: Self.showsNotesSectionKey) as? Bool ?? true
+    // bool(forKey:) also reads launch-argument overrides such as `-showsNotesSection NO`.
+    self.showsNotesSection = defaults.object(forKey: Self.showsNotesSectionKey) == nil
+      || defaults.bool(forKey: Self.showsNotesSectionKey)
     self.notesKeepOnTop = defaults.object(forKey: Self.notesKeepOnTopKey) as? Bool ?? false
     self.issueCreateMoreEnabled = defaults.object(forKey: Self.issueCreateMoreEnabledKey) as? Bool ?? false
     let hasCalendarAccess = mockData == nil && appleCalendarService.hasFullAccess

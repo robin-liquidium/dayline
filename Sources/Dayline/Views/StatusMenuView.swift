@@ -24,90 +24,94 @@ struct StatusMenuView: View {
   @Environment(\.dismiss) private var dismiss
   @StateObject private var keyboardMonitor = MenuKeyboardMonitor()
 
-  private static let scrollTopID = "dayline.menu.top"
+  /// Scroll content's own coordinates, matching the scroll offset.
+  private static let contentCoordinateSpace = "dayline.menu.content"
 
-  private static let tabsTopID = "dayline.menu.tabs"
+  @State private var scrollPosition = ScrollPosition(edge: .top)
+
+  /// Current scroll offset and where the active list starts, both in content coordinates.
+  @State private var scrollOffsetY: CGFloat = 0
+  @State private var listTopY: CGFloat = 0
 
   /// Measured height of the pinned tab bar, so rows know where to fade out.
   @State private var tabBarHeight: CGFloat = 40
 
-  /// Whether the tab bar is pinned with list rows scrolling under it.
-  @State private var isTabBarPinned = false
-
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       headerBar
-      ScrollViewReader { scrollProxy in
-        ScrollView {
-          // Lazy so long lists only build the rows on screen. The tab bar stays
-          // pinned while its list scrolls, and rows fade out as they slide under it.
-          LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-            if store.hasConnectionSetupItems {
-              ConnectionSetupSection(
-                statuses: store.connectionSetupItems,
-                googleAccounts: store.googleAccountsNeedingAttention
-              )
-              .fadesAtScrollEdges()
-              .padding(.bottom, 18)
-            }
+      ScrollView {
+        // Lazy so long lists only build the rows on screen. The tab bar stays
+        // pinned while its list scrolls, and rows fade out as they slide under it.
+        LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+          if store.hasConnectionSetupItems {
+            ConnectionSetupSection(
+              statuses: store.connectionSetupItems,
+              googleAccounts: store.googleAccountsNeedingAttention
+            )
+            .fadesAtScrollEdges()
+            .padding(.bottom, 18)
+          }
 
-            if store.isCalendarSectionVisible {
-              CalendarSection(
-                events: store.events,
-                tomorrowEvents: store.tomorrowEvents,
-                allDayEvents: store.visibleAllDayEvents,
-                tomorrowAllDayEvents: store.visibleTomorrowAllDayEvents,
-                warnings: store.calendarWarnings,
-                day: store.calendarDay
-              )
-              .fadesAtScrollEdges()
-              .padding(.bottom, 18)
-            }
+          if store.isCalendarSectionVisible {
+            CalendarSection(
+              events: store.events,
+              tomorrowEvents: store.tomorrowEvents,
+              allDayEvents: store.visibleAllDayEvents,
+              tomorrowAllDayEvents: store.visibleTomorrowAllDayEvents,
+              warnings: store.calendarWarnings,
+              day: store.calendarDay
+            )
+            .fadesAtScrollEdges()
+            .padding(.bottom, 18)
+          }
 
-            if let activeTab = store.activeMenuTab {
-              // Scroll target for the start of the work tabs.
-              Color.clear.frame(height: 0).id(Self.tabsTopID)
-              Section {
-                MenuTabContent(activeTab: activeTab) { note in
-                  openNoteEditor(.existing(note.id))
-                }
-                .environment(\.pinnedTabBarHeight, tabBarHeight)
-              } header: {
-                MenuTabHeader(
-                  activeTab: activeTab,
-                  openNewIssue: { openLinearIssueCreator() },
-                  openNewGitHubIssue: { openGitHubIssueCreator() },
-                  openNewAppleReminder: { openAppleReminderCreator() },
-                  openNewNote: { openNoteEditor(.new) }
-                )
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { tabBarHeight = $0 }
-                .onGeometryChange(for: Bool.self) { $0.frame(in: .scrollView).minY < 1 } action: {
-                  isTabBarPinned = $0
-                }
+          if let activeTab = store.activeMenuTab {
+            Section {
+              MenuTabContent(activeTab: activeTab) { note in
+                openNoteEditor(.existing(note.id))
               }
+              .environment(\.pinnedTabBarHeight, tabBarHeight)
+              .onGeometryChange(for: CGFloat.self) {
+                $0.frame(in: .named(Self.contentCoordinateSpace)).minY
+              } action: { listTopY = $0 }
+            } header: {
+              MenuTabHeader(
+                activeTab: activeTab,
+                openNewIssue: { openLinearIssueCreator() },
+                openNewGitHubIssue: { openGitHubIssueCreator() },
+                openNewAppleReminder: { openAppleReminderCreator() },
+                openNewNote: { openNoteEditor(.new) }
+              )
+              .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { tabBarHeight = $0 }
             }
           }
-          .padding(.top, 12)
-          .padding(.bottom, 18)
-          .padding(.horizontal, 10)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .configureHiddenScrollIndicators()
-          .id(Self.scrollTopID)
         }
-        .scrollContentBackground(.hidden)
-        .scrollIndicators(.hidden)
-        .frame(height: scrollContentHeight)
-        .clipped()
-        .onAppear {
-          // The menu window is reused, so it would otherwise reopen at the old
-          // scroll offset and hide today's events above the fold.
-          scrollProxy.scrollTo(Self.scrollTopID, anchor: .top)
-        }
-        .onChange(of: store.activeMenuTab) {
-          // A new tab starts at its first row instead of the old tab's offset.
-          if isTabBarPinned {
-            scrollProxy.scrollTo(Self.tabsTopID, anchor: .top)
-          }
+        .padding(.top, 12)
+        .padding(.bottom, 18)
+        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .configureHiddenScrollIndicators()
+        .coordinateSpace(name: Self.contentCoordinateSpace)
+      }
+      .scrollPosition($scrollPosition)
+      .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { _, offset in
+        scrollOffsetY = offset
+      }
+      .scrollContentBackground(.hidden)
+      .scrollIndicators(.hidden)
+      .frame(height: scrollContentHeight)
+      .clipped()
+      .onAppear {
+        // The menu window is reused, so it would otherwise reopen at the old
+        // scroll offset and hide today's events above the fold.
+        scrollPosition.scrollTo(edge: .top)
+      }
+      .onChange(of: store.activeMenuTab) {
+        // When the old list was scrolled under the pinned tabs, start the new
+        // tab at its first row instead of keeping the old offset.
+        let pinnedOffset = listTopY - tabBarHeight
+        if scrollOffsetY > pinnedOffset {
+          scrollPosition.scrollTo(y: pinnedOffset)
         }
       }
       footerBar
