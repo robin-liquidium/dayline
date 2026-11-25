@@ -109,20 +109,26 @@ final class AppleCalendarService: @unchecked Sendable {
 
   /// Loads events from the selected calendars in the given window, skipping
   /// canceled events and invitations the user declined.
-  func events(in calendarIDs: Set<String>, from start: Date, to end: Date) -> CalendarEventBatch {
+  func events(in calendarIDs: Set<String>, from start: Date, to end: Date) -> [CalendarEventItem] {
     storeLock.lock()
     defer { storeLock.unlock() }
     let calendars = eventStore.calendars(for: .event).filter { calendarIDs.contains($0.calendarIdentifier) }
     guard !calendars.isEmpty else {
-      return CalendarEventBatch()
+      return []
     }
     let predicate = eventStore.predicateForEvents(withStart: start, end: end, calendars: calendars)
-    var declinedKeys = Set<String>()
-    let events: [CalendarEventItem] = eventStore.events(matching: predicate).compactMap { event in
-      if Self.currentUserDeclined(event) {
-        if let key = Self.occurrenceKey(event) {
-          declinedKeys.insert(key)
-        }
+    let matches = eventStore.events(matching: predicate)
+    // A decline hides that meeting's other copies in the same account (e.g. a
+    // shared calendar), but never a copy another account may have accepted.
+    var declinedKeysBySource: [String: Set<String>] = [:]
+    for event in matches where Self.currentUserDeclined(event) {
+      if let key = Self.occurrenceKey(event) {
+        declinedKeysBySource[event.calendar.source.sourceIdentifier, default: []].insert(key)
+      }
+    }
+    return matches.compactMap { event in
+      if let key = Self.occurrenceKey(event),
+         declinedKeysBySource[event.calendar.source.sourceIdentifier]?.contains(key) == true {
         return nil
       }
       guard event.status != .canceled,
@@ -154,7 +160,6 @@ final class AppleCalendarService: @unchecked Sendable {
         deduplicationKey: deduplicationKey
       )
     }
-    return CalendarEventBatch(events: events, declinedKeys: declinedKeys)
   }
 }
 

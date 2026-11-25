@@ -469,6 +469,40 @@ struct CalendarEventItemTests {
     #expect(Set(result.googleSourceEvents.map(\.id)) == ["other", "other-account-copy"])
   }
 
+  @MainActor @Test func declinesOnlyPrimaryLookupHidesSharedCopiesWithoutCountingAsLoaded() throws {
+    let account = UUID()
+    let start = Date(timeIntervalSince1970: 1_000)
+    let teamCopy = event(id: "team-copy", startDate: start, endDate: start + 1_800, deduplicationKey: "uid|1000.0")
+    let bounds = (
+      todayStart: Date.distantPast,
+      tomorrowStart: Date(timeIntervalSince1970: 50_000),
+      dayAfterTomorrow: Date(timeIntervalSince1970: 100_000)
+    )
+    let primaryLookup = CalendarAgendaSourceBatch(
+      provider: .google, events: [], warning: nil, declinedKeys: ["uid|1000.0"], accountID: account, declinesOnly: true
+    )
+
+    let hidden = StatusStore.assembleCalendarAgenda(
+      sourceBatches: [
+        primaryLookup,
+        CalendarAgendaSourceBatch(provider: .google, events: [teamCopy], warning: nil, accountID: account)
+      ],
+      todayStart: bounds.todayStart, tomorrowStart: bounds.tomorrowStart, dayAfterTomorrow: bounds.dayAfterTomorrow
+    )
+    #expect(hidden.googleSourceEvents.isEmpty)
+    #expect(hidden.shouldReplaceGoogleEvents)
+
+    // When every visible calendar failed, the RSVP lookup alone must not wipe cached events.
+    let failed = StatusStore.assembleCalendarAgenda(
+      sourceBatches: [
+        primaryLookup,
+        CalendarAgendaSourceBatch(provider: .google, events: [], warning: "Team: Offline", accountID: account)
+      ],
+      todayStart: bounds.todayStart, tomorrowStart: bounds.tomorrowStart, dayAfterTomorrow: bounds.dayAfterTomorrow
+    )
+    #expect(!failed.shouldReplaceGoogleEvents)
+  }
+
   @Test func googleEventsRequestAsksOnlyForTheSignedInAttendee() throws {
     let url = try #require(CalendarService.eventsRequestURL(
       calendarID: "work@example.com",

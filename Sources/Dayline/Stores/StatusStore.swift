@@ -4216,16 +4216,29 @@ final class StatusStore {
     let contexts = googleAccounts
       .filter(\.isConnected)
       .flatMap { status in
-        status.account.calendars
-          .filter(\.isEnabled)
-          .map { source in
-            GoogleCalendarFetchContext(
-              accountID: status.id,
-              accountLabel: status.account.label,
-              calendar: source,
-              service: CalendarService(authSession: googleSession(for: status.account))
-            )
-          }
+        let service = CalendarService(authSession: googleSession(for: status.account))
+        let enabled = status.account.calendars.filter(\.isEnabled)
+        var contexts = enabled.map { source in
+          GoogleCalendarFetchContext(
+            accountID: status.id,
+            accountLabel: status.account.label,
+            calendar: source,
+            service: service,
+            declinesOnly: false
+          )
+        }
+        // The user's RSVPs live on the primary calendar; read it for declines
+        // even when its events are hidden, so shared copies still disappear.
+        if !enabled.isEmpty, let primary = status.account.calendars.first(where: { $0.isPrimary && !$0.isEnabled }) {
+          contexts.append(GoogleCalendarFetchContext(
+            accountID: status.id,
+            accountLabel: status.account.label,
+            calendar: primary,
+            service: service,
+            declinesOnly: true
+          ))
+        }
+        return contexts
       }
 
     var sourceBatches: [CalendarAgendaSourceBatch] = []
@@ -4234,13 +4247,13 @@ final class StatusStore {
       return "\(status.account.label): \(detail)"
     }
     var reauthenticationAccountIDs: Set<UUID> = []
-    let appleFetchTask: Task<CalendarEventBatch, Never>? = {
+    let appleFetchTask: Task<[CalendarEventItem], Never>? = {
       guard appleCalendarConnected, mockData == nil else { return nil }
       let enabledCalendarIDs = Set(appleCalendars.filter(\.isEnabled).map(\.id))
       return Task.detached(priority: .userInitiated) { [appleCalendarService] in
-        guard !Task.isCancelled else { return CalendarEventBatch() }
-        let batch = appleCalendarService.events(in: enabledCalendarIDs, from: now, to: dayAfterTomorrow)
-        return Task.isCancelled ? CalendarEventBatch() : batch
+        guard !Task.isCancelled else { return [] }
+        let events = appleCalendarService.events(in: enabledCalendarIDs, from: now, to: dayAfterTomorrow)
+        return Task.isCancelled ? [] : events
       }
     }()
 
@@ -4268,6 +4281,20 @@ final class StatusStore {
       }
 
       for await outcome in group {
+        if outcome.context.declinesOnly {
+          // A failed RSVP lookup is not a visible calendar problem.
+          if outcome.error == nil {
+            sourceBatches.append(CalendarAgendaSourceBatch(
+              provider: .google,
+              events: [],
+              warning: nil,
+              declinedKeys: outcome.batch.declinedKeys,
+              accountID: outcome.context.accountID,
+              declinesOnly: true
+            ))
+          }
+          continue
+        }
         sourceBatches.append(CalendarAgendaSourceBatch(
           provider: .google,
           events: outcome.batch.events,
@@ -4286,15 +4313,9 @@ final class StatusStore {
     if Task.isCancelled {
       appleFetchTask?.cancel()
     } else if let appleFetchTask {
-      let batch = await appleFetchTask.value
+      let events = await appleFetchTask.value
       if !Task.isCancelled {
-        sourceBatches.append(CalendarAgendaSourceBatch(
-          provider: .apple,
-          events: batch.events,
-          warning: nil,
-          declinedKeys: batch.declinedKeys,
-          accountID: AppleCalendarService.accountID
-        ))
+        sourceBatches.append(CalendarAgendaSourceBatch(provider: .apple, events: events, warning: nil))
       }
     }
 
@@ -4345,7 +4366,7 @@ final class StatusStore {
       tomorrowAllDayLimit: Self.tomorrowAllDayEventLimit
     )
     let warnings = additionalWarnings + sourceBatches.compactMap(\.warning)
-    let googleBatches = sourceBatches.filter { $0.provider == .google }
+    let googleBatches = sourceBatches.filter { $0.provider == .google && !$0.declinesOnly }
     let appleBatches = sourceBatches.filter { $0.provider == .apple }
     return CalendarAgendaLoadResult(
       googleSourceEvents: googleBatches.flatMap(\.events),
@@ -4444,6 +4465,8 @@ private struct GoogleCalendarFetchContext: Sendable {
   let accountLabel: String
   let calendar: GoogleCalendarSource
   let service: CalendarService
+  /// Hidden primary calendar read only for the user's declines.
+  let declinesOnly: Bool
 }
 
 /// Success or failure from one enabled calendar without aborting sibling fetches.
@@ -4475,6 +4498,8 @@ struct CalendarAgendaSourceBatch: Sendable {
   var declinedKeys: Set<String> = []
   /// Account the source belongs to; declines never hide another account's copy.
   var accountID: UUID?
+  /// Contributes declines only, so it says nothing about whether events loaded.
+  var declinesOnly = false
 }
 
 /// Fully merged agenda and recoverable source failures from one refresh.
