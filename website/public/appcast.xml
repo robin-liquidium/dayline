@@ -9,6 +9,15 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
         <description>Notarized stable releases of Dayline for macOS.</description>
         <language>en</language>
         <item>
+            <title>0.2.9</title>
+            <pubDate>Wed, 25 Nov 2026 16:28:11 +0000</pubDate>
+            <sparkle:version>130</sparkle:version>
+            <sparkle:shortVersionString>0.2.9</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/robin-liquidium/dayline/releases/download/v0.2.9/Dayline-0.2.9.app.zip" length="5537252" type="application/octet-stream" sparkle:edSignature="0yETmwBc0LvYVrwuqAxxdde3luR9uKFOd3wRg6E2CLJAEn1SG296DuTLjh1UFVNssLwedoBSYQEhptZz5zScAQ=="/>
+        </item>
+        <item>
             <title>0.2.8</title>
             <pubDate>Sun, 06 Sep 2026 20:43:31 +0000</pubDate>
             <sparkle:version>117</sparkle:version>
@@ -26,18 +35,9 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <enclosure url="https://github.com/robin-liquidium/dayline/releases/download/v0.2.7/Dayline-0.2.7.app.zip" length="5462487" type="application/octet-stream" sparkle:edSignature="Y/JoVJ9UpL1e95hv6nA8Obxkw1PxIrKRq0c1pfv80N0/8Xgq6E3fsZp2Lko2YgGymg/6Irvv4hr4C5kQom9FDg=="/>
         </item>
-        <item>
-            <title>0.2.6</title>
-            <pubDate>Tue, 11 Aug 2026 01:09:24 +0000</pubDate>
-            <sparkle:version>111</sparkle:version>
-            <sparkle:shortVersionString>0.2.6</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/robin-liquidium/dayline/releases/download/v0.2.6/Dayline-0.2.6.app.zip" length="5461832" type="application/octet-stream" sparkle:edSignature="zTcyDXh1PYxg1PB2QotNmMeOYbc2nPq3mNOUEfZnIQpb54UYBV/+b08iUQB4hAjqoOmCw/p7kQbQza7X4fsSBQ=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: OcgToDbG3LSVxtDLRfuPwTM/9uNIQdFb8rE/9o6WwPkoxUNqTTffmR3XIZrGhdcJhjr6qkRCdadIj6vcau+3CA==
+edSignature: OT7RE7xzLOO2t2Nscscm/y3n7duEMK5FhIG5Owqu1nJVuNrVKo7hqSzmhf1ArplUci1vfayJF6HSwuSnjpmTBQ==
 length: 2693
 -->
