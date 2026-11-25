@@ -208,17 +208,9 @@ final class DaylineUITests: XCTestCase {
       assertExists("linear.issue.DAY-104")
     }
 
-    XCTContext.runActivity(named: "Scroll the full Linear list with the tabs pinned") { _ in
+    XCTContext.runActivity(named: "Show every Linear issue without paging") { _ in
       XCTAssertFalse(element("linear.showMore").exists)
-      let lastIssue = element("linear.issue.DAY-121")
-      scrollIntoView(lastIssue)
-      XCTAssertTrue(element("issues.source.linear").isHittable, "Tabs should stay pinned while the list scrolls")
-      attachCheckpoint(
-        "linear-scrolled",
-        identifiers: ["issues.source.linear", "linear.issue.DAY-121"]
-      )
-      scrollToTop()
-      assertExists("linear.issue.DAY-104")
+      XCTAssertTrue(element("linear.issue.DAY-121").waitForExistenceIfNeeded(timeout: 5))
     }
 
     XCTContext.runActivity(named: "Change Linear priority") { _ in
@@ -358,9 +350,39 @@ final class DaylineUITests: XCTestCase {
     )
   }
 
+  func testLongListsScrollUnderPinnedTabs() throws {
+    app.terminate()
+    app.launchArguments.append("--mock-long-lists")
+    app.launch()
+    try openMenu()
+
+    let menuScrollView = app.scrollViews.firstMatch
+    let tabs = element("issues.source.linear")
+    let farIssue = element("linear.issue.DAY-260")
+    let deadline = Date().addingTimeInterval(10)
+    while !(farIssue.exists && farIssue.isHittable), Date() < deadline {
+      menuScrollView.scroll(byDeltaX: 0, deltaY: -200)
+    }
+    XCTAssertTrue(farIssue.exists, "Rows far down the list should load while scrolling")
+    XCTAssertTrue(tabs.isHittable)
+    XCTAssertLessThan(
+      abs(tabs.frame.minY - menuScrollView.frame.minY),
+      20,
+      "The tab bar should be pinned to the top of the scrolling area"
+    )
+    attachCheckpoint("long-list-pinned", identifiers: ["issues.source.linear", "linear.issue.DAY-260"])
+
+    showNotesTab()
+    XCTAssertTrue(
+      element("notes.note.mock-note-1").waitForExistenceIfNeeded(timeout: 3),
+      "A newly selected tab should start at its first row"
+    )
+  }
+
   func testRemindersOnlyUsesSingleProviderHeading() throws {
     app.terminate()
     app.launchArguments.append("--mock-issue-providers=reminders")
+    app.launchArguments += ["-showsNotesSection", "NO"]
     app.launch()
     try openMenu()
 

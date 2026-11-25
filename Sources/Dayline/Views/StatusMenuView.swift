@@ -26,8 +26,13 @@ struct StatusMenuView: View {
 
   private static let scrollTopID = "dayline.menu.top"
 
+  private static let tabsTopID = "dayline.menu.tabs"
+
   /// Measured height of the pinned tab bar, so rows know where to fade out.
   @State private var tabBarHeight: CGFloat = 40
+
+  /// Whether the tab bar is pinned with list rows scrolling under it.
+  @State private var isTabBarPinned = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -60,6 +65,8 @@ struct StatusMenuView: View {
             }
 
             if let activeTab = store.activeMenuTab {
+              // Scroll target for the start of the work tabs.
+              Color.clear.frame(height: 0).id(Self.tabsTopID)
               Section {
                 MenuTabContent(activeTab: activeTab) { note in
                   openNoteEditor(.existing(note.id))
@@ -74,6 +81,9 @@ struct StatusMenuView: View {
                   openNewNote: { openNoteEditor(.new) }
                 )
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { tabBarHeight = $0 }
+                .onGeometryChange(for: Bool.self) { $0.frame(in: .scrollView).minY < 1 } action: {
+                  isTabBarPinned = $0
+                }
               }
             }
           }
@@ -92,6 +102,12 @@ struct StatusMenuView: View {
           // The menu window is reused, so it would otherwise reopen at the old
           // scroll offset and hide today's events above the fold.
           scrollProxy.scrollTo(Self.scrollTopID, anchor: .top)
+        }
+        .onChange(of: store.activeMenuTab) {
+          // A new tab starts at its first row instead of the old tab's offset.
+          if isTabBarPinned {
+            scrollProxy.scrollTo(Self.tabsTopID, anchor: .top)
+          }
         }
       }
       footerBar
@@ -694,6 +710,9 @@ private struct MenuTabHeader: View {
       }
     }
     .padding(.bottom, 6)
+    // Rows under the pinned bar are only masked; stop the pointer reaching them.
+    .contentShape(Rectangle())
+    .onHover { _ in }
   }
 
   /// Plus button that opens the creator for the active tab.
