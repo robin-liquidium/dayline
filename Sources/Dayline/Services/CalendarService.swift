@@ -73,15 +73,16 @@ struct CalendarService: Sendable {
     return sources
   }
 
-  /// Loads timed events from one enabled calendar in a bounded agenda window.
+  /// Loads timed events from one enabled calendar in a bounded agenda window,
+  /// plus the occurrence keys of invitations the account owner declined.
   func fetchEvents(
     accountID: UUID,
     calendar: GoogleCalendarSource,
     from startDate: Date,
     to endDate: Date,
     cutoff: Date
-  ) async throws -> [CalendarEventItem] {
-    var events: [CalendarEventItem] = []
+  ) async throws -> CalendarEventBatch {
+    var batch = CalendarEventBatch()
     var pageToken: String?
 
     repeat {
@@ -96,13 +97,39 @@ struct CalendarService: Sendable {
 
       let data = try await authSession.authorizedData(for: URLRequest(url: url))
       let response = try JSONDecoder().decode(GoogleCalendarEventsResponse.self, from: data)
-      events.append(contentsOf: (response.items ?? []).compactMap {
-        $0.displayItem(accountID: accountID, calendar: calendar, now: cutoff)
-      })
+      let page = Self.partition(response.items ?? [], accountID: accountID, calendar: calendar, now: cutoff)
+      batch.events += page.events
+      batch.declinedKeys.formUnion(page.declinedKeys)
       pageToken = response.nextPageToken
     } while pageToken != nil
 
-    return events.sorted { $0.startDate < $1.startDate }
+    batch.events.sort { $0.startDate < $1.startDate }
+    return batch
+  }
+
+  /// Splits Google events into display items and the account owner's declined
+  /// invitations. `attendees[].self` means the owner of the calendar being read,
+  /// so declines are only trusted on the account's primary calendar; other copies
+  /// of those events (shared or team calendars) are hidden by key afterwards.
+  static func partition(
+    _ items: [GoogleCalendarEvent],
+    accountID: UUID,
+    calendar: GoogleCalendarSource,
+    now: Date
+  ) -> CalendarEventBatch {
+    var batch = CalendarEventBatch()
+    for item in items {
+      if calendar.isPrimary, item.isDeclinedBySelf {
+        if let key = item.occurrenceKey {
+          batch.declinedKeys.insert(key)
+        }
+        continue
+      }
+      if let event = item.displayItem(accountID: accountID, calendar: calendar, now: now) {
+        batch.events.append(event)
+      }
+    }
+    return batch
   }
 
   /// Builds the bounded Events.list URL used for every result page.
@@ -155,6 +182,12 @@ struct CalendarService: Sendable {
   }
 }
 
+/// Display events from one source plus occurrence keys the user declined there.
+struct CalendarEventBatch: Sendable {
+  var events: [CalendarEventItem] = []
+  var declinedKeys: Set<String> = []
+}
+
 /// Primary calendar identity used to identify a Google account.
 private struct GoogleCalendarIdentity: Decodable {
   let id: String
@@ -205,7 +238,15 @@ struct GoogleCalendarEvent: Decodable {
   let htmlLink: String?
   let attendees: [GoogleCalendarAttendee]?
 
-  /// Whether the signed-in user declined this invitation.
+  /// Key shared by every copy of this occurrence, across calendars and EventKit.
+  var occurrenceKey: String? {
+    guard let iCalUID, let occurrenceDate = originalStartTime?.resolvedDate ?? start.resolvedDate else {
+      return nil
+    }
+    return "\(iCalUID)|\(occurrenceDate.timeIntervalSince1970)"
+  }
+
+  /// Whether the owner of the calendar being read declined this invitation.
   var isDeclinedBySelf: Bool {
     attendees?.contains { $0.isSelf == true && $0.responseStatus == "declined" } == true
   }
@@ -214,15 +255,13 @@ struct GoogleCalendarEvent: Decodable {
   func displayItem(accountID: UUID, calendar: GoogleCalendarSource, now: Date) -> CalendarEventItem? {
     let isAllDay = start.isDateOnly && end.isDateOnly
     guard status != "cancelled",
-          !isDeclinedBySelf,
           let startDate = start.resolvedDate,
           let endDate = end.resolvedDate,
           endDate > now else {
       return nil
     }
 
-    let occurrenceDate = originalStartTime?.resolvedDate ?? startDate
-    let deduplicationKey = iCalUID.map { "\($0)|\(occurrenceDate.timeIntervalSince1970)" }
+    let deduplicationKey = occurrenceKey
     let structuredMeetingURL = CalendarEventItem.safeWebURL(conferenceURL)
     let locationURL = location.flatMap(Self.firstURL(in:)).flatMap(CalendarEventItem.safeWebURL)
     let meetingURL = structuredMeetingURL ?? CalendarEventItem.recognizedMeetingURL(locationURL)

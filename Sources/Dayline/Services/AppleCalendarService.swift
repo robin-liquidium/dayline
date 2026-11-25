@@ -109,17 +109,23 @@ final class AppleCalendarService: @unchecked Sendable {
 
   /// Loads events from the selected calendars in the given window, skipping
   /// canceled events and invitations the user declined.
-  func events(in calendarIDs: Set<String>, from start: Date, to end: Date) -> [CalendarEventItem] {
+  func events(in calendarIDs: Set<String>, from start: Date, to end: Date) -> CalendarEventBatch {
     storeLock.lock()
     defer { storeLock.unlock() }
     let calendars = eventStore.calendars(for: .event).filter { calendarIDs.contains($0.calendarIdentifier) }
     guard !calendars.isEmpty else {
-      return []
+      return CalendarEventBatch()
     }
     let predicate = eventStore.predicateForEvents(withStart: start, end: end, calendars: calendars)
-    return eventStore.events(matching: predicate).compactMap { event in
+    var declinedKeys = Set<String>()
+    let events: [CalendarEventItem] = eventStore.events(matching: predicate).compactMap { event in
+      if Self.currentUserDeclined(event) {
+        if let key = Self.occurrenceKey(event) {
+          declinedKeys.insert(key)
+        }
+        return nil
+      }
       guard event.status != .canceled,
-            !Self.currentUserDeclined(event),
             let eventID = event.eventIdentifier,
             let startDate = event.startDate,
             let endDate = event.endDate else {
@@ -127,9 +133,7 @@ final class AppleCalendarService: @unchecked Sendable {
       }
       let occurrenceDate = event.occurrenceDate ?? startDate
       let occurrenceID = "\(eventID)|\(occurrenceDate.timeIntervalSince1970)"
-      let deduplicationKey = event.calendarItemExternalIdentifier.map {
-        "\($0)|\(occurrenceDate.timeIntervalSince1970)"
-      }
+      let deduplicationKey = Self.occurrenceKey(event)
       let eventURL = CalendarEventItem.safeWebURL(event.url)
       return CalendarEventItem(
         id: CalendarEventItem.compositeID(
@@ -150,10 +154,20 @@ final class AppleCalendarService: @unchecked Sendable {
         deduplicationKey: deduplicationKey
       )
     }
+    return CalendarEventBatch(events: events, declinedKeys: declinedKeys)
   }
 }
 
 extension AppleCalendarService {
+  /// Key shared with other copies of this occurrence, such as the Google event.
+  static func occurrenceKey(_ event: EKEvent) -> String? {
+    guard let externalID = event.calendarItemExternalIdentifier,
+          let occurrenceDate = event.occurrenceDate ?? event.startDate else {
+      return nil
+    }
+    return "\(externalID)|\(occurrenceDate.timeIntervalSince1970)"
+  }
+
   /// Whether the signed-in user declined this invitation.
   static func currentUserDeclined(_ event: EKEvent) -> Bool {
     event.attendees?.first(where: \.isCurrentUser)?.participantStatus == .declined

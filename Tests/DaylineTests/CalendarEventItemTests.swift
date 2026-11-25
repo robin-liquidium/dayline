@@ -425,15 +425,40 @@ struct CalendarEventItemTests {
     #expect(query["timeMin"] != formatter.string(from: now))
   }
 
-  @Test func googleDeclinedInvitationIsHidden() throws {
-    let calendar = GoogleCalendarSource(id: "work", name: "Work", isPrimary: true, isEnabled: true)
+  @Test func googleDeclinedInvitationIsHiddenOnlyOnThePrimaryCalendar() throws {
+    let primary = GoogleCalendarSource(id: "me", name: "Me", isPrimary: true, isEnabled: true)
+    let shared = GoogleCalendarSource(id: "team", name: "Team", isPrimary: false, isEnabled: true)
     let declined = try decodeGoogleEvent(attendeesJSON: #"[{ "self": true, "responseStatus": "declined" }]"#)
     let accepted = try decodeGoogleEvent(attendeesJSON: #"[{ "self": true, "responseStatus": "accepted" }]"#)
     let otherDeclined = try decodeGoogleEvent(attendeesJSON: #"[{ "responseStatus": "declined" }]"#)
 
-    #expect(declined.displayItem(accountID: UUID(), calendar: calendar, now: .distantPast) == nil)
-    #expect(accepted.displayItem(accountID: UUID(), calendar: calendar, now: .distantPast) != nil)
-    #expect(otherDeclined.displayItem(accountID: UUID(), calendar: calendar, now: .distantPast) != nil)
+    let primaryBatch = CalendarService.partition(
+      [declined, accepted, otherDeclined], accountID: UUID(), calendar: primary, now: .distantPast
+    )
+    #expect(primaryBatch.events.count == 2)
+    #expect(primaryBatch.declinedKeys == [try #require(declined.occurrenceKey)])
+
+    // On a shared calendar `self` is that calendar's owner, not the Dayline user.
+    let sharedBatch = CalendarService.partition([declined], accountID: UUID(), calendar: shared, now: .distantPast)
+    #expect(sharedBatch.events.count == 1)
+    #expect(sharedBatch.declinedKeys.isEmpty)
+  }
+
+  @MainActor @Test func declinedOccurrenceIsHiddenFromEveryCalendar() throws {
+    let start = Date(timeIntervalSince1970: 1_000)
+    let teamCopy = event(id: "team-copy", startDate: start, endDate: start + 1_800, deduplicationKey: "uid|1000.0")
+    let other = event(id: "other", startDate: start, endDate: start + 1_800, deduplicationKey: "uid2|1000.0")
+    let result = StatusStore.assembleCalendarAgenda(
+      sourceBatches: [
+        CalendarAgendaSourceBatch(provider: .google, events: [], warning: nil, declinedKeys: ["uid|1000.0"]),
+        CalendarAgendaSourceBatch(provider: .google, events: [teamCopy, other], warning: nil)
+      ],
+      todayStart: .distantPast,
+      tomorrowStart: Date(timeIntervalSince1970: 50_000),
+      dayAfterTomorrow: Date(timeIntervalSince1970: 100_000)
+    )
+
+    #expect(result.googleSourceEvents.map(\.id) == ["other"])
   }
 
   @Test func googleEventsRequestAsksOnlyForTheSignedInAttendee() throws {
@@ -573,6 +598,7 @@ struct CalendarEventItemTests {
       from: Data("""
       {
         "id": "invite",
+        "iCalUID": "invite@google.com",
         "summary": "Invite",
         "start": { "dateTime": "2026-08-10T10:00:00Z" },
         "end": { "dateTime": "2026-08-10T11:00:00Z" },

@@ -2187,11 +2187,14 @@ private struct AppleReminderRow: View {
         MetadataPill(title: reminder.listTitle, systemImage: "list.bullet", color: .secondary)
 
         if let dueDate = reminder.dueDate, store.issueRowFields.contains(.dueDate) {
-          MetadataPill(
-            title: DisplayFormatters.appleReminderDueDate(dueDate),
-            systemImage: "calendar",
-            color: dueDate.isOverdue() ? .red : .secondary
-          )
+          // Own minute clock so the overdue color turns red as the due time passes.
+          TimelineView(.everyMinute) { _ in
+            MetadataPill(
+              title: DisplayFormatters.appleReminderDueDate(dueDate),
+              systemImage: "calendar",
+              color: dueDate.isOverdue(at: .now) ? .red : .secondary
+            )
+          }
         }
 
         if reminder.isRecurring {
@@ -3234,9 +3237,10 @@ private struct UpdatedAgoPill: View {
   let updatedAt: Date
 
   var body: some View {
-    TimelineView(.everyMinute) { context in
+    // The minute timeline only triggers redraws; its date is the start of the minute.
+    TimelineView(.everyMinute) { _ in
       MetadataPill(
-        title: "Updated \(DisplayFormatters.relative.localizedString(for: updatedAt, relativeTo: context.date))",
+        title: "Updated \(DisplayFormatters.relative.localizedString(for: updatedAt, relativeTo: .now))",
         systemImage: "clock",
         color: .secondary
       )

@@ -689,6 +689,8 @@ final class StatusStore {
   /// Order of local Linear edits, so a refresh that started earlier cannot undo them.
   @ObservationIgnored private var linearEditSequence = 0
   @ObservationIgnored private var linearEditSequenceByIssue: [LinearIssueItem.ID: Int] = [:]
+  /// Issues with a status, priority, or due-date request still waiting on Linear.
+  @ObservationIgnored private var pendingLinearIssueIDs = Set<LinearIssueItem.ID>()
   @ObservationIgnored private var lastCalendarRefreshAt: Date?
   @ObservationIgnored private var refreshRequested = false
   @ObservationIgnored private var isRefreshingAppleReminders = false
@@ -929,7 +931,9 @@ final class StatusStore {
         self.appleCalendarChangeTask = Task {
           try? await Task.sleep(for: .seconds(1))
           guard !Task.isCancelled else { return }
-          await self.refreshCalendarOnly()
+          // Detached from the debounce task so a later notification cannot
+          // cancel in-flight requests; overlapping changes queue a follow-up.
+          Task { await self.refreshCalendarOnly() }
         }
       }
       Task { await refresh() }
@@ -992,6 +996,7 @@ final class StatusStore {
     calendarLoadSequence += 1
     let calendarLoadID = calendarLoadSequence
     let linearEditMark = linearEditSequence
+    isRefreshingCalendar = shouldLoadCalendar
     async let calendarResult: CalendarAgendaLoadResult? =
       shouldLoadCalendar ? loadCalendarAgenda() : nil
     async let linearResult: Result<[LinearIssueItem], Error>? = shouldLoadLinear ? loadLinearIssues() : nil
@@ -1006,6 +1011,8 @@ final class StatusStore {
       googleRevision: googleRevision,
       appleCalendarRevision: capturedAppleCalendarRevision
     )
+    isRefreshingCalendar = false
+    runPendingCalendarRefresh()
 
     switch await linearResult {
     case .success(let fetchedIssues)? where connectionRevisions[.linear, default: 0] == linearRevision && isConnected(.linear):
@@ -1052,7 +1059,6 @@ final class StatusStore {
       "Refresh completed events \(events.count) issues \(issues.count) github \(githubIssues.count) reminders \(appleReminders.count) notes \(notes.count) failures \(failureCount)",
       category: .refresh
     )
-    runPendingCalendarRefresh()
     if refreshRequested {
       refreshRequested = false
       await refresh()
@@ -1118,7 +1124,7 @@ final class StatusStore {
   /// Runs on a short cadence so cancellations and declines disappear quickly.
   func refreshCalendarOnly() async {
     guard mockData == nil, hasConnectedGoogleAccount || appleCalendarConnected else { return }
-    guard !isRefreshing, !isRefreshingCalendar else {
+    guard !isRefreshingCalendar else {
       // The running load may have read calendars before this change; reload afterwards.
       calendarRefreshPending = true
       return
@@ -2756,12 +2762,16 @@ final class StatusStore {
     rollback: (_ current: LinearIssueItem?, _ previous: LinearIssueItem) -> LinearIssueItem?,
     remote: () async throws -> LinearIssueItem
   ) async {
-    guard let previous = allIssues.first(where: { $0.id == issueID }) else { return }
+    // One request per issue at a time keeps each rollback snapshot accurate.
+    guard !pendingLinearIssueIDs.contains(issueID),
+          let previous = allIssues.first(where: { $0.id == issueID }) else { return }
     replaceFetchedIssue(optimistic(previous))
     guard mockData == nil else {
       DaylineDiagnostics.record(diagnostic, category: .interaction)
       return
     }
+    pendingLinearIssueIDs.insert(issueID)
+    defer { pendingLinearIssueIDs.remove(issueID) }
     let linearRevision = connectionRevisions[.linear, default: 0]
     let result: Result<LinearIssueItem, Error>
     do {
@@ -3822,14 +3832,15 @@ final class StatusStore {
     applyLinearIssueOrder()
   }
 
-  /// Keeps the local copy of issues edited after a fetch started, since that
-  /// fetch may predate the edit.
+  /// Keeps the local copy of issues edited after a fetch started or still
+  /// waiting on Linear, since the fetch may predate the edit.
   private func mergingLocalLinearEdits(
     into fetchedIssues: [LinearIssueItem],
     since mark: Int
   ) -> [LinearIssueItem] {
     linearEditSequenceByIssue = linearEditSequenceByIssue.filter { $0.value > mark }
-    let editedIDs = Set(linearEditSequenceByIssue.keys)
+    // Requests still in flight may be answered after this fetch read old values.
+    let editedIDs = Set(linearEditSequenceByIssue.keys).union(pendingLinearIssueIDs)
     guard !editedIDs.isEmpty else { return fetchedIssues }
     return fetchedIssues.filter { !editedIDs.contains($0.id) }
       + allIssues.filter { editedIDs.contains($0.id) }
@@ -4183,13 +4194,13 @@ final class StatusStore {
       return "\(status.account.label): \(detail)"
     }
     var reauthenticationAccountIDs: Set<UUID> = []
-    let appleFetchTask: Task<[CalendarEventItem], Never>? = {
+    let appleFetchTask: Task<CalendarEventBatch, Never>? = {
       guard appleCalendarConnected, mockData == nil else { return nil }
       let enabledCalendarIDs = Set(appleCalendars.filter(\.isEnabled).map(\.id))
       return Task.detached(priority: .userInitiated) { [appleCalendarService] in
-        guard !Task.isCancelled else { return [] }
-        let events = appleCalendarService.events(in: enabledCalendarIDs, from: now, to: dayAfterTomorrow)
-        return Task.isCancelled ? [] : events
+        guard !Task.isCancelled else { return CalendarEventBatch() }
+        let batch = appleCalendarService.events(in: enabledCalendarIDs, from: now, to: dayAfterTomorrow)
+        return Task.isCancelled ? CalendarEventBatch() : batch
       }
     }()
 
@@ -4197,18 +4208,18 @@ final class StatusStore {
       for context in contexts {
         group.addTask {
           do {
-            let events = try await context.service.fetchEvents(
+            let batch = try await context.service.fetchEvents(
               accountID: context.accountID,
               calendar: context.calendar,
               from: todayStart,
               to: dayAfterTomorrow,
               cutoff: now
             )
-            return GoogleCalendarFetchOutcome(context: context, events: events, error: nil, needsReauthentication: false)
+            return GoogleCalendarFetchOutcome(context: context, batch: batch, error: nil, needsReauthentication: false)
           } catch {
             return GoogleCalendarFetchOutcome(
               context: context,
-              events: [],
+              batch: CalendarEventBatch(),
               error: error.localizedDescription,
               needsReauthentication: requiresGoogleReauthentication(error)
             )
@@ -4219,10 +4230,11 @@ final class StatusStore {
       for await outcome in group {
         sourceBatches.append(CalendarAgendaSourceBatch(
           provider: .google,
-          events: outcome.events,
+          events: outcome.batch.events,
           warning: outcome.error.map {
             "\(outcome.context.calendar.name) (\(outcome.context.accountLabel)): \($0)"
-          }
+          },
+          declinedKeys: outcome.batch.declinedKeys
         ))
         if outcome.needsReauthentication {
           reauthenticationAccountIDs.insert(outcome.context.accountID)
@@ -4233,9 +4245,14 @@ final class StatusStore {
     if Task.isCancelled {
       appleFetchTask?.cancel()
     } else if let appleFetchTask {
-      let events = await appleFetchTask.value
+      let batch = await appleFetchTask.value
       if !Task.isCancelled {
-        sourceBatches.append(CalendarAgendaSourceBatch(provider: .apple, events: events, warning: nil))
+        sourceBatches.append(CalendarAgendaSourceBatch(
+          provider: .apple,
+          events: batch.events,
+          warning: nil,
+          declinedKeys: batch.declinedKeys
+        ))
       }
     }
 
@@ -4258,6 +4275,14 @@ final class StatusStore {
     tomorrowStart: Date,
     dayAfterTomorrow: Date
   ) -> CalendarAgendaLoadResult {
+    // A decline on the user's own calendar also hides copies of that meeting
+    // on shared or team calendars, which carry another owner's RSVP.
+    let declinedKeys = sourceBatches.reduce(into: Set<String>()) { $0.formUnion($1.declinedKeys) }
+    let sourceBatches = declinedKeys.isEmpty ? sourceBatches : sourceBatches.map { batch in
+      var batch = batch
+      batch.events.removeAll { $0.deduplicationKey.map(declinedKeys.contains) == true }
+      return batch
+    }
     let sections = CalendarEventItem.agendaSections(
       from: sourceBatches.flatMap(\.events),
       todayStart: todayStart,
@@ -4373,7 +4398,7 @@ private struct GoogleCalendarFetchContext: Sendable {
 /// Success or failure from one enabled calendar without aborting sibling fetches.
 private struct GoogleCalendarFetchOutcome: Sendable {
   let context: GoogleCalendarFetchContext
-  let events: [CalendarEventItem]
+  let batch: CalendarEventBatch
   let error: String?
   let needsReauthentication: Bool
 }
@@ -4387,8 +4412,10 @@ enum CalendarAgendaProvider: Equatable, Sendable {
 /// Successful events and an optional warning produced by one independent source.
 struct CalendarAgendaSourceBatch: Sendable {
   let provider: CalendarAgendaProvider
-  let events: [CalendarEventItem]
+  var events: [CalendarEventItem]
   let warning: String?
+  /// Occurrences the user declined in this source; hidden from every source.
+  var declinedKeys: Set<String> = []
 }
 
 /// Fully merged agenda and recoverable source failures from one refresh.

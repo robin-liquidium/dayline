@@ -9,7 +9,7 @@ struct AppleCalendarServiceTests {
     // must degrade to empty results instead of throwing or crashing.
     let sources = service.calendarSources()
     #expect(sources.isEmpty)
-    let events = service.events(in: ["any"], from: .distantPast, to: .distantFuture)
+    let events = service.events(in: ["any"], from: .distantPast, to: .distantFuture).events
     #expect(events.isEmpty)
   }
 
