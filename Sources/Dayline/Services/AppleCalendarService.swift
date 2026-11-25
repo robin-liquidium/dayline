@@ -75,6 +75,9 @@ final class AppleCalendarService: @unchecked Sendable {
     guard hasFullAccess else { throw AppleCalendarServiceError.accessDenied }
     let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !title.isEmpty else { throw AppleCalendarServiceError.missingTitle }
+    // Held from lookup through save so a concurrent reset cannot invalidate the objects.
+    storeLock.lock()
+    defer { storeLock.unlock() }
     guard let calendar = eventStore.calendar(withIdentifier: draft.calendarID),
           calendar.allowsContentModifications else {
       throw AppleCalendarServiceError.calendarNotWritable
@@ -97,8 +100,6 @@ final class AppleCalendarService: @unchecked Sendable {
       event.endDate = draft.endDate
     }
 
-    storeLock.lock()
-    defer { storeLock.unlock() }
     do {
       try eventStore.save(event, span: .thisEvent, commit: true)
     } catch {

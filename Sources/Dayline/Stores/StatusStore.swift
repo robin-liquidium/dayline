@@ -697,6 +697,9 @@ final class StatusStore {
   /// Last issue state Linear confirmed while requests for it are queued; shown
   /// again if the final queued request fails.
   @ObservationIgnored private var confirmedLinearIssues: [LinearEditQueueKey: LinearIssueItem] = [:]
+  /// Issues an optimistic edit removed from the list (completed or canceled), which a
+  /// failure may bring back; issues that left the list for other reasons stay gone.
+  @ObservationIgnored private var linearIssuesHiddenByEdit = Set<LinearEditQueueKey>()
   @ObservationIgnored private var lastCalendarRefreshAt: Date?
   @ObservationIgnored private var refreshRequested = false
   @ObservationIgnored private var isRefreshingAppleReminders = false
@@ -1080,13 +1083,23 @@ final class StatusStore {
   ) {
     // A slower load that started before a newer one could resurrect cancelled events.
     guard loadID > appliedCalendarLoadSequence else { return }
-    appliedCalendarLoadSequence = loadID
+    var didReplaceCalendarEvents = false
     if let calendarResult {
-      var didReplaceCalendarEvents = false
+      var didFilterRetainedEvents = false
       if connectionRevisions[.google, default: 0] == googleRevision {
         if calendarResult.shouldReplaceGoogleEvents {
           googleSourceEvents = calendarResult.googleSourceEvents
           didReplaceCalendarEvents = true
+        } else {
+          // Visible calendars failed, but confirmed declines still hide cached copies.
+          let retained = Self.removingDeclined(
+            googleSourceEvents,
+            declinedKeysByAccount: calendarResult.declinedKeysByAccount
+          )
+          if retained.count != googleSourceEvents.count {
+            googleSourceEvents = retained
+            didFilterRetainedEvents = true
+          }
         }
         calendarWarnings = calendarResult.warnings
         for accountID in calendarResult.reauthenticationAccountIDs {
@@ -1105,11 +1118,10 @@ final class StatusStore {
         appleSourceEvents = calendarResult.appleSourceEvents
         didReplaceCalendarEvents = true
       }
-      if didReplaceCalendarEvents {
+      if didReplaceCalendarEvents || didFilterRetainedEvents {
         rebuildAgendaFromCachedSources()
       }
     } else {
-      var didReplaceCalendarEvents = false
       if connectionRevisions[.google, default: 0] == googleRevision {
         googleSourceEvents = []
         calendarWarnings = []
@@ -1123,7 +1135,12 @@ final class StatusStore {
         rebuildAgendaFromCachedSources()
       }
     }
-    lastCalendarRefreshAt = Date()
+    // Only fresh data moves these marks; a failed load that kept the old snapshot must
+    // neither block an older successful load nor make the menu skip its stale reload.
+    if didReplaceCalendarEvents {
+      appliedCalendarLoadSequence = loadID
+      lastCalendarRefreshAt = Date()
+    }
   }
 
   /// Reloads only calendar events, skipping account discovery and issue providers.
@@ -2770,6 +2787,9 @@ final class StatusStore {
     if confirmedLinearIssues[key] == nil {
       confirmedLinearIssues[key] = previous
     }
+    if !allIssues.contains(where: { $0.id == issueID }) {
+      linearIssuesHiddenByEdit.insert(key)
+    }
     let earlierRequest = linearRequestTails[key]
     pendingLinearRequestCounts[key, default: 0] += 1
     let request = Task { @MainActor [weak self] in
@@ -2805,6 +2825,9 @@ final class StatusStore {
     pendingLinearRequestCounts[key] = remainingRequests > 0 ? remainingRequests : nil
     let isLastRequest = remainingRequests == 0
     let confirmed = isLastRequest ? confirmedLinearIssues.removeValue(forKey: key) : confirmedLinearIssues[key]
+    let wasHiddenByEdit = isLastRequest
+      ? linearIssuesHiddenByEdit.remove(key) != nil
+      : linearIssuesHiddenByEdit.contains(key)
     // Linear was disconnected meanwhile; do not resurrect its issues.
     guard connectionRevisions[.linear, default: 0] == key.revision else { return }
 
@@ -2823,7 +2846,8 @@ final class StatusStore {
       linearError = error.localizedDescription
       guard isLastRequest, let confirmed else { return }
       // Restore only the fields this queue edits, keeping newer labels or assignees.
-      let current = allIssues.first { $0.id == key.issueID } ?? confirmed
+      guard let current = allIssues.first(where: { $0.id == key.issueID })
+        ?? (wasHiddenByEdit ? confirmed : nil) else { return }
       let confirmedState = confirmed.workflowStates.first { $0.id == confirmed.stateID }
         ?? LinearWorkflowState(id: confirmed.stateID, name: confirmed.stateName, type: confirmed.stateType, position: 0)
       replaceFetchedIssue(current.replacing(
@@ -4378,6 +4402,7 @@ final class StatusStore {
       warnings: Array(Set(warnings)).sorted(),
       reauthenticationAccountIDs: reauthenticationAccountIDs,
       shouldReplaceGoogleEvents: googleBatches.isEmpty || googleBatches.contains { $0.warning == nil },
+      declinedKeysByAccount: declinedKeysByAccount,
       shouldReplaceAppleEvents: appleBatches.contains { $0.warning == nil }
     )
   }
@@ -4407,6 +4432,24 @@ final class StatusStore {
     if tomorrowEvents != sections.tomorrow { tomorrowEvents = sections.tomorrow }
     if allDayEvents != sections.allDayToday { allDayEvents = sections.allDayToday }
     if tomorrowAllDayEvents != sections.allDayTomorrow { tomorrowAllDayEvents = sections.allDayTomorrow }
+    // The alert reads the uncapped source pool, which can change while Today's rows don't.
+    updateMeetingAlert()
+  }
+
+  /// Drops events whose occurrence an account declined, using each event's own account.
+  static func removingDeclined(
+    _ events: [CalendarEventItem],
+    declinedKeysByAccount: [UUID: Set<String>]
+  ) -> [CalendarEventItem] {
+    guard !declinedKeysByAccount.isEmpty else { return events }
+    return events.filter { event in
+      guard let key = event.deduplicationKey else { return true }
+      return !event.sourceIDs.contains { sourceID in
+        let accountPart = sourceID.prefix { $0 != "|" }
+        guard let accountID = UUID(uuidString: String(accountPart)) else { return false }
+        return declinedKeysByAccount[accountID]?.contains(key) == true
+      }
+    }
   }
 
   /// Loads Linear issues and packages thrown errors as `Result`.
@@ -4513,6 +4556,8 @@ struct CalendarAgendaLoadResult: Sendable {
   let warnings: [String]
   let reauthenticationAccountIDs: Set<UUID>
   let shouldReplaceGoogleEvents: Bool
+  /// Declines confirmed by this load, per Google account.
+  let declinedKeysByAccount: [UUID: Set<String>]
   let shouldReplaceAppleEvents: Bool
 }
 
