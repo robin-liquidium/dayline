@@ -529,6 +529,24 @@ struct CalendarEventItemTests {
     #expect(retained.map(\.id) == ["kept"])
   }
 
+  @MainActor @Test func onlyLoadedPrimaryCalendarsMakeDeclinesAuthoritative() {
+    let loaded = UUID()
+    let failed = UUID()
+    let result = StatusStore.assembleCalendarAgenda(
+      sourceBatches: [
+        CalendarAgendaSourceBatch(provider: .google, events: [], warning: nil, accountID: loaded, isPrimaryLookup: true),
+        CalendarAgendaSourceBatch(provider: .google, events: [], warning: "Primary: Offline", accountID: failed),
+        CalendarAgendaSourceBatch(provider: .google, events: [], warning: nil, accountID: failed)
+      ],
+      todayStart: .distantPast,
+      tomorrowStart: Date(timeIntervalSince1970: 50_000),
+      dayAfterTomorrow: Date(timeIntervalSince1970: 100_000)
+    )
+
+    // A failed primary lookup must not replace the account's earlier confirmed declines.
+    #expect(result.declineLookupAccountIDs == [loaded])
+  }
+
   @Test func googleEventsRequestAsksOnlyForTheSignedInAttendee() throws {
     let url = try #require(CalendarService.eventsRequestURL(
       calendarID: "work@example.com",

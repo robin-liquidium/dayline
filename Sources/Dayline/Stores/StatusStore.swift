@@ -685,9 +685,10 @@ final class StatusStore {
   @ObservationIgnored private var calendarLoadSequence = 0
   @ObservationIgnored private var appliedGoogleLoadSequence = 0
   @ObservationIgnored private var appliedAppleLoadSequence = 0
-  /// Declines from the newest Google load that reported them, so an older load that
-  /// finishes later cannot bring a declined meeting back.
-  @ObservationIgnored private var latestGoogleDeclines: (loadID: Int, keysByAccount: [UUID: Set<String>]) = (0, [:])
+  /// Newest confirmed declines per Google account, with the load that confirmed them, so
+  /// an older load finishing later or a failed primary lookup cannot bring a declined
+  /// meeting back.
+  @ObservationIgnored private var latestGoogleDeclines: [UUID: (loadID: Int, keys: Set<String>)] = [:]
   /// A calendar change arrived while a load was running; reload once it finishes.
   @ObservationIgnored private var calendarRefreshPending = false
   /// Order of local Linear edits, so a refresh that started earlier cannot undo them.
@@ -1094,17 +1095,20 @@ final class StatusStore {
     var didReplaceCalendarEvents = false
     var didFilterRetainedEvents = false
 
-    if let calendarResult, loadID > latestGoogleDeclines.loadID,
-       connectionRevisions[.google, default: 0] == googleRevision {
-      latestGoogleDeclines = (loadID, calendarResult.declinedKeysByAccount)
+    if let calendarResult, connectionRevisions[.google, default: 0] == googleRevision {
+      for accountID in calendarResult.declineLookupAccountIDs
+      where loadID > latestGoogleDeclines[accountID]?.loadID ?? 0 {
+        latestGoogleDeclines[accountID] = (loadID, calendarResult.declinedKeysByAccount[accountID] ?? [])
+      }
     }
+    let confirmedDeclines = latestGoogleDeclines.mapValues(\.keys)
 
     if googleIsCurrent {
       if let calendarResult {
         if calendarResult.shouldReplaceGoogleEvents {
           googleSourceEvents = Self.removingDeclined(
             calendarResult.googleSourceEvents,
-            declinedKeysByAccount: latestGoogleDeclines.keysByAccount
+            declinedKeysByAccount: confirmedDeclines
           )
           appliedGoogleLoadSequence = loadID
           didReplaceCalendarEvents = true
@@ -1112,7 +1116,7 @@ final class StatusStore {
           // Visible calendars failed, but confirmed declines still hide cached copies.
           let retained = Self.removingDeclined(
             googleSourceEvents,
-            declinedKeysByAccount: latestGoogleDeclines.keysByAccount
+            declinedKeysByAccount: confirmedDeclines
           )
           if retained.count != googleSourceEvents.count {
             googleSourceEvents = retained
@@ -4321,7 +4325,8 @@ final class StatusStore {
               warning: nil,
               declinedKeys: outcome.batch.declinedKeys,
               accountID: outcome.context.accountID,
-              declinesOnly: true
+              declinesOnly: true,
+              isPrimaryLookup: true
             ))
           }
           continue
@@ -4333,7 +4338,8 @@ final class StatusStore {
             "\(outcome.context.calendar.name) (\(outcome.context.accountLabel)): \($0)"
           },
           declinedKeys: outcome.batch.declinedKeys,
-          accountID: outcome.context.accountID
+          accountID: outcome.context.accountID,
+          isPrimaryLookup: outcome.error == nil && outcome.context.calendar.isPrimary
         ))
         if outcome.needsReauthentication {
           reauthenticationAccountIDs.insert(outcome.context.accountID)
@@ -4410,6 +4416,7 @@ final class StatusStore {
       reauthenticationAccountIDs: reauthenticationAccountIDs,
       shouldReplaceGoogleEvents: googleBatches.isEmpty || googleBatches.contains { $0.warning == nil },
       declinedKeysByAccount: declinedKeysByAccount,
+      declineLookupAccountIDs: Set(sourceBatches.filter(\.isPrimaryLookup).compactMap(\.accountID)),
       shouldReplaceAppleEvents: appleBatches.contains { $0.warning == nil }
     )
   }
@@ -4550,6 +4557,8 @@ struct CalendarAgendaSourceBatch: Sendable {
   var accountID: UUID?
   /// Contributes declines only, so it says nothing about whether events loaded.
   var declinesOnly = false
+  /// The account's primary calendar loaded, so its declines are complete.
+  var isPrimaryLookup = false
 }
 
 /// Fully merged agenda and recoverable source failures from one refresh.
@@ -4565,6 +4574,8 @@ struct CalendarAgendaLoadResult: Sendable {
   let shouldReplaceGoogleEvents: Bool
   /// Declines confirmed by this load, per Google account.
   let declinedKeysByAccount: [UUID: Set<String>]
+  /// Accounts whose primary calendar loaded, so their decline sets are authoritative.
+  let declineLookupAccountIDs: Set<UUID>
   let shouldReplaceAppleEvents: Bool
 }
 
