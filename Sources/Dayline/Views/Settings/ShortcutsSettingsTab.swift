@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Hover hotkeys and global keyboard shortcut settings.
 struct ShortcutsSettingsTab: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
   @State private var globalShortcutError: String?
 
   /// Supported single-key copy shortcut choices.

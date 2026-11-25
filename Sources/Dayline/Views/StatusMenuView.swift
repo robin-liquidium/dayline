@@ -18,68 +18,75 @@ private let destructiveButtonSize: CGFloat = 30
 
 /// Popover content shown when the user opens the menu bar extra.
 struct StatusMenuView: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
   @EnvironmentObject private var updateService: UpdateService
   @Environment(\.openWindow) private var openWindow
   @Environment(\.dismiss) private var dismiss
   @StateObject private var keyboardMonitor = MenuKeyboardMonitor()
 
+  private static let scrollTopID = "dayline.menu.top"
+
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       headerBar
-      ScrollView {
-        VStack(alignment: .leading, spacing: 18) {
-          if store.hasConnectionSetupItems {
-            ConnectionSetupSection(
-              statuses: store.connectionSetupItems,
-              googleAccounts: store.googleAccountsNeedingAttention
-            )
-          }
+      ScrollViewReader { scrollProxy in
+        ScrollView {
+          VStack(alignment: .leading, spacing: 18) {
+            if store.hasConnectionSetupItems {
+              ConnectionSetupSection(
+                statuses: store.connectionSetupItems,
+                googleAccounts: store.googleAccountsNeedingAttention
+              )
+            }
 
-          if store.isCalendarSectionVisible {
-            CalendarSection(
-              events: store.events,
-              tomorrowEvents: store.tomorrowEvents,
-              allDayEvents: store.visibleAllDayEvents,
-              tomorrowAllDayEvents: store.visibleTomorrowAllDayEvents,
-              warnings: store.calendarWarnings,
-              hoveredEventID: store.hoveredEventID,
-              isTomorrowExpanded: store.isTomorrowExpanded,
-              now: store.calendarHighlightDate
-            )
-          }
-          if store.isIssuesSectionVisible, let activeSource = store.activeIssueSource {
-            IssuesSection(
-              activeSource: activeSource,
-              openNewIssue: { openLinearIssueCreator() },
-              openNewGitHubIssue: { openGitHubIssueCreator() },
-              openNewAppleReminder: { openAppleReminderCreator() }
-            )
-          }
+            if store.isCalendarSectionVisible {
+              CalendarSection(
+                events: store.events,
+                tomorrowEvents: store.tomorrowEvents,
+                allDayEvents: store.visibleAllDayEvents,
+                tomorrowAllDayEvents: store.visibleTomorrowAllDayEvents,
+                warnings: store.calendarWarnings,
+                isTomorrowExpanded: store.isTomorrowExpanded
+              )
+            }
+            if store.isIssuesSectionVisible, let activeSource = store.activeIssueSource {
+              IssuesSection(
+                activeSource: activeSource,
+                openNewIssue: { openLinearIssueCreator() },
+                openNewGitHubIssue: { openGitHubIssueCreator() },
+                openNewAppleReminder: { openAppleReminderCreator() }
+              )
+            }
 
-          if store.showsNotesSection {
-            NotesSection(
-              notes: store.notes,
-              error: store.notesError,
-              hoveredNoteID: store.hoveredNoteID,
-              openNewNote: {
-                openNoteEditor(.new)
-              },
-              openNote: { note in
-                openNoteEditor(.existing(note.id))
-              }
-            )
+            if store.showsNotesSection {
+              NotesSection(
+                notes: store.notes,
+                error: store.notesError,
+                openNewNote: {
+                  openNoteEditor(.new)
+                },
+                openNote: { note in
+                  openNoteEditor(.existing(note.id))
+                }
+              )
+            }
           }
+          .padding(.vertical, 12)
+          .padding(.horizontal, 10)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .configureHiddenScrollIndicators()
+          .id(Self.scrollTopID)
         }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .configureHiddenScrollIndicators()
+        .scrollContentBackground(.hidden)
+        .scrollIndicators(.hidden)
+        .frame(height: scrollContentHeight)
+        .clipped()
+        .onAppear {
+          // The menu window is reused, so it would otherwise reopen at the old
+          // scroll offset and hide today's events above the fold.
+          scrollProxy.scrollTo(Self.scrollTopID, anchor: .top)
+        }
       }
-      .scrollContentBackground(.hidden)
-      .scrollIndicators(.hidden)
-      .frame(height: scrollContentHeight)
-      .clipped()
       footerBar
     }
     .frame(width: 400)
@@ -98,6 +105,7 @@ struct StatusMenuView: View {
       }
     }
     .onAppear {
+      store.menuDidOpen()
       keyboardMonitor.resume()
       DispatchQueue.main.async {
         keyboardMonitor.makeWindowKeyIfVisible()
@@ -119,9 +127,12 @@ struct StatusMenuView: View {
 
       Spacer()
 
-      Text(DisplayFormatters.lastUpdated(store.lastUpdatedAt))
-        .font(.caption)
-        .foregroundStyle(.secondary)
+      // Only this label ticks; the store's clock no longer re-renders the whole menu.
+      TimelineView(.periodic(from: .now, by: 30)) { _ in
+        Text(DisplayFormatters.lastUpdated(store.lastUpdatedAt))
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
 
       Button {
         Task { await store.refresh() }
@@ -129,7 +140,7 @@ struct StatusMenuView: View {
         Image(systemName: store.isRefreshing ? "clock.arrow.circlepath" : "arrow.clockwise")
           .padding(6)
           .contentShape(Rectangle())
-          .hoverHighlight(isHovered: store.hoveredControlID == .refresh, isEnabled: !store.isRefreshing)
+          .controlHoverHighlight(.refresh, isEnabled: !store.isRefreshing)
       }
       .buttonStyle(.plain)
       .help("Refresh")
@@ -165,7 +176,7 @@ struct StatusMenuView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .contentShape(Rectangle())
-            .hoverHighlight(isHovered: store.hoveredControlID == .settings)
+            .controlHoverHighlight(.settings)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Settings")
@@ -184,7 +195,7 @@ struct StatusMenuView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .contentShape(Rectangle())
-            .hoverHighlight(isHovered: store.hoveredControlID == .quit)
+            .controlHoverHighlight(.quit)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Quit")
@@ -204,7 +215,7 @@ struct StatusMenuView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .contentShape(Rectangle())
-            .hoverHighlight(isHovered: store.hoveredControlID == .update)
+            .controlHoverHighlight(.update)
         }
         .buttonStyle(.plain)
         .disabled(!updateService.canCheckForUpdates)
@@ -607,7 +618,7 @@ private struct HorizontalRevealRow<Content: View, Action: View>: View {
 
 /// Small icon button that hides one provider's setup prompt and menu content.
 private struct DismissProviderButton: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
   @State private var isHovered = false
 
   /// Provider dismissed when the button is pressed.
@@ -635,7 +646,7 @@ private struct DismissProviderButton: View {
 
 /// Work-item section with a tab switcher when multiple providers are connected.
 private struct IssuesSection: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
 
   /// Issue source currently displayed.
   let activeSource: IssueSource
@@ -694,19 +705,12 @@ private struct IssuesSection: View {
           GitHubSection(
             issues: store.githubIssues,
             error: store.githubError,
-            hoveredIssueTarget: store.hoveredIssueTarget,
-            copiedIssueTarget: store.copiedIssueTarget
           )
           .transition(.opacity)
         case .linear:
           LinearSection(
             issues: store.issues,
             error: store.linearError,
-            hoveredIssueTarget: store.hoveredIssueTarget,
-            copiedIssueTarget: store.copiedIssueTarget,
-            updatingIssueTarget: store.updatingIssueTarget,
-            updatingPriorityTarget: store.updatingPriorityTarget,
-            updatingDueDateTarget: store.updatingDueDateTarget
           )
           .transition(.opacity)
         case .reminders:
@@ -733,7 +737,7 @@ private struct IssuesSection: View {
       Image(systemName: "plus")
         .padding(5)
         .contentShape(Rectangle())
-        .hoverHighlight(isHovered: store.hoveredControlID == controlID)
+        .controlHoverHighlight(controlID)
     }
     .buttonStyle(.plain)
     .help(help)
@@ -770,7 +774,7 @@ private struct LoadingIssuesRow: View {
 }
 
 private struct IssueSourceTabSwitcher: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
   @Namespace private var selectionGlass
   let activeSource: IssueSource
 
@@ -830,7 +834,7 @@ private struct IssueSourceTabSwitcher: View {
 
 /// Setup section shown when Google or Linear accounts are not connected.
 private struct ConnectionSetupSection: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
 
   /// Connection statuses that need user attention.
   let statuses: [ConnectionStatus]
@@ -873,7 +877,7 @@ private struct ConnectionSetupSection: View {
 
 /// Setup row that reconnects one affected Google account without touching others.
 private struct GoogleAccountSetupRow: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
 
   let status: GoogleAccountStatus
 
@@ -938,7 +942,7 @@ private struct GoogleAccountSetupRow: View {
 
 /// One setup row for an external account connection.
 private struct ConnectionSetupRow: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
 
   /// Connection status represented by the row.
   let status: ConnectionStatus
@@ -1089,7 +1093,7 @@ private struct PickerOptionRow<Content: View>: View {
 private struct IssueMultiValuePickerPopover: View {
   enum Kind { case labels, assignees }
 
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
   let target: IssueActionTarget
   let title: String
   let kind: Kind
@@ -1185,7 +1189,7 @@ private struct IssueMultiValuePickerPopover: View {
 
 /// Compact status selector for GitHub's open/closed states.
 private struct GitHubStatusPickerPopover: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
   let issue: GitHubIssueItem
 
   var body: some View {
@@ -1210,7 +1214,7 @@ private struct GitHubStatusPickerPopover: View {
 
 /// Native popover for changing the status of a hovered Linear issue.
 private struct StatusPickerPopover: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
 
   /// Issue whose status can be changed.
   let issue: LinearIssueItem
@@ -1293,7 +1297,7 @@ private struct StatusPickerPopover: View {
 
 /// Native popover for changing the priority of a hovered Linear issue.
 private struct PriorityPickerPopover: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
 
   /// Issue whose priority can be changed.
   let issue: LinearIssueItem
@@ -1362,7 +1366,7 @@ private struct PriorityPickerPopover: View {
 
 /// Native popover for changing the due date of a hovered Linear issue.
 private struct DueDatePickerPopover: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
 
   /// Issue whose due date can be changed.
   let issue: LinearIssueItem
@@ -1427,7 +1431,7 @@ private struct DueDatePickerPopover: View {
 
 /// Calendar section listing timed events remaining today.
 private struct CalendarSection: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
 
   /// Timed calendar events to display.
   let events: [CalendarEventItem]
@@ -1445,13 +1449,13 @@ private struct CalendarSection: View {
   let warnings: [String]
 
   /// Identifier for the event currently under the pointer.
-  let hoveredEventID: CalendarEventItem.ID?
+  private var hoveredEventID: CalendarEventItem.ID? { store.hoveredEventID }
 
   /// Whether tomorrow's events should be displayed.
   let isTomorrowExpanded: Bool
 
   /// Current clock tick used to identify meetings happening now.
-  let now: Date
+  private var now: Date { store.calendarHighlightDate }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -1568,7 +1572,7 @@ private struct CalendarSection: View {
     Image(systemName: "plus")
       .padding(5)
       .contentShape(Rectangle())
-      .hoverHighlight(isHovered: store.hoveredControlID == .newCalendarEvent)
+      .controlHoverHighlight(.newCalendarEvent)
   }
 
   /// One calendar row with shared hover and preview behavior.
@@ -1603,7 +1607,7 @@ private struct CalendarSection: View {
 
 /// Full-width row button that expands or collapses tomorrow's events.
 private struct TomorrowEventsButton: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
 
   /// Whether tomorrow's events are currently visible.
   let isExpanded: Bool
@@ -1623,7 +1627,7 @@ private struct TomorrowEventsButton: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-        .hoverHighlight(isHovered: store.hoveredControlID == .tomorrowEvents)
+        .controlHoverHighlight(.tomorrowEvents)
       }
       .buttonStyle(.plain)
       .onHover { isHovered in
@@ -1642,7 +1646,7 @@ private struct TomorrowEventsButton: View {
 
 /// Linear section listing assigned issues by priority.
 private struct LinearSection: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
 
   /// Assigned Linear issues to display.
   let issues: [LinearIssueItem]
@@ -1651,19 +1655,19 @@ private struct LinearSection: View {
   let error: String?
 
   /// Identifier for the issue currently under the pointer.
-  let hoveredIssueTarget: IssueActionTarget?
+  private var hoveredIssueTarget: IssueActionTarget? { store.hoveredIssueTarget }
 
   /// Identifier for the issue whose link was just copied.
-  let copiedIssueTarget: IssueActionTarget?
+  private var copiedIssueTarget: IssueActionTarget? { store.copiedIssueTarget }
 
   /// Identifier for the issue whose status is being updated.
-  let updatingIssueTarget: IssueActionTarget?
+  private var updatingIssueTarget: IssueActionTarget? { store.updatingIssueTarget }
 
   /// Identifier for the issue whose priority is being updated.
-  let updatingPriorityTarget: IssueActionTarget?
+  private var updatingPriorityTarget: IssueActionTarget? { store.updatingPriorityTarget }
 
   /// Identifier for the issue whose due date is being updated.
-  let updatingDueDateTarget: IssueActionTarget?
+  private var updatingDueDateTarget: IssueActionTarget? { store.updatingDueDateTarget }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -1703,23 +1707,23 @@ private struct LinearSection: View {
             }
             .popover(isPresented: statusPickerBinding(for: issue.id), arrowEdge: .trailing) {
               StatusPickerPopover(issue: issue)
-                .environmentObject(store)
+                .environment(store)
             }
             .popover(isPresented: priorityPickerBinding(for: issue.id), arrowEdge: .trailing) {
               PriorityPickerPopover(issue: issue)
-                .environmentObject(store)
+                .environment(store)
             }
             .popover(isPresented: dueDatePickerBinding(for: issue.id), arrowEdge: .trailing) {
               DueDatePickerPopover(issue: issue)
-                .environmentObject(store)
+                .environment(store)
             }
             .popover(isPresented: labelPickerBinding(for: .linear(issue.id)), arrowEdge: .trailing) {
               IssueMultiValuePickerPopover(target: .linear(issue.id), title: issue.title, kind: .labels)
-                .environmentObject(store)
+                .environment(store)
             }
             .popover(isPresented: assigneePickerBinding(for: .linear(issue.id)), arrowEdge: .trailing) {
               IssueMultiValuePickerPopover(target: .linear(issue.id), title: issue.title, kind: .assignees)
-                .environmentObject(store)
+                .environment(store)
             }
             .popover(isPresented: previewBinding(for: .linear(issue.id)), arrowEdge: .trailing) {
               LinearIssuePreviewPopover(issue: issue)
@@ -1804,7 +1808,7 @@ private struct LinearSection: View {
 
 /// GitHub issues section of the menu popover.
 private struct GitHubSection: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
 
   /// Assigned open GitHub issues to display.
   let issues: [GitHubIssueItem]
@@ -1813,10 +1817,10 @@ private struct GitHubSection: View {
   let error: String?
 
   /// Identifier for the issue currently under the pointer.
-  let hoveredIssueTarget: IssueActionTarget?
+  private var hoveredIssueTarget: IssueActionTarget? { store.hoveredIssueTarget }
 
   /// Identifier for the issue whose link was just copied.
-  let copiedIssueTarget: IssueActionTarget?
+  private var copiedIssueTarget: IssueActionTarget? { store.copiedIssueTarget }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -1843,15 +1847,15 @@ private struct GitHubSection: View {
               store.setHoveredIssue(isHovered ? .github(issue.id) : nil)
             }
             .popover(isPresented: statusPickerBinding(for: issue.id), arrowEdge: .trailing) {
-              GitHubStatusPickerPopover(issue: issue).environmentObject(store)
+              GitHubStatusPickerPopover(issue: issue).environment(store)
             }
             .popover(isPresented: labelPickerBinding(for: .github(issue.id)), arrowEdge: .trailing) {
               IssueMultiValuePickerPopover(target: .github(issue.id), title: issue.title, kind: .labels)
-                .environmentObject(store)
+                .environment(store)
             }
             .popover(isPresented: assigneePickerBinding(for: .github(issue.id)), arrowEdge: .trailing) {
               IssueMultiValuePickerPopover(target: .github(issue.id), title: issue.title, kind: .assignees)
-                .environmentObject(store)
+                .environment(store)
             }
             .popover(isPresented: previewBinding(for: .github(issue.id)), arrowEdge: .trailing) {
               GitHubIssuePreviewPopover(issue: issue)
@@ -1892,7 +1896,7 @@ private struct GitHubSection: View {
 
 /// Apple Reminders section listing incomplete reminders from selected lists.
 private struct AppleRemindersSection: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
 
   let reminders: [AppleReminderItem]
   let error: String?
@@ -1923,15 +1927,15 @@ private struct AppleRemindersSection: View {
               }
               .popover(isPresented: statusPickerBinding(for: reminder.id), arrowEdge: .trailing) {
                 AppleReminderStatusPickerPopover(reminder: reminder)
-                  .environmentObject(store)
+                  .environment(store)
               }
               .popover(isPresented: priorityPickerBinding(for: reminder.id), arrowEdge: .trailing) {
                 AppleReminderPriorityPickerPopover(reminder: reminder)
-                  .environmentObject(store)
+                  .environment(store)
               }
               .popover(isPresented: dueDatePickerBinding(for: reminder.id), arrowEdge: .trailing) {
                 AppleReminderDueDatePickerPopover(reminder: reminder)
-                  .environmentObject(store)
+                  .environment(store)
               }
               .popover(isPresented: previewBinding(for: reminder.id), arrowEdge: .trailing) {
                 AppleReminderPreviewPopover(reminder: reminder)
@@ -1991,7 +1995,7 @@ private struct AppleRemindersSection: View {
 
 /// Binary incomplete/completed status selector for an Apple Reminder.
 private struct AppleReminderStatusPickerPopover: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
   let reminder: AppleReminderItem
 
   var body: some View {
@@ -2018,7 +2022,7 @@ private struct AppleReminderStatusPickerPopover: View {
 
 /// Priority selector backed by Apple Reminders' native four priority levels.
 private struct AppleReminderPriorityPickerPopover: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
   let reminder: AppleReminderItem
 
   var body: some View {
@@ -2053,7 +2057,7 @@ private struct AppleReminderPriorityPickerPopover: View {
 
 /// Date-only editor for a nonrecurring Apple Reminder, preserving any existing due time.
 private struct AppleReminderDueDatePickerPopover: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
   let reminder: AppleReminderItem
   @State private var selectedDate: Date
 
@@ -2095,7 +2099,7 @@ private struct AppleReminderDueDatePickerPopover: View {
 
 /// One compact Apple Reminder row with provider-supported metadata and actions.
 private struct AppleReminderRow: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
   let reminder: AppleReminderItem
 
   private var target: IssueActionTarget { .reminder(reminder.id) }
@@ -2249,7 +2253,7 @@ private struct AppleReminderRow: View {
 
 /// Provider-supported reminder mutations exposed as named VoiceOver actions.
 private struct AppleReminderAccessibilityActions: ViewModifier {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
   let reminder: AppleReminderItem
 
   @ViewBuilder
@@ -2320,7 +2324,7 @@ private func priorityStyle(_ priority: AppleReminderPriority) -> MetadataStyle {
 
 /// One compact GitHub issue row with a configurable details or browser action.
 private struct GitHubIssueRow: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
   /// Issue represented by the row.
   let issue: GitHubIssueItem
 
@@ -2377,11 +2381,7 @@ private struct GitHubIssueRow: View {
           }
 
           if let updatedAt = issue.updatedAt, store.issueRowFields.contains(.updated) {
-            MetadataPill(
-              title: "Updated \(DisplayFormatters.relative.localizedString(fromTimeInterval: updatedAt.timeIntervalSinceNow))",
-              systemImage: "clock",
-              color: .secondary
-            )
+            UpdatedAgoPill(updatedAt: updatedAt)
           }
 
           if isCopied {
@@ -2427,7 +2427,7 @@ private struct GitHubIssueRow: View {
 
 /// Local section listing recent notes.
 private struct NotesSection: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
 
   /// Local notes to display.
   let notes: [LocalNoteItem]
@@ -2436,7 +2436,7 @@ private struct NotesSection: View {
   let error: String?
 
   /// Identifier for the note currently under the pointer.
-  let hoveredNoteID: LocalNoteItem.ID?
+  private var hoveredNoteID: LocalNoteItem.ID? { store.hoveredNoteID }
 
   /// Action run when the user creates a new note.
   let openNewNote: () -> Void
@@ -2455,7 +2455,7 @@ private struct NotesSection: View {
           Image(systemName: "plus")
             .padding(5)
             .contentShape(Rectangle())
-            .hoverHighlight(isHovered: store.hoveredControlID == .newNote)
+            .controlHoverHighlight(.newNote)
         }
         .buttonStyle(.plain)
         .help("New note")
@@ -2509,7 +2509,7 @@ private struct NotesSection: View {
 
 /// Compact controls that reveal or collapse fetched local notes.
 private struct MoreNotesControls: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
 
   /// Whether another page can be revealed.
   let canShowMore: Bool
@@ -2539,7 +2539,7 @@ private struct MoreNotesControls: View {
           .padding(.horizontal, 6)
           .padding(.vertical, 4)
           .contentShape(Rectangle())
-          .hoverHighlight(isHovered: store.hoveredControlID == .moreNotes)
+          .controlHoverHighlight(.moreNotes)
         }
         .buttonStyle(.plain)
         .onHover { isHovered in
@@ -2563,7 +2563,7 @@ private struct MoreNotesControls: View {
           .padding(.horizontal, 6)
           .padding(.vertical, 4)
           .contentShape(Rectangle())
-          .hoverHighlight(isHovered: store.hoveredControlID == .fewerNotes)
+          .controlHoverHighlight(.fewerNotes)
         }
         .buttonStyle(.plain)
         .onHover { isHovered in
@@ -2581,7 +2581,7 @@ private struct MoreNotesControls: View {
 
 /// Compact controls that reveal or collapse fetched Linear issues.
 private struct MoreIssuesControls: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
 
   /// Whether another page can be revealed.
   let canShowMore: Bool
@@ -2617,7 +2617,7 @@ private struct MoreIssuesControls: View {
           .padding(.horizontal, 6)
           .padding(.vertical, 4)
           .contentShape(Rectangle())
-          .hoverHighlight(isHovered: store.hoveredControlID == .moreIssues)
+          .controlHoverHighlight(.moreIssues)
         }
         .buttonStyle(.plain)
         .onHover { isHovered in
@@ -2641,7 +2641,7 @@ private struct MoreIssuesControls: View {
           .padding(.horizontal, 6)
           .padding(.vertical, 4)
           .contentShape(Rectangle())
-          .hoverHighlight(isHovered: store.hoveredControlID == .fewerIssues)
+          .controlHoverHighlight(.fewerIssues)
         }
         .buttonStyle(.plain)
         .onHover { isHovered in
@@ -2791,7 +2791,7 @@ private struct EventRow: View {
 
 /// One Linear issue row with title-first layout and muted metadata.
 private struct IssueRow: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
 
   /// Issue represented by the row.
   let issue: LinearIssueItem
@@ -2917,11 +2917,7 @@ private struct IssueRow: View {
         }
 
         if let updatedAt = issue.updatedAt, store.issueRowFields.contains(.updated) {
-          MetadataPill(
-            title: "Updated \(DisplayFormatters.relative.localizedString(fromTimeInterval: updatedAt.timeIntervalSinceNow))",
-            systemImage: "clock",
-            color: .secondary
-          )
+          UpdatedAgoPill(updatedAt: updatedAt)
         }
 
         if let dueDate = issue.dueDate, !dueDate.isEmpty, store.issueRowFields.contains(.dueDate) {
@@ -3200,7 +3196,24 @@ private struct HoverHighlightModifier: ViewModifier {
   }
 }
 
+/// Hover background for menu chrome controls. Reads the hovered control here so
+/// a hover only re-renders this modifier, not the whole menu.
+private struct ControlHoverHighlightModifier: ViewModifier {
+  @Environment(StatusStore.self) private var store
+  let controlID: MenuControlID
+  let isEnabled: Bool
+
+  func body(content: Content) -> some View {
+    content.hoverHighlight(isHovered: store.hoveredControlID == controlID, isEnabled: isEnabled)
+  }
+}
+
 private extension View {
+  /// Applies the standard hover background to one menu chrome control.
+  func controlHoverHighlight(_ controlID: MenuControlID, isEnabled: Bool = true) -> some View {
+    modifier(ControlHoverHighlightModifier(controlID: controlID, isEnabled: isEnabled))
+  }
+
   /// Applies the menu's standard rounded hover background.
   func hoverHighlight(isHovered: Bool, isEnabled: Bool = true) -> some View {
     modifier(HoverHighlightModifier(isHovered: isHovered, isEnabled: isEnabled))
@@ -3214,6 +3227,21 @@ private struct MetadataStyle {
 
   /// Semantic color for the metadata icon.
   let color: Color
+}
+
+/// "Updated … ago" pill that keeps its own minute clock while visible.
+private struct UpdatedAgoPill: View {
+  let updatedAt: Date
+
+  var body: some View {
+    TimelineView(.everyMinute) { context in
+      MetadataPill(
+        title: "Updated \(DisplayFormatters.relative.localizedString(for: updatedAt, relativeTo: context.date))",
+        systemImage: "clock",
+        color: .secondary
+      )
+    }
+  }
 }
 
 /// Small Linear-style metadata pill.

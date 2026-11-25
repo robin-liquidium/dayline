@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Stock SwiftUI window for creating a GitHub issue through the API.
 struct GitHubIssueEditorView: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
   @Environment(\.dismiss) private var dismiss
 
   @StateObject private var draft = GitHubIssueDraft()

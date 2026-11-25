@@ -347,6 +347,8 @@ actor OAuthSession {
   private func perform(_ request: URLRequest, accessToken: String) async throws -> (Data, HTTPURLResponse) {
     var authorizedRequest = request
     authorizedRequest.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    // API state (e.g. a just-cancelled event) must never come from the HTTP cache.
+    authorizedRequest.cachePolicy = .reloadIgnoringLocalCacheData
     let (data, response) = try await URLSession.shared.data(for: authorizedRequest)
 
     guard let httpResponse = response as? HTTPURLResponse else {

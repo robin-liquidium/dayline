@@ -425,6 +425,30 @@ struct CalendarEventItemTests {
     #expect(query["timeMin"] != formatter.string(from: now))
   }
 
+  @Test func googleDeclinedInvitationIsHidden() throws {
+    let calendar = GoogleCalendarSource(id: "work", name: "Work", isPrimary: true, isEnabled: true)
+    let declined = try decodeGoogleEvent(attendeesJSON: #"[{ "self": true, "responseStatus": "declined" }]"#)
+    let accepted = try decodeGoogleEvent(attendeesJSON: #"[{ "self": true, "responseStatus": "accepted" }]"#)
+    let otherDeclined = try decodeGoogleEvent(attendeesJSON: #"[{ "responseStatus": "declined" }]"#)
+
+    #expect(declined.displayItem(accountID: UUID(), calendar: calendar, now: .distantPast) == nil)
+    #expect(accepted.displayItem(accountID: UUID(), calendar: calendar, now: .distantPast) != nil)
+    #expect(otherDeclined.displayItem(accountID: UUID(), calendar: calendar, now: .distantPast) != nil)
+  }
+
+  @Test func googleEventsRequestAsksOnlyForTheSignedInAttendee() throws {
+    let url = try #require(CalendarService.eventsRequestURL(
+      calendarID: "work@example.com",
+      from: Date(timeIntervalSince1970: 0),
+      to: Date(timeIntervalSince1970: 86_400)
+    ))
+    let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+    let query = Dictionary(uniqueKeysWithValues: items.compactMap { item in item.value.map { (item.name, $0) } })
+
+    #expect(query["maxAttendees"] == "1")
+    #expect(query["fields"]?.contains("attendees(self,responseStatus)") == true)
+  }
+
   @Test func googleConferenceMoreEntryIsNotAJoinLink() throws {
     let event = try decodeGoogleEvent(conferenceEntryType: "more")
     let item = try #require(event.displayItem(
@@ -540,6 +564,21 @@ struct CalendarEventItemTests {
       sourceCalendarNames: source.map { [$0] } ?? [],
       sourceIDs: sourceIDs,
       deduplicationKey: deduplicationKey
+    )
+  }
+
+  private func decodeGoogleEvent(attendeesJSON: String) throws -> GoogleCalendarEvent {
+    try JSONDecoder().decode(
+      GoogleCalendarEvent.self,
+      from: Data("""
+      {
+        "id": "invite",
+        "summary": "Invite",
+        "start": { "dateTime": "2026-08-10T10:00:00Z" },
+        "end": { "dateTime": "2026-08-10T11:00:00Z" },
+        "attendees": \(attendeesJSON)
+      }
+      """.utf8)
     )
   }
 

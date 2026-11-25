@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Linear issue defaults and menu ordering settings.
 struct IssuesSettingsTab: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
   @State private var linearCreateTeams: [LinearTeamOption] = []
   @State private var linearCreateProjects: [LinearProjectOption] = []
   @State private var linearCreateLabels: [LinearLabelOption] = []
@@ -29,14 +29,14 @@ struct IssuesSettingsTab: View {
       }
 
       Section {
-        Picker("Click an issue", selection: $store.issueClickAction) {
+        Picker("Click an issue", selection: Bindable(store).issueClickAction) {
           ForEach(IssueClickAction.allCases) { action in
             Text(action.label).tag(action)
           }
         }
         .accessibilityIdentifier("settings.issueClickAction")
 
-        Picker("Alternate click modifier", selection: $store.issueClickModifier) {
+        Picker("Alternate click modifier", selection: Bindable(store).issueClickModifier) {
           ForEach(IssueClickModifier.allCases) { modifier in
             Text(modifier.label).tag(modifier)
           }

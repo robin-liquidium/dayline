@@ -28,11 +28,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct DaylineApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-  @StateObject private var store: StatusStore
+  @State private var store: StatusStore
   @StateObject private var updateService: UpdateService
   private let appDisplayName: String
 
   init() {
+    // Dayline only talks to JSON APIs whose answers must be fresh; an HTTP
+    // cache would just hold stale payloads in memory and on disk.
+    URLCache.shared = URLCache(memoryCapacity: 0, diskCapacity: 0)
     let arguments = ProcessInfo.processInfo.arguments
     let isMockBundle = Bundle.main.bundleIdentifier == "build.local.DaylineMock"
     let isMock = arguments.contains("--mock") || isMockBundle
@@ -53,7 +56,7 @@ struct DaylineApp: App {
       }
       ?? Set(IssueSource.allCases)
     let mockData = isMock ? MockData.make(issueSources: mockIssueSources) : nil
-    _store = StateObject(wrappedValue: StatusStore(mockData: mockData))
+    _store = State(initialValue: StatusStore(mockData: mockData))
     _updateService = StateObject(wrappedValue: UpdateService(
       isMock: isMock,
       mockVersion: mockData?.availableUpdateVersion
@@ -65,17 +68,17 @@ struct DaylineApp: App {
   var body: some Scene {
     MenuBarExtra {
       StatusMenuView()
-        .environmentObject(store)
+        .environment(store)
         .environmentObject(updateService)
     } label: {
       MenuBarLabelView()
-        .environmentObject(store)
+        .environment(store)
     }
     .menuBarExtraStyle(.window)
 
     WindowGroup("Note", for: NoteEditorRequest.self) { $request in
       NoteEditorView(request: request ?? .new)
-        .environmentObject(store)
+        .environment(store)
     }
     .defaultSize(width: 500, height: 420)
     // OAuth redirects use the dayline:// scheme; do not let them open editor windows.
@@ -86,35 +89,35 @@ struct DaylineApp: App {
 
     Window("New Linear Issue", id: "linearIssueCreator") {
       LinearIssueEditorView()
-        .environmentObject(store)
+        .environment(store)
     }
     .defaultSize(width: 620, height: 600)
     .handlesExternalEvents(matching: [])
 
     Window("New GitHub Issue", id: "githubIssueCreator") {
       GitHubIssueEditorView()
-        .environmentObject(store)
+        .environment(store)
     }
     .defaultSize(width: 620, height: 520)
     .handlesExternalEvents(matching: [])
 
     Window("New Apple Reminder", id: "appleReminderCreator") {
       AppleReminderEditorView()
-        .environmentObject(store)
+        .environment(store)
     }
     .defaultSize(width: 580, height: 540)
     .handlesExternalEvents(matching: [])
 
     Window("New Apple Calendar Event", id: "appleCalendarEventCreator") {
       AppleCalendarEventEditorView()
-        .environmentObject(store)
+        .environment(store)
     }
     .defaultSize(width: 560, height: 440)
     .handlesExternalEvents(matching: [])
 
     Window("\(appDisplayName) Settings", id: "settings") {
       SettingsView()
-        .environmentObject(store)
+        .environment(store)
         .environmentObject(updateService)
     }
     .defaultSize(width: 800, height: 720)
@@ -125,7 +128,7 @@ struct DaylineApp: App {
 
 /// Always-mounted menu bar label that also handles app-level window requests.
 private struct MenuBarLabelView: View {
-  @EnvironmentObject private var store: StatusStore
+  @Environment(StatusStore.self) private var store
   @Environment(\.openWindow) private var openWindow
 
   var body: some View {

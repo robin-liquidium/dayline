@@ -1,18 +1,23 @@
 import AppKit
 import SwiftUI
 
-/// Presents a borderless full-screen meeting alert above all other content.
+/// Presents a borderless full-screen meeting alert above all other content,
+/// including other apps' full-screen Spaces.
 @MainActor
 final class MeetingAlertWindowController {
   static let shared = MeetingAlertWindowController()
 
-  private var window: NSWindow?
+  private var panel: AlertPanel?
 
   private init() {}
 
-  /// Borderless windows reject key status by default; the alert needs it for Esc/Return.
-  private final class AlertWindow: NSWindow {
+  /// A non-activating panel can sit on top of another app's full-screen Space.
+  /// Activating Dayline instead would make macOS switch away to a Space where
+  /// Dayline has windows, so the alert never appeared over full-screen apps.
+  private final class AlertPanel: NSPanel {
+    /// Borderless panels reject key status by default; the alert needs it for Esc/Return.
     override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
   }
 
   /// Shows the alert for a meeting, updating the content in place when already visible.
@@ -23,7 +28,7 @@ final class MeetingAlertWindowController {
     onSnooze: @escaping () -> Void,
     onDismiss: @escaping () -> Void
   ) {
-    guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+    guard let screen = Self.activeScreen else { return }
     let rootView = MeetingAlertView(
       event: event,
       snoozeMinutes: snoozeMinutes,
@@ -32,39 +37,49 @@ final class MeetingAlertWindowController {
       onDismiss: onDismiss
     )
 
-    if let window, let hostingView = window.contentView as? NSHostingView<MeetingAlertView> {
+    let alertPanel: AlertPanel
+    if let panel, let hostingView = panel.contentView as? NSHostingView<MeetingAlertView> {
       hostingView.rootView = rootView
-      window.setFrame(screen.frame, display: true)
-      window.makeKeyAndOrderFront(nil)
-      NSApp.activate()
-      DaylineDiagnostics.record("Meeting alert window appeared", category: .lifecycle)
-      return
+      alertPanel = panel
+    } else {
+      alertPanel = AlertPanel(
+        contentRect: screen.frame,
+        styleMask: [.borderless, .nonactivatingPanel],
+        backing: .buffered,
+        defer: false
+      )
+      alertPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+      alertPanel.hidesOnDeactivate = false
+      alertPanel.isReleasedWhenClosed = false
+      alertPanel.isOpaque = false
+      alertPanel.backgroundColor = .clear
+      alertPanel.hasShadow = false
+      alertPanel.contentView = NSHostingView(rootView: rootView)
+      panel = alertPanel
     }
 
-    let alertWindow = AlertWindow(
-      contentRect: screen.frame,
-      styleMask: .borderless,
-      backing: .buffered,
-      defer: false
-    )
-    alertWindow.level = .screenSaver
-    alertWindow.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-    alertWindow.isOpaque = false
-    alertWindow.backgroundColor = .clear
-    alertWindow.hasShadow = false
-    alertWindow.contentView = NSHostingView(rootView: rootView)
-    alertWindow.makeKeyAndOrderFront(nil)
-    NSApp.activate()
-    window = alertWindow
+    // Set last: NSPanel's floating-panel defaults would otherwise lower it.
+    alertPanel.level = .screenSaver
+    alertPanel.setFrame(screen.frame, display: true)
+    alertPanel.orderFrontRegardless()
+    alertPanel.makeKey()
     DaylineDiagnostics.record("Meeting alert window appeared", category: .lifecycle)
   }
 
   /// Hides the alert while retaining its SwiftUI hierarchy for safe reuse.
   func dismiss() {
-    guard let window, window.isVisible else {
+    guard let panel, panel.isVisible else {
       return
     }
-    window.orderOut(nil)
+    panel.orderOut(nil)
     DaylineDiagnostics.record("Meeting alert window disappeared", category: .lifecycle)
+  }
+
+  /// Screen the user is looking at: the one under the pointer, else the main screen.
+  private static var activeScreen: NSScreen? {
+    let mouse = NSEvent.mouseLocation
+    return NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
+      ?? NSScreen.main
+      ?? NSScreen.screens.first
   }
 }

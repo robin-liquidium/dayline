@@ -14,7 +14,7 @@ struct MarkdownRenderingIntegrationTests {
   @Test func noteEditorUsesProductionFont() throws {
     let store = StatusStore(mockData: MockData.make())
     let editor = NoteEditorView(request: .existing("mock-note-1"))
-      .environmentObject(store)
+      .environment(store)
       .frame(width: 500, height: 420)
     let hostingView = NSHostingView(rootView: editor)
     hostingView.frame = NSRect(x: 0, y: 0, width: 500, height: 420)

@@ -6,7 +6,18 @@ final class AppleCalendarService: @unchecked Sendable {
   /// Stable local identifier namespacing Apple-sourced event identities.
   static let accountID = UUID(uuidString: "a9c0ffee-0000-4000-8000-0000000000a9")!
 
+  /// One long-lived store: creating an EKEventStore per refresh is expensive and
+  /// a shared store is what receives EKEventStoreChanged notifications.
   private let eventStore = EKEventStore()
+  private var changeObserver: NSObjectProtocol?
+  /// Serializes background reads with saves and resets, which invalidate EKEvent objects.
+  private let storeLock = NSLock()
+
+  deinit {
+    if let changeObserver {
+      NotificationCenter.default.removeObserver(changeObserver)
+    }
+  }
 
   /// Whether the bundle may ask for calendar access without crashing.
   static var canRequestAccess: Bool {
@@ -20,7 +31,24 @@ final class AppleCalendarService: @unchecked Sendable {
 
   /// Asks the system for full access to calendar events.
   func requestFullAccess() async throws -> Bool {
-    try await eventStore.requestFullAccessToEvents()
+    let granted = try await eventStore.requestFullAccessToEvents()
+    if granted {
+      // Make calendars granted just now visible to the long-lived store.
+      storeLock.withLock { eventStore.reset() }
+    }
+    return granted
+  }
+
+  /// Calls the handler on the main actor whenever calendar data changes outside Dayline.
+  func setChangeHandler(_ handler: @escaping @MainActor () -> Void) {
+    guard changeObserver == nil else { return }
+    changeObserver = NotificationCenter.default.addObserver(
+      forName: .EKEventStoreChanged,
+      object: eventStore,
+      queue: .main
+    ) { _ in
+      MainActor.assumeIsolated { handler() }
+    }
   }
 
   /// Lists device calendars with default-enabled selections.
@@ -69,6 +97,8 @@ final class AppleCalendarService: @unchecked Sendable {
       event.endDate = draft.endDate
     }
 
+    storeLock.lock()
+    defer { storeLock.unlock() }
     do {
       try eventStore.save(event, span: .thisEvent, commit: true)
     } catch {
@@ -77,16 +107,20 @@ final class AppleCalendarService: @unchecked Sendable {
     }
   }
 
-  /// Loads timed events from the selected calendars in the given window.
+  /// Loads events from the selected calendars in the given window, skipping
+  /// canceled events and invitations the user declined.
   func events(in calendarIDs: Set<String>, from start: Date, to end: Date) -> [CalendarEventItem] {
-    let eventStore = EKEventStore()
+    storeLock.lock()
+    defer { storeLock.unlock() }
     let calendars = eventStore.calendars(for: .event).filter { calendarIDs.contains($0.calendarIdentifier) }
     guard !calendars.isEmpty else {
       return []
     }
     let predicate = eventStore.predicateForEvents(withStart: start, end: end, calendars: calendars)
     return eventStore.events(matching: predicate).compactMap { event in
-      guard let eventID = event.eventIdentifier,
+      guard event.status != .canceled,
+            !Self.currentUserDeclined(event),
+            let eventID = event.eventIdentifier,
             let startDate = event.startDate,
             let endDate = event.endDate else {
         return nil
@@ -116,6 +150,13 @@ final class AppleCalendarService: @unchecked Sendable {
         deduplicationKey: deduplicationKey
       )
     }
+  }
+}
+
+extension AppleCalendarService {
+  /// Whether the signed-in user declined this invitation.
+  static func currentUserDeclined(_ event: EKEvent) -> Bool {
+    event.attendees?.first(where: \.isCurrentUser)?.participantStatus == .declined
   }
 }
 

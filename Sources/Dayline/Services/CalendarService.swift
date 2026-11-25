@@ -125,13 +125,20 @@ struct CalendarService: Sendable {
       URLQueryItem(name: "timeMax", value: isoFormatter.string(from: endDate)),
       URLQueryItem(name: "singleEvents", value: "true"),
       URLQueryItem(name: "orderBy", value: "startTime"),
-      URLQueryItem(name: "maxResults", value: "2500")
+      URLQueryItem(name: "maxResults", value: "2500"),
+      // Only the signed-in attendee is needed to detect declined invitations.
+      URLQueryItem(name: "maxAttendees", value: "1"),
+      URLQueryItem(name: "fields", value: Self.eventFields)
     ]
     if let pageToken {
       components.queryItems?.append(URLQueryItem(name: "pageToken", value: pageToken))
     }
     return components.url
   }
+
+  /// Partial response covering exactly the fields `GoogleCalendarEvent` decodes.
+  private static let eventFields = "nextPageToken,items(id,iCalUID,status,summary,start,end,originalStartTime,"
+    + "location,hangoutLink,conferenceData/entryPoints(entryPointType,uri),htmlLink,attendees(self,responseStatus))"
 
   /// Loads the primary calendar identity, whose ID is the stable Google account email.
   private func fetchPrimaryCalendarIdentity() async throws -> GoogleCalendarIdentity {
@@ -196,11 +203,18 @@ struct GoogleCalendarEvent: Decodable {
   let hangoutLink: String?
   let conferenceData: GoogleCalendarConferenceData?
   let htmlLink: String?
+  let attendees: [GoogleCalendarAttendee]?
+
+  /// Whether the signed-in user declined this invitation.
+  var isDeclinedBySelf: Bool {
+    attendees?.contains { $0.isSelf == true && $0.responseStatus == "declined" } == true
+  }
 
   /// Converts a Google event into one account- and calendar-scoped display item.
   func displayItem(accountID: UUID, calendar: GoogleCalendarSource, now: Date) -> CalendarEventItem? {
     let isAllDay = start.isDateOnly && end.isDateOnly
     guard status != "cancelled",
+          !isDeclinedBySelf,
           let startDate = start.resolvedDate,
           let endDate = end.resolvedDate,
           endDate > now else {
@@ -251,6 +265,17 @@ struct GoogleCalendarEvent: Decodable {
     let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
     let range = NSRange(text.startIndex..<text.endIndex, in: text)
     return detector?.firstMatch(in: text, options: [], range: range)?.url
+  }
+}
+
+/// Attendee entry; with `maxAttendees=1` Google returns only the signed-in user.
+struct GoogleCalendarAttendee: Decodable {
+  let isSelf: Bool?
+  let responseStatus: String?
+
+  enum CodingKeys: String, CodingKey {
+    case isSelf = "self"
+    case responseStatus
   }
 }
 
