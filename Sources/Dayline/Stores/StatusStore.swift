@@ -683,7 +683,8 @@ final class StatusStore {
   @ObservationIgnored private var appleCalendarChangeTask: Task<Void, Never>?
   /// Start order of calendar loads; a load that started earlier never overwrites a newer one.
   @ObservationIgnored private var calendarLoadSequence = 0
-  @ObservationIgnored private var appliedCalendarLoadSequence = 0
+  @ObservationIgnored private var appliedGoogleLoadSequence = 0
+  @ObservationIgnored private var appliedAppleLoadSequence = 0
   /// A calendar change arrived while a load was running; reload once it finishes.
   @ObservationIgnored private var calendarRefreshPending = false
   /// Order of local Linear edits, so a refresh that started earlier cannot undo them.
@@ -1081,14 +1082,20 @@ final class StatusStore {
     googleRevision: Int,
     appleCalendarRevision capturedAppleRevision: Int
   ) {
-    // A slower load that started before a newer one could resurrect cancelled events.
-    guard loadID > appliedCalendarLoadSequence else { return }
+    // Each provider keeps its own order: a slower load that started earlier must not
+    // resurrect cancelled events, and one provider failing must not block the other.
+    let googleIsCurrent = loadID > appliedGoogleLoadSequence
+      && connectionRevisions[.google, default: 0] == googleRevision
+    let appleIsCurrent = loadID > appliedAppleLoadSequence
+      && appleCalendarRevision == capturedAppleRevision
     var didReplaceCalendarEvents = false
-    if let calendarResult {
-      var didFilterRetainedEvents = false
-      if connectionRevisions[.google, default: 0] == googleRevision {
+    var didFilterRetainedEvents = false
+
+    if googleIsCurrent {
+      if let calendarResult {
         if calendarResult.shouldReplaceGoogleEvents {
           googleSourceEvents = calendarResult.googleSourceEvents
+          appliedGoogleLoadSequence = loadID
           didReplaceCalendarEvents = true
         } else {
           // Visible calendars failed, but confirmed declines still hide cached copies.
@@ -1103,45 +1110,34 @@ final class StatusStore {
         }
         calendarWarnings = calendarResult.warnings
         for accountID in calendarResult.reauthenticationAccountIDs {
-          updateGoogleAccountStatus(
-            accountID,
-            state: .disconnected,
-            detail: "Reconnect required."
-          )
+          updateGoogleAccountStatus(accountID, state: .disconnected, detail: "Reconnect required.")
         }
         if !calendarResult.reauthenticationAccountIDs.isEmpty {
           updateGoogleAggregateStatus()
         }
-      }
-      if appleCalendarRevision == capturedAppleRevision,
-         calendarResult.shouldReplaceAppleEvents {
-        appleSourceEvents = calendarResult.appleSourceEvents
-        didReplaceCalendarEvents = true
-      }
-      if didReplaceCalendarEvents || didFilterRetainedEvents {
-        rebuildAgendaFromCachedSources()
-      }
-    } else {
-      if connectionRevisions[.google, default: 0] == googleRevision {
+      } else {
         googleSourceEvents = []
         calendarWarnings = []
+        appliedGoogleLoadSequence = loadID
         didReplaceCalendarEvents = true
-      }
-      if appleCalendarRevision == capturedAppleRevision {
-        appleSourceEvents = []
-        didReplaceCalendarEvents = true
-      }
-      if didReplaceCalendarEvents {
-        rebuildAgendaFromCachedSources()
       }
     }
-    // Only fresh data moves these marks; a failed load that kept the old snapshot must
-    // neither block an older successful load nor make the menu skip its stale reload.
+
+    if appleIsCurrent, calendarResult?.shouldReplaceAppleEvents ?? true {
+      appleSourceEvents = calendarResult?.appleSourceEvents ?? []
+      appliedAppleLoadSequence = loadID
+      didReplaceCalendarEvents = true
+    }
+
+    if didReplaceCalendarEvents || didFilterRetainedEvents {
+      rebuildAgendaFromCachedSources()
+    }
+    // A failed load that kept the old snapshot must not make the menu skip its stale reload.
     if didReplaceCalendarEvents {
-      appliedCalendarLoadSequence = loadID
       lastCalendarRefreshAt = Date()
     }
   }
+
 
   /// Reloads only calendar events, skipping account discovery and issue providers.
   /// Runs on a short cadence so cancellations and declines disappear quickly.
