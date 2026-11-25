@@ -363,7 +363,7 @@ final class DaylineUITests: XCTestCase {
     while !(farIssue.exists && farIssue.isHittable), Date() < deadline {
       menuScrollView.scroll(byDeltaX: 0, deltaY: -200)
     }
-    XCTAssertTrue(farIssue.exists, "Rows far down the list should load while scrolling")
+    XCTAssertTrue(farIssue.exists && farIssue.isHittable, "Scrolling should bring rows far down the list into view")
     XCTAssertTrue(tabs.isHittable)
     XCTAssertLessThan(
       abs(tabs.frame.minY - menuScrollView.frame.minY),
@@ -373,8 +373,12 @@ final class DaylineUITests: XCTestCase {
     attachCheckpoint("long-list-pinned", identifiers: ["issues.source.linear", "linear.issue.DAY-260"])
 
     showNotesTab()
-    XCTAssertTrue(
-      element("notes.note.mock-note-1").waitForExistenceIfNeeded(timeout: 3),
+    let firstNote = element("notes.note.mock-note-1")
+    XCTAssertTrue(firstNote.waitForExistenceIfNeeded(timeout: 3))
+    let shownAtTop = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: firstNote)
+    XCTAssertEqual(
+      XCTWaiter().wait(for: [shownAtTop], timeout: 3),
+      .completed,
       "A newly selected tab should start at its first row"
     )
   }
