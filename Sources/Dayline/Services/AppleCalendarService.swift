@@ -127,6 +127,9 @@ final class AppleCalendarService: @unchecked Sendable {
       }
     }
     return matches.compactMap { event in
+      if Self.currentUserDeclined(event) {
+        return nil
+      }
       if let key = Self.occurrenceKey(event),
          declinedKeysBySource[event.calendar.source.sourceIdentifier]?.contains(key) == true {
         return nil
