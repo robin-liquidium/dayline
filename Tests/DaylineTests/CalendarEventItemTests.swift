@@ -444,21 +444,29 @@ struct CalendarEventItemTests {
     #expect(sharedBatch.declinedKeys.isEmpty)
   }
 
-  @MainActor @Test func declinedOccurrenceIsHiddenFromEveryCalendar() throws {
+  @MainActor @Test func declinedOccurrenceIsHiddenOnlyForTheDecliningAccount() throws {
+    let account = UUID()
+    let otherAccount = UUID()
     let start = Date(timeIntervalSince1970: 1_000)
     let teamCopy = event(id: "team-copy", startDate: start, endDate: start + 1_800, deduplicationKey: "uid|1000.0")
-    let other = event(id: "other", startDate: start, endDate: start + 1_800, deduplicationKey: "uid2|1000.0")
+    let otherMeeting = event(id: "other", startDate: start, endDate: start + 1_800, deduplicationKey: "uid2|1000.0")
+    let otherAccountCopy = event(
+      id: "other-account-copy", startDate: start, endDate: start + 1_800, deduplicationKey: "uid|1000.0"
+    )
     let result = StatusStore.assembleCalendarAgenda(
       sourceBatches: [
-        CalendarAgendaSourceBatch(provider: .google, events: [], warning: nil, declinedKeys: ["uid|1000.0"]),
-        CalendarAgendaSourceBatch(provider: .google, events: [teamCopy, other], warning: nil)
+        CalendarAgendaSourceBatch(
+          provider: .google, events: [], warning: nil, declinedKeys: ["uid|1000.0"], accountID: account
+        ),
+        CalendarAgendaSourceBatch(provider: .google, events: [teamCopy, otherMeeting], warning: nil, accountID: account),
+        CalendarAgendaSourceBatch(provider: .google, events: [otherAccountCopy], warning: nil, accountID: otherAccount)
       ],
       todayStart: .distantPast,
       tomorrowStart: Date(timeIntervalSince1970: 50_000),
       dayAfterTomorrow: Date(timeIntervalSince1970: 100_000)
     )
 
-    #expect(result.googleSourceEvents.map(\.id) == ["other"])
+    #expect(Set(result.googleSourceEvents.map(\.id)) == ["other", "other-account-copy"])
   }
 
   @Test func googleEventsRequestAsksOnlyForTheSignedInAttendee() throws {

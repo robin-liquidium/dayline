@@ -689,8 +689,12 @@ final class StatusStore {
   /// Order of local Linear edits, so a refresh that started earlier cannot undo them.
   @ObservationIgnored private var linearEditSequence = 0
   @ObservationIgnored private var linearEditSequenceByIssue: [LinearIssueItem.ID: Int] = [:]
-  /// Issues with a status, priority, or due-date request still waiting on Linear.
-  @ObservationIgnored private var pendingLinearIssueIDs = Set<LinearIssueItem.ID>()
+  /// Per-issue queue of status, priority, and due-date requests, sent one at a time.
+  @ObservationIgnored private var linearRequestTails: [LinearIssueItem.ID: Task<Void, Never>] = [:]
+  @ObservationIgnored private var pendingLinearRequestCounts: [LinearIssueItem.ID: Int] = [:]
+  /// Latest local copy of issues hidden because an edit completed or canceled them,
+  /// so a failed edit can restore them with every other field current.
+  @ObservationIgnored private var hiddenLinearIssues: [LinearIssueItem.ID: LinearIssueItem] = [:]
   @ObservationIgnored private var lastCalendarRefreshAt: Date?
   @ObservationIgnored private var refreshRequested = false
   @ObservationIgnored private var isRefreshingAppleReminders = false
@@ -2708,9 +2712,9 @@ final class StatusStore {
       optimistic: { $0.replacing(state: state) },
       rollback: { current, previous in
         guard let previousState = previous.workflowStates.first(where: { $0.id == previous.stateID }) else {
-          return previous
+          return current
         }
-        return (current ?? previous).replacing(state: previousState)
+        return current.replacing(state: previousState)
       },
       remote: { [linearService] in try await linearService.updateIssueStatus(issueID: issueID, stateID: state.id) }
     )
@@ -2727,7 +2731,7 @@ final class StatusStore {
       diagnostic: "Linear issue priority changed",
       optimistic: { $0.replacing(priority: priority) },
       rollback: { current, previous in
-        current?.replacing(priority: LinearPriorityOption(value: previous.priority, label: previous.priorityLabel))
+        current.replacing(priority: LinearPriorityOption(value: previous.priority, label: previous.priorityLabel))
       },
       remote: { [linearService] in
         try await linearService.updateIssuePriority(issueID: issueID, priority: priority.value)
@@ -2746,51 +2750,81 @@ final class StatusStore {
       issueID: issueID,
       diagnostic: "Linear issue due date changed",
       optimistic: { $0.replacing(dueDate: .some(formattedDueDate)) },
-      rollback: { current, previous in current?.replacing(dueDate: .some(previous.dueDate)) },
+      rollback: { current, previous in current.replacing(dueDate: .some(previous.dueDate)) },
       remote: { [linearService] in
         try await linearService.updateIssueDueDate(issueID: issueID, dueDate: formattedDueDate)
       }
     )
   }
 
-  /// Applies a Linear edit locally right away, then reconciles with Linear's
-  /// response or restores the previous issue when the mutation fails.
+  /// Applies a Linear edit locally right away, then sends it after any earlier
+  /// request for the same issue. A failure undoes only the edited field.
   private func applyOptimisticLinearChange(
     issueID: LinearIssueItem.ID,
     diagnostic: String,
     optimistic: (LinearIssueItem) -> LinearIssueItem,
-    rollback: (_ current: LinearIssueItem?, _ previous: LinearIssueItem) -> LinearIssueItem?,
-    remote: () async throws -> LinearIssueItem
+    rollback: @escaping (_ current: LinearIssueItem, _ previous: LinearIssueItem) -> LinearIssueItem,
+    remote: @escaping () async throws -> LinearIssueItem
   ) async {
-    // One request per issue at a time keeps each rollback snapshot accurate.
-    guard !pendingLinearIssueIDs.contains(issueID),
-          let previous = allIssues.first(where: { $0.id == issueID }) else { return }
+    guard let previous = allIssues.first(where: { $0.id == issueID }) else { return }
     replaceFetchedIssue(optimistic(previous))
     guard mockData == nil else {
       DaylineDiagnostics.record(diagnostic, category: .interaction)
       return
     }
-    pendingLinearIssueIDs.insert(issueID)
-    defer { pendingLinearIssueIDs.remove(issueID) }
+
     let linearRevision = connectionRevisions[.linear, default: 0]
-    let result: Result<LinearIssueItem, Error>
-    do {
-      result = .success(try await remote())
-    } catch {
-      result = .failure(error)
+    let earlierRequest = linearRequestTails[issueID]
+    pendingLinearRequestCounts[issueID, default: 0] += 1
+    let request = Task { @MainActor [weak self] in
+      await earlierRequest?.value
+      let result: Result<LinearIssueItem, Error>
+      do {
+        result = .success(try await remote())
+      } catch {
+        result = .failure(error)
+      }
+      self?.finishLinearChange(
+        issueID: issueID,
+        result: result,
+        previous: previous,
+        linearRevision: linearRevision,
+        diagnostic: diagnostic,
+        rollback: rollback
+      )
     }
+    linearRequestTails[issueID] = request
+    await request.value
+    if linearRequestTails[issueID] == request {
+      linearRequestTails[issueID] = nil
+    }
+  }
+
+  /// Reconciles one finished Linear request with the local issue.
+  private func finishLinearChange(
+    issueID: LinearIssueItem.ID,
+    result: Result<LinearIssueItem, Error>,
+    previous: LinearIssueItem,
+    linearRevision: Int,
+    diagnostic: String,
+    rollback: (_ current: LinearIssueItem, _ previous: LinearIssueItem) -> LinearIssueItem
+  ) {
+    let remainingRequests = pendingLinearRequestCounts[issueID, default: 1] - 1
+    pendingLinearRequestCounts[issueID] = remainingRequests > 0 ? remainingRequests : nil
     // Linear was disconnected meanwhile; do not resurrect its issues.
     guard connectionRevisions[.linear, default: 0] == linearRevision else { return }
     switch result {
     case .success(let updatedIssue):
-      replaceFetchedIssue(updatedIssue)
+      // A queued edit's response will carry this change too; applying this one
+      // now would briefly undo that edit's optimistic value.
+      if remainingRequests == 0 {
+        replaceFetchedIssue(updatedIssue)
+      }
       linearError = nil
       DaylineDiagnostics.record(diagnostic, category: .interaction)
     case .failure(let error):
-      // Undo only this field so a concurrent edit of another field survives.
-      let current = allIssues.first(where: { $0.id == issueID })
-      if let restored = rollback(current, previous) {
-        replaceFetchedIssue(restored)
+      if let current = allIssues.first(where: { $0.id == issueID }) ?? hiddenLinearIssues[issueID] {
+        replaceFetchedIssue(rollback(current, previous))
       }
       linearError = error.localizedDescription
     }
@@ -3827,6 +3861,9 @@ final class StatusStore {
 
     if updatedIssue.stateType != "completed" && updatedIssue.stateType != "canceled" {
       allIssues.append(updatedIssue)
+      hiddenLinearIssues[updatedIssue.id] = nil
+    } else {
+      hiddenLinearIssues[updatedIssue.id] = updatedIssue
     }
 
     applyLinearIssueOrder()
@@ -3839,8 +3876,9 @@ final class StatusStore {
     since mark: Int
   ) -> [LinearIssueItem] {
     linearEditSequenceByIssue = linearEditSequenceByIssue.filter { $0.value > mark }
+    hiddenLinearIssues = hiddenLinearIssues.filter { pendingLinearRequestCounts[$0.key] != nil }
     // Requests still in flight may be answered after this fetch read old values.
-    let editedIDs = Set(linearEditSequenceByIssue.keys).union(pendingLinearIssueIDs)
+    let editedIDs = Set(linearEditSequenceByIssue.keys).union(pendingLinearRequestCounts.keys)
     guard !editedIDs.isEmpty else { return fetchedIssues }
     return fetchedIssues.filter { !editedIDs.contains($0.id) }
       + allIssues.filter { editedIDs.contains($0.id) }
@@ -4234,7 +4272,8 @@ final class StatusStore {
           warning: outcome.error.map {
             "\(outcome.context.calendar.name) (\(outcome.context.accountLabel)): \($0)"
           },
-          declinedKeys: outcome.batch.declinedKeys
+          declinedKeys: outcome.batch.declinedKeys,
+          accountID: outcome.context.accountID
         ))
         if outcome.needsReauthentication {
           reauthenticationAccountIDs.insert(outcome.context.accountID)
@@ -4251,7 +4290,8 @@ final class StatusStore {
           provider: .apple,
           events: batch.events,
           warning: nil,
-          declinedKeys: batch.declinedKeys
+          declinedKeys: batch.declinedKeys,
+          accountID: AppleCalendarService.accountID
         ))
       }
     }
@@ -4275,10 +4315,19 @@ final class StatusStore {
     tomorrowStart: Date,
     dayAfterTomorrow: Date
   ) -> CalendarAgendaLoadResult {
-    // A decline on the user's own calendar also hides copies of that meeting
-    // on shared or team calendars, which carry another owner's RSVP.
-    let declinedKeys = sourceBatches.reduce(into: Set<String>()) { $0.formUnion($1.declinedKeys) }
-    let sourceBatches = declinedKeys.isEmpty ? sourceBatches : sourceBatches.map { batch in
+    // A decline on an account's own calendar also hides that account's copies on
+    // shared or team calendars, which carry another owner's RSVP. Other accounts
+    // keep their copy, since they may have accepted the same meeting.
+    var declinedKeysByAccount: [UUID: Set<String>] = [:]
+    for batch in sourceBatches {
+      if let accountID = batch.accountID, !batch.declinedKeys.isEmpty {
+        declinedKeysByAccount[accountID, default: []].formUnion(batch.declinedKeys)
+      }
+    }
+    let sourceBatches = sourceBatches.map { batch in
+      guard let accountID = batch.accountID, let declinedKeys = declinedKeysByAccount[accountID] else {
+        return batch
+      }
       var batch = batch
       batch.events.removeAll { $0.deduplicationKey.map(declinedKeys.contains) == true }
       return batch
@@ -4414,8 +4463,10 @@ struct CalendarAgendaSourceBatch: Sendable {
   let provider: CalendarAgendaProvider
   var events: [CalendarEventItem]
   let warning: String?
-  /// Occurrences the user declined in this source; hidden from every source.
+  /// Occurrences the user declined in this source; hidden from every source of the same account.
   var declinedKeys: Set<String> = []
+  /// Account the source belongs to; declines never hide another account's copy.
+  var accountID: UUID?
 }
 
 /// Fully merged agenda and recoverable source failures from one refresh.
